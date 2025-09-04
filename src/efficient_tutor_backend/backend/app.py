@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import time
 
 # Import the DatabaseHandler from its module
+from ..core.tuition_generator import TuitionGenerator
 from ..database.db_handler import DatabaseHandler
 
 # Instead of a full Flask app, we create a Blueprint to keep routes organized.
@@ -98,6 +99,14 @@ def handle_students():
         time.sleep(1.5) # Simulate processing delay for loading spinner
         student_data = request.get_json().get('student')
         student_id = db.save_student(user_id, student_data)
+
+        # --- TRIGGER THE REGENERATION ---
+        # After saving the student, regenerate the entire tuition list
+        print("Student data saved. Triggering tuition list regeneration...")
+        generator = TuitionGenerator(db)
+        generator.regenerate_all_tuitions()
+        # --- END OF TRIGGER ---
+
         print(f"Saved student '{student_data['basicInfo']['firstName']}' for user {user_id}")
         return jsonify({"message": "Student saved", "studentId": student_id}), 200
 

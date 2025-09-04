@@ -148,3 +148,47 @@ class DatabaseHandler:
                 break
         
         self._update_student_record(cur, user_id, target_student)
+
+    def get_all_student_parameters(self):
+        """ Fetches all students with their admin-defined parameters. """
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                query = "SELECT id, student_data, cost_per_hour, status, min_duration_mins, max_duration_mins FROM students;"
+                cur.execute(query)
+                return cur.fetchall()
+
+    def replace_all_tuitions(self, tuitions: list[dict]):
+        """
+        Wipes the tuitions table and inserts the newly generated list.
+        The 'subject' field is a string that matches the database ENUM.
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                # Use a transaction to ensure atomicity
+                cur.execute("DELETE FROM tuitions;")
+                
+                if not tuitions:
+                    print("Cleared old tuitions. No new records to insert.")
+                    conn.commit()
+                    return
+
+                print(f"Cleared old tuitions. Inserting {len(tuitions)} new records...")
+                for t in tuitions:
+                    cur.execute(
+                        """
+                        INSERT INTO tuitions (student_ids, subject, lesson_index, cost_per_hour,
+                                            min_duration_minutes, max_duration_minutes)
+                        VALUES (%s, %s, %s, %s, %s, %s);
+                        """,
+                        (
+                            t['student_ids'],
+                            t['subject'],
+                            t['lesson_index'],
+                            t['cost_per_hour'],
+                            t['min_duration_minutes'],
+                            t['max_duration_minutes']
+                        )
+                    )
+                # This will automatically trigger the NOTIFY for your CSP worker
+                conn.commit()
+
