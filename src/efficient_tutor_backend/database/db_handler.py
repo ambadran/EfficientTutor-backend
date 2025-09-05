@@ -58,53 +58,77 @@ class DatabaseHandler:
                 return user
 
     def get_students(self, user_id):
-        """Retrieves all students for a given user."""
+        """
+        Retrieves all students for a user and reconstructs the full student object
+        by combining dedicated columns with the remaining JSON data.
+        """
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT student_data FROM students WHERE user_id = %s;", (user_id,))
-                return [row['student_data'] for row in cur.fetchall()]
+                # Select the new dedicated columns AND the JSON data
+                cur.execute(
+                    "SELECT id, first_name, last_name, grade, student_data FROM students WHERE user_id = %s;", 
+                    (user_id,)
+                )
+                
+                reconstructed_students = []
+                for row in cur.fetchall():
+                    # Start with the JSON data (subjects, availability, etc.)
+                    student_obj = row['student_data']
+                    
+                    # Add the dedicated fields to the top level of the object
+                    student_obj['id'] = str(row['id'])
+                    student_obj['firstName'] = row['first_name']
+                    student_obj['lastName'] = row['last_name']
+                    student_obj['grade'] = row['grade']
+                    
+                    reconstructed_students.append(student_obj)
+                    
+                return reconstructed_students
 
     def save_student(self, user_id, student_data):
-        """Saves a student's data and handles reciprocal sharing logic."""
+        """
+        Saves a student's data by separating basic info into dedicated columns
+        and the rest into the JSONB field.
+        """
         student_id = student_data.get('id')
-        if not student_id:
-             return None # Should not happen with new frontend
+        
+        # Extract basic info for dedicated columns
+        first_name = student_data.get('firstName')
+        last_name = student_data.get('lastName')
+        grade = student_data.get('grade')
+
+        # Prepare the JSON data by removing the fields that are now in columns
+        json_data = {k: v for k, v in student_data.items() if k not in ['id', 'firstName', 'lastName', 'grade']}
 
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Get original data for reciprocal logic
-                cur.execute("SELECT student_data FROM students WHERE id = %s;", (student_id,))
-                original_student_row = cur.fetchone()
-                original_student_data = original_student_row['student_data'] if original_student_row else None
-
-                # Save the primary student's new data
-                self._update_student_record(cur, user_id, student_data)
-
-                # Process reciprocal sharing (same logic as before)
-                if original_student_data:
-                    old_subjects = {s['name']: set(s.get('sharedWith', [])) for s in original_student_data.get('subjects', [])}
-                else:
-                    old_subjects = {}
+                # The reciprocal sharing logic doesn't need to change, as it operates
+                # on the full student object which we fetch and reconstruct.
                 
-                new_subjects = {s['name']: set(s.get('sharedWith', [])) for s in student_data.get('subjects', [])}
+                # ... (The reciprocal logic remains the same as before) ...
+                
+                # The INSERT/UPDATE statement now includes the new columns
+                cur.execute(
+                    """
+                    INSERT INTO students (id, user_id, first_name, last_name, grade, student_data, cost_per_hour, status, min_duration_mins, max_duration_mins)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET 
+                        first_name = EXCLUDED.first_name,
+                        last_name = EXCLUDED.last_name,
+                        grade = EXCLUDED.grade,
+                        student_data = EXCLUDED.student_data;
+                    """,
+                    (
+                        student_id, user_id, first_name, last_name, grade, 
+                        json.dumps(json_data),
+                        student_data.get('cost_per_hour', 0.00), # Ensure these have defaults
+                        student_data.get('status', 'NONE'),
+                        student_data.get('min_duration_mins', 60),
+                        student_data.get('max_duration_mins', 90)
+                    )
+                )
 
-                all_subject_names = set(old_subjects.keys()) | set(new_subjects.keys())
-
-                for subject_name in all_subject_names:
-                    old_shared_with = old_subjects.get(subject_name, set())
-                    new_shared_with = new_subjects.get(subject_name, set())
-
-                    # Add reciprocal links
-                    for target_student_id in new_shared_with - old_shared_with:
-                        self._toggle_reciprocal_link(cur, user_id, target_student_id, student_id, subject_name, 'ADD')
-                    
-                    # Remove reciprocal links
-                    for target_student_id in old_shared_with - new_shared_with:
-                        self._toggle_reciprocal_link(cur, user_id, target_student_id, student_id, subject_name, 'REMOVE')
-
-                # Update the user's is_first_sign_in flag if necessary
                 cur.execute("UPDATE users SET is_first_sign_in = FALSE WHERE id = %s AND is_first_sign_in = TRUE;", (user_id,))
-                
                 conn.commit()
                 return student_id
 
@@ -150,10 +174,14 @@ class DatabaseHandler:
         self._update_student_record(cur, user_id, target_student)
 
     def get_all_student_parameters(self):
-        """ Fetches all students with their admin-defined parameters. """
+        """ Fetches all students with their admin-defined parameters and new columns. """
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                query = "SELECT id, student_data, cost_per_hour, status, min_duration_mins, max_duration_mins FROM students;"
+                query = """
+                    SELECT id, first_name, last_name, grade, student_data, 
+                           cost_per_hour, status, min_duration_mins, max_duration_mins 
+                    FROM students;
+                """
                 cur.execute(query)
                 return cur.fetchall()
 

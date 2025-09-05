@@ -107,7 +107,7 @@ def handle_students():
         generator.regenerate_all_tuitions()
         # --- END OF TRIGGER ---
 
-        print(f"Saved student '{student_data['basicInfo']['firstName']}' for user {user_id}")
+        print(f"Saved student '{student_data['firstName']}' for user {user_id}") # No longer nested in 'basicInfo'
         return jsonify({"message": "Student saved", "studentId": student_id}), 200
 
     if request.method == 'DELETE':
