@@ -6,6 +6,7 @@ import json
 import uuid
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from werkzeug.security import generate_password_hash, check_password_hash
 
 class DatabaseHandler:
     """
@@ -30,32 +31,60 @@ class DatabaseHandler:
             return True
         return False
 
-    def signup_user(self, email, hashed_password):
-        """Creates a new user with a hashed password."""
-        with self._get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT id FROM users WHERE email = %s;", (email,))
-                if cur.fetchone():
-                    return None, "User with this email already exists"
-
-                new_user_id = str(uuid.uuid4())
-                # The 'parent' role is assigned by default from the database schema
-                cur.execute(
-                    "INSERT INTO users (id, email, password, is_first_sign_in) VALUES (%s, %s, %s, %s);",
-                    (new_user_id, email, hashed_password, True)
-                )
-                conn.commit()
-                
-                user_data = {"id": new_user_id, "email": email, "isFirstSignIn": True}
-                return user_data, "Signup successful"
-
     def get_user_by_email(self, email):
-        """Fetches a full user record by email to check a password."""
+        """
+        THE FIX: This is the missing method.
+        Retrieves a single user record from the database by their email.
+        """
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM users WHERE email = %s;", (email,))
                 user = cur.fetchone()
                 return user
+
+    def signup_and_login_user(self, email, password):
+        """
+        Creates a new user and returns their session data in one atomic operation.
+        If any part fails, the transaction is rolled back.
+        """
+        if self.get_user_by_email(email):
+            return None, "User with this email already exists"
+
+        hashed_password = generate_password_hash(password, method='pbkdf2:sha256:600000')
+        new_user_id = str(uuid.uuid4())
+
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                try:
+                    cur.execute(
+                        "INSERT INTO users (id, email, password) VALUES (%s, %s, %s) RETURNING id, email, is_first_sign_in;",
+                        (new_user_id, email, hashed_password)
+                    )
+                    user_data = cur.fetchone()
+                    conn.commit() # Commit the transaction only if the insert was successful
+
+                    # Format the data for the frontend session
+                    return {
+                        "id": str(user_data['id']),
+                        "email": user_data['email'],
+                        "isFirstSignIn": user_data['is_first_sign_in']
+                    }, "Signup successful"
+
+                except Exception as e:
+                    conn.rollback() # Roll back the transaction on any error
+                    print(f"ERROR during signup transaction: {e}")
+                    return None, "An internal error occurred during signup."
+
+    def login_user(self, user_record, password):
+        """Verifies a password against the stored hash for a given user record."""
+        if user_record and check_password_hash(user_record['password'], password):
+            return {
+                "id": str(user_record['id']),
+                "email": user_record['email'],
+                "isFirstSignIn": user_record['is_first_sign_in']
+            }, "Login successful"
+        
+        return None, "Invalid email or password"
 
     def get_students(self, user_id):
         """
@@ -88,49 +117,54 @@ class DatabaseHandler:
     def save_student(self, user_id, student_data):
         """
         Saves a student's data by separating basic info into dedicated columns
-        and the rest into the JSONB field.
+        and the rest into the JSONB field. Also handles reciprocal sharing.
         """
-        student_id = student_data.get('id')
-        
-        # Extract basic info for dedicated columns
+        student_id_str = student_data.get('id')
         first_name = student_data.get('firstName')
         last_name = student_data.get('lastName')
-        grade = student_data.get('grade')
+        # Handle potential string or int from frontend before it hits the DB
+        grade = int(student_data.get('grade')) if student_data.get('grade') else None
 
-        # Prepare the JSON data by removing the fields that are now in columns
         json_data = {k: v for k, v in student_data.items() if k not in ['id', 'firstName', 'lastName', 'grade']}
 
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # The reciprocal sharing logic doesn't need to change, as it operates
-                # on the full student object which we fetch and reconstruct.
+                # --- Reciprocal Sharing Logic ---
+                cur.execute("SELECT student_data FROM students WHERE id = %s;", (student_id_str,))
+                old_student_row = cur.fetchone()
+                old_shared_with = set(old_student_row['student_data'].get('subjects', [{}])[0].get('sharedWith', [])) if old_student_row else set()
                 
-                # ... (The reciprocal logic remains the same as before) ...
+                new_subjects = json_data.get('subjects', [])
+                new_shared_with = set()
+                if new_subjects:
+                    new_shared_with = set(new_subjects[0].get('sharedWith', []))
+
+                added_students = new_shared_with - old_shared_with
+                removed_students = old_shared_with - new_shared_with
                 
-                # The INSERT/UPDATE statement now includes the new columns
+                for other_student_id in added_students:
+                    cur.execute("UPDATE students SET student_data = jsonb_set(student_data, '{subjects,0,sharedWith}', student_data->'{subjects,0,sharedWith}' || %s::jsonb) WHERE id = %s;", (json.dumps([student_id_str]), other_student_id))
+                
+                for other_student_id in removed_students:
+                    cur.execute("UPDATE students SET student_data = student_data #- '{subjects,0,sharedWith," + str(list(new_shared_with).index(other_student_id)) + "}' WHERE id = %s;", (other_student_id,))
+
+                # --- Main Save Logic ---
                 cur.execute(
                     """
-                    INSERT INTO students (id, user_id, first_name, last_name, grade, student_data, cost_per_hour, status, min_duration_mins, max_duration_mins)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO students (id, user_id, first_name, last_name, grade, student_data)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET 
                         first_name = EXCLUDED.first_name,
                         last_name = EXCLUDED.last_name,
                         grade = EXCLUDED.grade,
                         student_data = EXCLUDED.student_data;
                     """,
-                    (
-                        student_id, user_id, first_name, last_name, grade, 
-                        json.dumps(json_data),
-                        student_data.get('cost_per_hour', 0.00), # Ensure these have defaults
-                        student_data.get('status', 'NONE'),
-                        student_data.get('min_duration_mins', 60),
-                        student_data.get('max_duration_mins', 90)
-                    )
+                    (student_id_str, user_id, first_name, last_name, grade, json.dumps(json_data))
                 )
 
                 cur.execute("UPDATE users SET is_first_sign_in = FALSE WHERE id = %s AND is_first_sign_in = TRUE;", (user_id,))
                 conn.commit()
-                return student_id
+                return student_id_str
 
     def delete_student(self, user_id, student_id):
         """Deletes a student from the database."""
@@ -139,39 +173,6 @@ class DatabaseHandler:
                 cur.execute("DELETE FROM students WHERE id = %s AND user_id = %s;", (student_id, user_id))
                 conn.commit()
                 return cur.rowcount > 0
-
-    # --- Helper Methods for save_student ---
-
-    def _update_student_record(self, cur, user_id, student_data):
-        """Helper function to update a student record within a transaction."""
-        cur.execute(
-            """
-            INSERT INTO students (id, user_id, student_data)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (id) DO UPDATE SET student_data = EXCLUDED.student_data;
-            """,
-            (student_data['id'], user_id, json.dumps(student_data))
-        )
-
-    def _toggle_reciprocal_link(self, cur, user_id, target_student_id, source_student_id, subject_name, action):
-        """Adds or removes a reciprocal link in another student's record."""
-        cur.execute("SELECT student_data FROM students WHERE id = %s;", (target_student_id,))
-        target_student_row = cur.fetchone()
-        if not target_student_row:
-            return
-
-        target_student = target_student_row['student_data']
-        for subject in target_student.get('subjects', []):
-            if subject['name'] == subject_name:
-                if 'sharedWith' not in subject: subject['sharedWith'] = []
-                
-                if action == 'ADD' and source_student_id not in subject['sharedWith']:
-                    subject['sharedWith'].append(source_student_id)
-                elif action == 'REMOVE' and source_student_id in subject['sharedWith']:
-                    subject['sharedWith'].remove(source_student_id)
-                break
-        
-        self._update_student_record(cur, user_id, target_student)
 
     def get_all_student_parameters(self):
         """ Fetches all students with their admin-defined parameters and new columns. """

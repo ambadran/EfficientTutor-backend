@@ -28,9 +28,6 @@ def health_check():
 
 @main_routes.route('/signup', methods=['POST'])
 def signup():
-    """
-    Handles new user registration.
-    """
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
@@ -38,23 +35,19 @@ def signup():
     if not email or not password:
         return jsonify({"error": "Email and password are required"}), 400
 
-    # Securely hash the password before storing it.
-    hashed_password = generate_password_hash(password, method='pbkdf2:sha256:600000')
-    
-    user_data, message = db.signup_user(email, hashed_password)
+    # THE FIX: Use a single, atomic function for signup and login.
+    user_data, message = db.signup_and_login_user(email, password)
+
     if not user_data:
-        # 409 Conflict is the standard code for "already exists".
+        # This will now correctly report if the user already exists.
         return jsonify({"error": message}), 409
     
-    print(f"New user signed up: {email} (ID: {user_data['id']})")
+    print(f"New user signed up and logged in: {email} (ID: {user_data['id']})")
+    # Return the user session data directly, just like the login endpoint.
     return jsonify({"message": message, "user": user_data}), 201
-
 
 @main_routes.route('/login', methods=['POST'])
 def login():
-    """
-    Handles user login.
-    """
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
@@ -62,21 +55,16 @@ def login():
     if not email or not password:
         return jsonify({"error": "Email and password are required"}), 400
 
-    # The db_handler will fetch the user and the app will check the password.
     user_record = db.get_user_by_email(email)
+    
+    # This remains the same, for existing users.
+    user_data, message = db.login_user(user_record, password)
 
-    if user_record and check_password_hash(user_record['password'], password):
-        print(f"User logged in: {email}")
-        user_data_for_frontend = {
-            "id": str(user_record['id']),
-            "email": user_record['email'],
-            "isFirstSignIn": user_record['is_first_sign_in']
-        }
-        return jsonify({"message": "Login successful", "user": user_data_for_frontend}), 200
-    else:
-        # 401 Unauthorized is the standard code for login failure.
-        return jsonify({"error": "Invalid email or password"}), 401
-
+    if not user_data:
+        return jsonify({"error": message}), 401
+    
+    print(f"User logged in: {email}")
+    return jsonify({"message": message, "user": user_data}), 200
 
 @main_routes.route('/students', methods=['GET', 'POST', 'DELETE'])
 def handle_students():
