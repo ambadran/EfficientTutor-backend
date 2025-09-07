@@ -46,3 +46,28 @@ CREATE TRIGGER set_timestamp
 BEFORE UPDATE ON tuitions
 FOR EACH ROW
 EXECUTE FUNCTION trigger_set_timestamp();
+
+
+
+-- Create a new ENUM type for user roles to ensure data integrity.
+-- This prevents any invalid roles from being inserted into the database.
+CREATE TYPE user_role AS ENUM ('admin', 'parent', 'student');
+
+-- Add the new 'role' column to the 'users' table.
+-- We default new users to 'parent', as they will be signing up through the parent frontend.
+ALTER TABLE users
+ADD COLUMN role user_role NOT NULL DEFAULT 'parent';
+
+-- Add a new column to the 'students' table to store the one-time generated password for the parent to view.
+-- It is nullable because we should clear it after the students first login for security.
+ALTER TABLE students
+ADD COLUMN generated_password TEXT;
+
+-- Add a new column to the 'students' table to store PDF notes.
+-- A JSONB column is perfect for storing an array of objects.
+ALTER TABLE students
+ADD COLUMN notes JSONB;
+
+-- Add a new column to the 'tuitions' table for the meeting link.
+ALTER TABLE tuitions
+ADD COLUMN meeting_link TEXT;

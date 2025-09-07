@@ -20,40 +20,51 @@ class TuitionGenerator:
         all_students_raw = self.db.get_all_student_parameters()
         if not all_students_raw:
             print("No student data found to generate tuitions.")
-            # It's important to still clear the table in case the last student was deleted
             self.db.replace_all_tuitions([])
             return
 
         generated_tuitions = []
+        
+        # THE FIX: Add a set to track tuitions we've already created.
+        # This will prevent double-counting shared lessons.
+        processed_tuitions = set()
 
         for student_row in all_students_raw:
-            student_json = student_row['student_data']
-            primary_student_id = student_json['id']
+            primary_student_id = str(student_row['id'])
+            student_json = student_row['student_data'] or {}
 
             for subject_info in student_json.get('subjects', []):
                 try:
-                    # Combine the primary student and any shared students
-                    student_ids = sorted([primary_student_id] + subject_info.get('sharedWith', []))
+                    student_ids_list = sorted([primary_student_id] + subject_info.get('sharedWith', []))
                     
                     lessons_count = subject_info.get('lessonsPerWeek', 1)
-                    subject_name = subject_info['name'] # The string from JSON
+                    subject_name = subject_info['name']
 
                     for i in range(lessons_count):
-                        # The cost is determined by the primary student whose record we are processing.
-                        # This can be overridden by the admin later.
+                        # Create a unique, order-independent key for this tuition session.
+                        # A frozenset is perfect because it's hashable and ignores order.
+                        tuition_key = (frozenset(student_ids_list), subject_name, i + 1)
+
+                        # If we've already processed this exact tuition, skip it.
+                        if tuition_key in processed_tuitions:
+                            continue
+
                         tuition = {
-                            "student_ids": student_ids,
-                            "subject": subject_name, # This will be a string like "Math"
+                            "student_ids": student_ids_list,
+                            "subject": subject_name,
                             "lesson_index": i + 1,
-                            "cost_per_hour": student_row['cost_per_hour'], # Added this field
+                            "cost_per_hour": student_row['cost_per_hour'],
                             "min_duration_minutes": student_row['min_duration_mins'],
                             "max_duration_minutes": student_row['max_duration_mins'],
                         }
                         generated_tuitions.append(tuition)
+                        # Add the key to our set so we don't process it again.
+                        processed_tuitions.add(tuition_key)
+
                 except KeyError as e:
                     print(f"WARNING: Skipping broken subject record for student {primary_student_id}. Reason: {e}")
                     continue
         
-        # Now, save this list to the database
         self.db.replace_all_tuitions(generated_tuitions)
-        print(f"Successfully generated and saved {len(generated_tuitions)} tuitions to the database.")
+        print(f"Successfully generated and saved {len(generated_tuitions)} unique tuitions to the database.")
+

@@ -127,3 +127,68 @@ def get_logs():
     # In a real scenario, this would be: `logs = db.get_student_logs(student_id)`
     mock_logs = { "summary": { "unpaid_count": 3, "paid_count": 2, "total_due": 150.00 }, "detailed_logs": [ { "subject": 'Math', "date": '2025-09-04', "time_start": '10:00', "time_end": '11:30', "duration": '1.5h', "status": 'Paid', "attendees": ["John Doe"] }, { "subject": 'Physics', "date": '2025-09-01', "time_start": '19:00', "time_end": '20:00', "duration": '1.0h', "status": 'Unpaid', "attendees": ["John Doe", "Jane Smith"] } ] }
     return jsonify(mock_logs)
+
+@main_routes.route('/student-credentials', methods=['GET'])
+def get_student_credentials():
+    """
+    Endpoint for a parent to retrieve the generated credentials for one of their students.
+    """
+    parent_id = request.args.get('userId')
+    student_id = request.args.get('studentId')
+
+    if not parent_id or not student_id:
+        return jsonify({"error": "Parent and student IDs are required"}), 400
+
+    credentials = db.get_student_credentials(parent_id, student_id)
+    
+    if not credentials:
+        # This can happen if the student doesn't exist or the parent is not authorized
+        return jsonify({"error": "Could not retrieve credentials. Please check the IDs."}), 404
+        
+    return jsonify(credentials), 200
+
+# --- NEW ENDPOINT FOR STUDENT NOTES ---
+@main_routes.route('/notes', methods=['GET'])
+def get_notes():
+    """
+    Endpoint for a logged-in student to retrieve their list of notes.
+    The student's ID would be derived from their session token in a real scenario.
+    For now, we'll pass it as a query parameter for testing.
+    """
+    student_id = request.args.get('studentId')
+
+    if not student_id:
+        return jsonify({"error": "Student ID is required"}), 400
+
+    # The user's role would be checked here to ensure they are a student
+    # before proceeding. (e.g., if user.role != 'student': return 403 Forbidden)
+
+    notes = db.get_student_notes(student_id)
+    
+    # The get_student_notes function already handles the case where a student
+    # might not be found or has no notes by returning an empty list.
+    return jsonify(notes), 200
+
+
+
+# --- NEW ENDPOINT FOR STUDENT MEETING LINKS ---
+@main_routes.route('/meeting-links', methods=['GET'])
+def get_meeting_links():
+    """
+    Endpoint for a logged-in student to retrieve their list of tuitions
+    with their scheduled times and meeting links.
+    """
+    student_id = request.args.get('studentId')
+
+    if not student_id:
+        return jsonify({"error": "Student ID is required"}), 400
+
+    # Again, you would add a security check here to ensure the user
+    # making the request is authorized to see this student's links.
+
+    links = db.get_student_meeting_links(student_id)
+    
+    # The db handler returns an empty list if no links are found, so no
+    # special error handling is needed here.
+    return jsonify(links), 200
+
