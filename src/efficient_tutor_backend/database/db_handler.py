@@ -4,6 +4,8 @@ Database Handler
 import os
 import json
 import uuid
+import random
+import string
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -136,45 +138,30 @@ class DatabaseHandler:
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
 
-                # Check if this is a new student or an existing one
-                cur.execute("SELECT id FROM students WHERE id = %s;", (student_id_str,))
-                is_new_student = cur.fetchone() is None
-
-                generated_password = None
-                if is_new_student:
-                    # --- Automatic Student Account Creation ---
-                    print(f"New student detected. Creating user account for {first_name}...")
-                    # 1. Generate a unique email
-                    student_email = f"{first_name.lower()}.{last_name.lower()}.{student_id_str[:4]}@student.et"
-                    # 2. Generate a secure, random password
-                    generated_password = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
-                    # 3. Hash the password for the users table
-                    hashed_password = generate_password_hash(generated_password, method='pbkdf2:sha256:600000')
-                    # 4. Insert the new student user
-                    cur.execute(
-                        """
-                        INSERT INTO users (id, email, password, role)
-                        VALUES (%s, %s, %s, 'student');
-                        """,
-                        (student_id_str, student_email, hashed_password)
-                    )
-                    print(f"Successfully created user for student with email: {student_email}")
-
-                # --- Save the main student record ---
-                # The INSERT/UPDATE now includes the generated_password for new students
+                # --- Save Student Profile Data First ---
                 cur.execute(
                     """
-                    INSERT INTO students (id, user_id, first_name, last_name, grade, student_data, generated_password)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO students (id, user_id, first_name, last_name, grade, student_data)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET 
                         first_name = EXCLUDED.first_name,
                         last_name = EXCLUDED.last_name,
                         grade = EXCLUDED.grade,
                         student_data = EXCLUDED.student_data;
                     """,
-                    (student_id_str, user_id, first_name, last_name, grade, json.dumps(json_data_for_db), generated_password)
+                    (student_id_str, user_id, first_name, last_name, grade, json.dumps(json_data_for_db))
                 )
-                
+
+                cur.execute("SELECT id FROM users WHERE id = %s;", (student_id_str,))
+                is_new_user = cur.fetchone() is None
+
+                if is_new_user:
+                    # It will handle both user creation and updating the students table.
+                    self._create_and_store_student_credentials(
+                        cur, student_id_str, first_name, last_name
+                    )
+
+                # Reciprocal sharing logic!!!
                 # --- Step 2: Fetch ALL students for this user to build a master sharing map. ---
                 cur.execute("SELECT id, student_data FROM students WHERE user_id = %s;", (user_id,))
                 all_students = cur.fetchall()
@@ -260,6 +247,33 @@ class DatabaseHandler:
                     (student_id,)
                 )
                 result = cur.fetchone()
+                #TODO: remove mock data
+                result = {'notes':[
+                      {
+
+                        "id": "note-123",
+
+                        "name": "Algebra Chapter 5 Review",
+
+                        "description": "Key concepts and practice problems for the upcoming test.",
+
+                        "url": "https://example.com/path/to/algebra_notes.pdf"
+
+                      },
+
+                      {
+
+                        "id": "note-456",
+
+                        "name": "Physics Lab Safety",
+
+                        "description": "Mandatory reading before the next lab session.",
+
+                        "url": "https://example.com/path/to/lab_safety.pdf"
+
+                      }
+
+                    ] }
                 # If the student exists but has no notes, the 'notes' column might be NULL.
                 # In that case, we should return an empty list.
                 if result and result['notes']:
@@ -290,40 +304,76 @@ class DatabaseHandler:
         """
         with self._get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # THE FIX: Changed to a LEFT JOIN to include all tuitions, even if they
-                # have no matching entry in the timetable_run table yet.
+                # --- Step 1: Get all required tuitions for the student ---
                 cur.execute(
                     """
-                    SELECT
-                        t.subject,
-                        t.lesson_index,
-                        t.meeting_link,
-                        tr.start_time,
-                        tr.end_time
-                    FROM tuitions t
-                    LEFT JOIN timetable_run tr ON t.id = tr.session_id
-                    WHERE %s = ANY(t.student_ids)
-                    ORDER BY tr.start_time;
+                    SELECT id, subject, lesson_index, meeting_link
+                    FROM tuitions
+                    WHERE %s = ANY(student_ids)
+                    ORDER BY subject, lesson_index;
                     """,
                     (student_id,)
                 )
-                
-                results = cur.fetchall()
-                
-                # THE FIX: Handle potential None values for start/end times if a
-                # session is not yet scheduled, and use the '--' placeholder.
-                for row in results:
-                    if row.get('start_time'):
-                        row['start_time'] = row['start_time'].isoformat()
-                    else:
-                        row['start_time'] = '--'
-                        
-                    if row.get('end_time'):
-                        row['end_time'] = row['end_time'].isoformat()
-                    else:
-                        row['end_time'] = '--'
+                required_tuitions = cur.fetchall()
+
+                if not required_tuitions:
+                    return []
+
+                # --- Step 2: Get scheduled times ONLY for those tuitions ---
+                #TODO: figure out how to get out start and end time from timetable_runs of a specific student.
+                #TODO: this is very similar logic to the get-timetable endpoint so I will develop both together
+                # tuition_ids = [t['id'] for t in required_tuitions]
+                # cur.execute(
+                #     """
+                #     SELECT session_id, start_time, end_time
+                #     FROM timetable_runs
+                #     WHERE session_id = ANY(%s::uuid[]);
+                #     """,
+                #     (tuition_ids,)
+                # )
+                # scheduled_times = {row['session_id']: row for row in cur.fetchall()}
+                scheduled_times = {}
+
+                # --- Step 3: Merge the results in Python ---
+                results = []
+                for tuition in required_tuitions:
+                    schedule = scheduled_times.get(tuition['id'])
+                    
+                    start_time = schedule['start_time'].isoformat() if schedule and schedule.get('start_time') else '--'
+                    end_time = schedule['end_time'].isoformat() if schedule and schedule.get('end_time') else '--'
+                    
+                    results.append({
+                        "subject": tuition['subject'],
+                        "lesson_index": tuition['lesson_index'],
+                        "meeting_link": tuition['meeting_link'],
+                        "start_time": start_time,
+                        "end_time": end_time
+                    })
 
                 return results
+
+    def _create_and_store_student_credentials(self, cur, student_id, first_name, last_name):
+        """
+        Creates a user account for a new student, saves the hashed password to the
+        users table, and updates the students table with the plaintext password.
+        """
+        print(f"No user found for student ID {student_id}. Creating new student account...")
+        student_email = f"{first_name.lower()}.{last_name.lower()}.{student_id[:4]}@student.et"
+        plaintext_password = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+        hashed_password = generate_password_hash(plaintext_password, method='pbkdf2:sha256:600000')
+        
+        # Step 1: Create the user account with the hashed password.
+        cur.execute(
+            "INSERT INTO users (id, email, password, role) VALUES (%s, %s, %s, 'student');",
+            (student_id, student_email, hashed_password)
+        )
+        print(f"Successfully created user for student with email: {student_email}")
+        
+        # Step 2: Update the students table with the plaintext password for the parent to view.
+        cur.execute(
+            "UPDATE students SET generated_password = %s WHERE id = %s;",
+            (plaintext_password, student_id)
+        )
 
     def get_student_credentials(self, parent_user_id, student_id):
         """
@@ -344,6 +394,32 @@ class DatabaseHandler:
                 )
                 credentials = cur.fetchone()
                 return credentials # Returns {'email': '...', 'generated_password': '...'} or None
+
+    def get_student_profile(self, student_id):
+        """
+        Retrieves the full profile for a single student by their ID.
+        """
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT id, first_name, last_name, grade, student_data 
+                    FROM students 
+                    WHERE id = %s;
+                    """,
+                    (student_id,)
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+
+                # Reconstruct the full student object for the frontend
+                student_obj = row['student_data'] or {}
+                student_obj['id'] = str(row['id'])
+                student_obj['firstName'] = row['first_name']
+                student_obj['lastName'] = row['last_name']
+                student_obj['grade'] = row['grade']
+                return student_obj
 
     def delete_student(self, user_id, student_id):
         """Deletes a student from the database."""

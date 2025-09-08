@@ -147,6 +147,24 @@ def get_student_credentials():
         
     return jsonify(credentials), 200
 
+# --- Student-Facing Endpoints ---
+
+@main_routes.route('/student-profile', methods=['GET'])
+def get_student_profile():
+    """Endpoint for a logged-in student to retrieve their own full profile."""
+    student_id = request.args.get('studentId')
+    if not student_id:
+        return jsonify({"error": "Student ID is required"}), 400
+    
+    # SECURITY NOTE: In production, you would validate that the logged-in user's ID
+    # from their session token matches the requested student_id.
+
+    student_profile = db.get_student_profile(student_id)
+    if not student_profile:
+        return jsonify({"error": "Student profile not found"}), 404
+
+    return jsonify(student_profile), 200
+
 # --- NEW ENDPOINT FOR STUDENT NOTES ---
 @main_routes.route('/notes', methods=['GET'])
 def get_notes():
