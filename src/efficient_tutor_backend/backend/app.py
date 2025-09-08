@@ -119,7 +119,6 @@ def get_timetable():
     mock_timetable = { "tuitions": [ { "day": "saturday", "subject": "Math", "start": "10:00", "end": "11:30" }, { "day": "monday", "subject": "Physics", "start": "19:00", "end": "20:00" } ] }
     return jsonify(mock_timetable)
 
-
 @main_routes.route('/logs', methods=['GET'])
 def get_logs():
     student_id = request.args.get('student_id')

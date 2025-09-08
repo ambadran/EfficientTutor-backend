@@ -126,86 +126,108 @@ class DatabaseHandler:
 
     def save_student(self, user_id, student_data):
         """
-        Saves a student's data and robustly synchronizes all reciprocal sharing links.
+        Saves a student's data and robustly handles reciprocal sharing by directly
+        updating only the affected students.
         """
         student_id_str = student_data.get('id')
+        
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                try:
+                    self._save_student_transaction(cur, user_id, student_id_str, student_data)
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    print(f"ERROR during save_student transaction: {e}")
+                    raise
+
+        return student_id_str
+
+    def _save_student_transaction(self, cur, user_id, student_id_str, student_data):
+        """The atomic transaction logic for saving a student."""
         first_name = student_data.get('firstName')
         last_name = student_data.get('lastName')
         grade = int(student_data.get('grade')) if student_data.get('grade') else None
-
         json_data_for_db = {k: v for k, v in student_data.items() if k not in ['id', 'firstName', 'lastName', 'grade']}
+        
+        # Check if this is a new student by checking the users table first
+        cur.execute("SELECT id FROM users WHERE id = %s;", (student_id_str,))
+        is_new_user = cur.fetchone() is None
 
-        with self._get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        # Save the student profile data
+        cur.execute(
+            """
+            INSERT INTO students (id, user_id, first_name, last_name, grade, student_data)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET 
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                grade = EXCLUDED.grade,
+                student_data = EXCLUDED.student_data;
+            """,
+            (student_id_str, user_id, first_name, last_name, grade, json.dumps(json_data_for_db))
+        )
 
-                # --- Save Student Profile Data First ---
-                cur.execute(
-                    """
-                    INSERT INTO students (id, user_id, first_name, last_name, grade, student_data)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (id) DO UPDATE SET 
-                        first_name = EXCLUDED.first_name,
-                        last_name = EXCLUDED.last_name,
-                        grade = EXCLUDED.grade,
-                        student_data = EXCLUDED.student_data;
-                    """,
-                    (student_id_str, user_id, first_name, last_name, grade, json.dumps(json_data_for_db))
-                )
+        if is_new_user:
+            self._create_and_store_student_credentials(cur, student_id_str, first_name, last_name)
 
-                cur.execute("SELECT id FROM users WHERE id = %s;", (student_id_str,))
-                is_new_user = cur.fetchone() is None
+        # --- Reciprocal Sharing Logic (This part is correct from your provided file) ---
+        cur.execute("SELECT student_data FROM students WHERE id = %s;", (student_id_str,))
+        old_student_row = cur.fetchone()
+        old_subjects = (old_student_row['student_data'] if old_student_row else {}).get('subjects', [])
+        new_subjects = json_data_for_db.get('subjects', [])
+        all_subject_names = {s['name'] for s in old_subjects} | {s['name'] for s in new_subjects}
 
-                if is_new_user:
-                    # It will handle both user creation and updating the students table.
-                    self._create_and_store_student_credentials(
-                        cur, student_id_str, first_name, last_name
-                    )
+        for subject_name in all_subject_names:
+            old_subject_data = next((s for s in old_subjects if s['name'] == subject_name), {})
+            new_subject_data = next((s for s in new_subjects if s['name'] == subject_name), {})
 
-                # Reciprocal sharing logic!!!
-                # --- Step 2: Fetch ALL students for this user to build a master sharing map. ---
-                cur.execute("SELECT id, student_data FROM students WHERE user_id = %s;", (user_id,))
-                all_students = cur.fetchall()
-                
-                master_sharing_map = {} # { 'Math': {'id1', 'id2'}, 'Physics': {'id1', 'id3'} }
-                
-                for student in all_students:
-                    student_id = str(student['id'])
-                    s_data = student['student_data'] or {}
-                    for subject in s_data.get('subjects', []):
-                        subject_name = subject['name']
-                        # The group includes the student themselves and anyone they share with.
-                        sharing_group = {student_id} | set(subject.get('sharedWith', []))
-                        
-                        # Merge this group with any existing group for this subject.
-                        master_sharing_map.setdefault(subject_name, set()).update(sharing_group)
+            old_shared_with = set(old_subject_data.get('sharedWith', []))
+            new_shared_with = set(new_subject_data.get('sharedWith', []))
+            
+            students_to_add_link = new_shared_with - old_shared_with
+            students_to_remove_link = old_shared_with - new_shared_with
 
-                # --- Step 3: Synchronize every student to match the master map. ---
-                for student in all_students:
-                    student_id_to_update = str(student['id'])
-                    current_s_data = student['student_data'] or {}
-                    needs_update = False
-                    
-                    for subject in current_s_data.get('subjects', []):
-                        subject_name = subject['name']
-                        # The correct list of OTHER students sharing this subject.
-                        correct_shared_with = master_sharing_map.get(subject_name, set()) - {student_id_to_update}
-                        current_shared_with = set(subject.get('sharedWith', []))
-                        
-                        if correct_shared_with != current_shared_with:
-                            subject['sharedWith'] = sorted(list(correct_shared_with))
-                            needs_update = True
-                    
-                    if needs_update:
-                        print(f"SYNC: Updating student {student_id_to_update} with new sharing data.")
-                        cur.execute(
-                            "UPDATE students SET student_data = %s WHERE id = %s;",
-                            (json.dumps(current_s_data), student_id_to_update)
-                        )
+            for other_student_id in students_to_add_link:
+                self._add_reciprocal_link(cur, other_student_id, student_id_str, subject_name)
 
-                # --- Finalization ---
-                cur.execute("UPDATE users SET is_first_sign_in = FALSE WHERE id = %s AND is_first_sign_in = TRUE;", (user_id,))
-                conn.commit()
-                return student_id_str
+            for other_student_id in students_to_remove_link:
+                self._remove_reciprocal_link(cur, other_student_id, student_id_str, subject_name)
+
+    def _add_reciprocal_link(self, cur, target_student_id, student_id_to_add, for_subject):
+        """Helper to add a shared link to the correct subject on another student's record."""
+        cur.execute("SELECT student_data FROM students WHERE id = %s FOR UPDATE;", (target_student_id,))
+        target_row = cur.fetchone()
+        if not target_row: return
+
+        target_data = target_row['student_data'] or {}
+        subjects = target_data.setdefault('subjects', [])
+        
+        target_subject = next((s for s in subjects if s.get('name') == for_subject), None)
+        
+        if target_subject:
+            shared_list = target_subject.setdefault('sharedWith', [])
+            if student_id_to_add not in shared_list:
+                shared_list.append(student_id_to_add)
+                cur.execute("UPDATE students SET student_data = %s WHERE id = %s;", (json.dumps(target_data), target_student_id))
+                print(f"SUCCESS: Added reciprocal link for {for_subject} from {student_id_to_add} to {target_student_id}")
+
+    def _remove_reciprocal_link(self, cur, target_student_id, student_id_to_remove, for_subject):
+        """Helper to remove a shared link from the correct subject on another student's record."""
+        cur.execute("SELECT student_data FROM students WHERE id = %s FOR UPDATE;", (target_student_id,))
+        target_row = cur.fetchone()
+        if not target_row: return
+
+        target_data = target_row['student_data'] or {}
+        subjects = target_data.get('subjects', [])
+        
+        target_subject = next((s for s in subjects if s.get('name') == for_subject), None)
+
+        if target_subject and 'sharedWith' in target_subject:
+            if student_id_to_remove in target_subject['sharedWith']:
+                target_subject['sharedWith'].remove(student_id_to_remove)
+                cur.execute("UPDATE students SET student_data = %s WHERE id = %s;", (json.dumps(target_data), target_student_id))
+                print(f"SUCCESS: Removed reciprocal link for {for_subject} from {student_id_to_remove} from {target_student_id}")
 
     # --- NEW FUNCTION FOR STUDENT NOTES ---
     def get_student_notes(self, student_id):
