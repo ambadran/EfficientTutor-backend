@@ -7,6 +7,7 @@ import uuid
 import random
 import string
 import psycopg2
+import datetime
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -577,3 +578,58 @@ class DatabaseHandler:
                     "summary": summary,
                     "detailed_logs": detailed_logs_processed
                 }
+
+
+    def get_student_timetable(self, student_id):
+        """
+        Fetches the latest completed timetable run, finds the specified student's
+        name, and returns a formatted list of their scheduled tuitions for the week.
+        """
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Step 1: Get the student's first name from their ID.
+                cur.execute("SELECT first_name FROM students WHERE id = %s;", (student_id,))
+                student_record = cur.fetchone()
+                if not student_record:
+                    print(f"WARNING: Timetable requested for non-existent student ID: {student_id}")
+                    return [] # Return empty list if student not found
+                
+                student_name = student_record['first_name']
+
+                # Step 2: Fetch the most recent entry from the timetable_runs table.
+                cur.execute("SELECT solution_data FROM timetable_runs ORDER BY run_started_at DESC LIMIT 1;")
+                latest_run = cur.fetchone()
+
+                if not latest_run or not latest_run['solution_data']:
+                    #TODO: IMP: check if timetable is failed, if so, go to previous and so on.
+                    print("WARNING: No timetable runs found in the database.")
+                    return [] # Return empty list if no schedule has been generated yet
+
+                # Step 3: Parse the solution in Python to find and format the student's tuitions.
+                solution_data = latest_run['solution_data']
+                student_tuitions = []
+
+                for session in solution_data:
+                    # We are only interested in Tuition sessions that involve this student.
+                    if session.get('category') == 'Tuition' and student_name in session.get('name', ''):
+                        try:
+                            # Parse the ISO format datetime strings from the JSON
+                            start_dt = datetime.datetime.fromisoformat(session['start_time'])
+                            end_dt = datetime.datetime.fromisoformat(session['end_time'])
+
+                            # Extract the subject from the name (e.g., "Tuition_Ali_Math_1")
+                            name_parts = session['name'].split('_')
+                            subject = name_parts[-2] if len(name_parts) > 2 else "Unknown"
+
+                            formatted_tuition = {
+                                "day": start_dt.strftime('%A').lower(), # e.g., "saturday"
+                                "subject": subject,
+                                "start": start_dt.strftime('%H:%M'), # e.g., "15:00"
+                                "end": end_dt.strftime('%H:%M')    # e.g., "16:30"
+                            }
+                            student_tuitions.append(formatted_tuition)
+                        except (ValueError, IndexError) as e:
+                            print(f"WARNING: Could not parse session, skipping. Data: {session}, Error: {e}")
+                            continue
+                
+                return student_tuitions
