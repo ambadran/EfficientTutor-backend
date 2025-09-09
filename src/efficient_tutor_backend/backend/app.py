@@ -121,11 +121,18 @@ def get_timetable():
 
 @main_routes.route('/logs', methods=['GET'])
 def get_logs():
-    student_id = request.args.get('student_id')
-    if not student_id: return jsonify({"error": "student_id is required"}), 400
-    # In a real scenario, this would be: `logs = db.get_student_logs(student_id)`
-    mock_logs = { "summary": { "unpaid_count": 3, "paid_count": 2, "total_due": 150.00 }, "detailed_logs": [ { "subject": 'Math', "date": '2025-09-04', "time_start": '10:00', "time_end": '11:30', "duration": '1.5h', "status": 'Paid', "attendees": ["John Doe"] }, { "subject": 'Physics', "date": '2025-09-01', "time_start": '19:00', "time_end": '20:00', "duration": '1.0h', "status": 'Unpaid', "attendees": ["John Doe", "Jane Smith"] } ] }
-    return jsonify(mock_logs)
+    """
+    Returns a full financial summary and detailed logs for a given parent user.
+    """
+    # NOTE: The frontend sends the parent's user ID as 'userId'
+    parent_user_id = request.args.get('userId')
+    if not parent_user_id:
+        return jsonify({"error": "User ID is required"}), 400
+
+    # The db handler now performs all complex calculations.
+    log_data = db.get_user_logs(parent_user_id)
+    
+    return jsonify(log_data), 200
 
 @main_routes.route('/student-credentials', methods=['GET'])
 def get_student_credentials():

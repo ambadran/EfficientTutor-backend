@@ -71,3 +71,52 @@ ADD COLUMN notes JSONB;
 -- Add a new column to the 'tuitions' table for the meeting link.
 ALTER TABLE tuitions
 ADD COLUMN meeting_link TEXT;
+
+
+
+-- Create a table to store records of every tuition session that occurs.
+-- This table is the source of truth for the "Detailed Logs" page.
+CREATE TABLE tuition_logs (
+    -- A unique identifier for this specific log entry.
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    -- An optional link to the planned tuition session.
+    -- This is NULLABLE, as you requested, to allow for logging ad-hoc sessions
+    -- that were not planned in the 'tuitions' table.
+    -- ON DELETE SET NULL ensures that if a planned tuition is deleted, the log record remains.
+    tuition_id UUID REFERENCES tuitions(id) ON DELETE SET NULL,
+    
+    -- The parent account this log belongs to. If the parent is deleted, their logs are also deleted.
+    parent_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    
+    -- Details of the session, captured at the time it was logged.
+    subject subject_enum NOT NULL,
+    attendee_names TEXT[] NOT NULL, -- An array of student first names, as requested.
+    lesson_index INTEGER, -- e.g., the 1st, 2nd lesson of the week. Can be NULL.
+    cost_per_hour NUMERIC(10, 2) NOT NULL,
+    
+    -- The actual start and end times of the session.
+    start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL
+);
+
+-- Create a table to store records of every payment made by a parent.
+-- This table is the source of truth for calculating payment summaries.
+CREATE TABLE payment_logs (
+    -- A unique identifier for this specific payment.
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    -- The parent account that made the payment.
+    parent_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    
+    -- The date and time the payment was recorded. Defaults to the current time.
+    payment_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    -- The amount paid. Using NUMERIC is essential for financial data to avoid floating-point errors.
+    amount_paid NUMERIC(10, 2) NOT NULL
+);
+
+-- Optional: Add indexes to frequently queried columns to improve performance
+-- as the tables grow larger.
+CREATE INDEX idx_tuition_logs_parent ON tuition_logs(parent_user_id);
+CREATE INDEX idx_payment_logs_parent ON payment_logs(parent_user_id);

@@ -497,3 +497,83 @@ class DatabaseHandler:
                     )
                 conn.commit()
 
+
+    # --- NEW FUNCTION FOR PARENT LOGS ---
+    def get_user_logs(self, parent_user_id):
+        """
+        Fetches all tuition and payment logs for a given parent and computes
+        a detailed summary and log list.
+        """
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Step 1: Fetch all tuition logs for the parent, oldest first.
+                cur.execute(
+                    "SELECT * FROM tuition_logs WHERE parent_user_id = %s ORDER BY start_time ASC;",
+                    (parent_user_id,)
+                )
+                tuition_logs = cur.fetchall()
+
+                # Step 2: Fetch the total amount paid by the parent.
+                cur.execute(
+                    "SELECT COALESCE(SUM(amount_paid), 0) AS total FROM payment_logs WHERE parent_user_id = %s;",
+                    (parent_user_id,)
+                )
+                total_paid = float(cur.fetchone()['total'])
+
+                # Step 3: Process the logs in Python to calculate costs and statuses.
+                detailed_logs_processed = []
+                
+                for log in tuition_logs:
+                    duration = log['end_time'] - log['start_time']
+                    duration_hours = duration.total_seconds() / 3600.0
+                    #TODO: migrate cost_per_hour in datbase to just be cost
+                    # lesson_cost = duration_hours * float(log['cost_per_hour'])
+                    lesson_cost = float(log['cost_per_hour'])
+                    
+                    # Format for the detailed log list
+                    detailed_logs_processed.append({
+                        "id": str(log['id']),
+                        "subject": log['subject'],
+                        "attendees": log['attendee_names'],
+                        "date": log['start_time'].strftime('%Y-%m-%d'),
+                        "time_start": log['start_time'].strftime('%H:%M'),
+                        "time_end": log['end_time'].strftime('%H:%M'),
+                        "duration": f"{duration_hours:.1f}h",
+                        "cost": lesson_cost, # Temporary key for status calculation
+                    })
+
+                # Step 4: Determine status and unpaid count
+                unpaid_count = 0
+                paid_balance = total_paid # from payment_logs
+                paid_tuition_total = 0
+                unpaid_tuition_total = 0
+                for log in detailed_logs_processed:
+                    if paid_balance > paid_tuition_total:
+                        log['status'] = 'Paid'
+                        paid_tuition_total += log['cost']
+                    else:
+                        unpaid_count += 1
+                        unpaid_tuition_total += log["cost"]
+                        print(f"tuition cost: {log['cost']}\ncurrent unpaid_tuition_total: {unpaid_tuition_total}")
+                        log['status'] = 'Unpaid'
+
+                # Step 5: Calculate the final summary.
+                total_due = unpaid_tuition_total
+                credit = max(0, paid_tuition_total)
+                
+                lessons_due = 0
+                if credit > 0 and len(tuition_logs) > 0:
+                    average_lesson_cost = total_cost / len(tuition_logs)
+                    if average_lesson_cost > 0:
+                        lessons_due = math.floor(credit / average_lesson_cost)
+
+                summary = {
+                    "total_due": float(total_due),
+                    "unpaid_count": unpaid_count,
+                    "lessons_due": lessons_due
+                }
+
+                return {
+                    "summary": summary,
+                    "detailed_logs": detailed_logs_processed
+                }
