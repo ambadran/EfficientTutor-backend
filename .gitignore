@@ -26,3 +26,4 @@ __pychache__
 .venv
 *.egg-info/
 tests/migrate_to_hashed.py
+tmp
