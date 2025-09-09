@@ -270,33 +270,6 @@ class DatabaseHandler:
                     (student_id,)
                 )
                 result = cur.fetchone()
-                #TODO: remove mock data
-                result = {'notes':[
-                      {
-
-                        "id": "note-123",
-
-                        "name": "Algebra Chapter 5 Review",
-
-                        "description": "Key concepts and practice problems for the upcoming test.",
-
-                        "url": "https://example.com/path/to/algebra_notes.pdf"
-
-                      },
-
-                      {
-
-                        "id": "note-456",
-
-                        "name": "Physics Lab Safety",
-
-                        "description": "Mandatory reading before the next lab session.",
-
-                        "url": "https://example.com/path/to/lab_safety.pdf"
-
-                      }
-
-                    ] }
                 # If the student exists but has no notes, the 'notes' column might be NULL.
                 # In that case, we should return an empty list.
                 if result and result['notes']:
