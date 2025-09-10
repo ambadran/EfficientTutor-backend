@@ -8,6 +8,7 @@ import random
 import string
 import psycopg2
 import datetime
+from typing import Optional
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -303,7 +304,7 @@ class DatabaseHandler:
                 # --- Step 1: Get all required tuitions for the student ---
                 cur.execute(
                     """
-                    SELECT id, subject, lesson_index, meeting_link
+                    SELECT id, student_ids, subject, lesson_index, meeting_link
                     FROM tuitions
                     WHERE %s = ANY(student_ids)
                     ORDER BY subject, lesson_index;
@@ -311,32 +312,58 @@ class DatabaseHandler:
                     (student_id,)
                 )
                 required_tuitions = cur.fetchall()
-
                 if not required_tuitions:
                     return []
 
+                # Step 2: get the name of this student
+                cur.execute ("SELECT first_name FROM students WHERE id = %s", (student_id,))
+                res = cur.fetchall()
+                if not res:
+                    raise ValueError("WTF?")
+                student_name = res[0]['first_name']
+
                 # --- Step 2: Get scheduled times ONLY for those tuitions ---
-                #TODO: figure out how to get out start and end time from timetable_runs of a specific student.
-                #TODO: this is very similar logic to the get-timetable endpoint so I will develop both together
-                # tuition_ids = [t['id'] for t in required_tuitions]
-                # cur.execute(
-                #     """
-                #     SELECT session_id, start_time, end_time
-                #     FROM timetable_runs
-                #     WHERE session_id = ANY(%s::uuid[]);
-                #     """,
-                #     (tuition_ids,)
-                # )
-                # scheduled_times = {row['session_id']: row for row in cur.fetchall()}
+                # --- Step 2: Get the latest schedule from the 'timetable_runs' table ---
+                cur.execute("SELECT solution_data FROM timetable_runs ORDER BY run_started_at DESC LIMIT 1;")
+                latest_run = cur.fetchone()
+                
                 scheduled_times = {}
+                if latest_run and latest_run['solution_data']:
+                    solution = latest_run['solution_data']
+                    for session in solution:
+                        if session.get('category') == 'Tuition' and 'name' in session:
+                            scheduled_times[session['name']] = {
+                                'start_time': session.get('start_time'),
+                                'end_time': session.get('end_time')
+                            }
+
+                # Step : filter the scheduled_times_map to only
+                scheduled_time_filtered = {}
+                for session_name in scheduled_times.keys():
+                    if student_name in session_name:
+                        scheduled_time_filtered[session_name] = scheduled_times[session_name]
 
                 # --- Step 3: Merge the results in Python ---
                 results = []
                 for tuition in required_tuitions:
-                    schedule = scheduled_times.get(tuition['id'])
-                    
-                    start_time = schedule['start_time'].isoformat() if schedule and schedule.get('start_time') else '--'
-                    end_time = schedule['end_time'].isoformat() if schedule and schedule.get('end_time') else '--'
+
+                    # Get the start and end time
+                    start_time = '--'
+                    end_time = '--'
+                    for session_name in scheduled_time_filtered.keys():
+                        if tuition['subject'] in session_name and str(tuition['lesson_index']) in session_name:
+                            start_time = scheduled_time_filtered[session_name]['start_time']
+                            end_time = scheduled_time_filtered[session_name]['end_time']
+
+                    # set Meeting link if not set
+                    if not tuition['meeting_link']:
+                        # Step 1: check if the latest meet is up date with latest start and end time, else delete
+
+                        # Step 2: if not created or deleted, create meeting link
+                        meeting_link = ''
+
+                        # Step 3: save to db 
+
                     
                     results.append({
                         "subject": tuition['subject'],
@@ -467,6 +494,7 @@ class DatabaseHandler:
                             t['cost_per_hour'],
                             t['min_duration_minutes'],
                             t['max_duration_minutes']
+                            #TODO: add meeting link here
                         )
                     )
                 conn.commit()
@@ -606,3 +634,30 @@ class DatabaseHandler:
                             continue
                 
                 return student_tuitions
+
+
+    def get_latest_timetable_run_data(self):
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT solution_data FROM timetable_runs ORDER BY run_started_at DESC LIMIT 1;")
+                latest_run = cur.fetchone()
+
+                if latest_run and latest_run['solution_data']:
+                    return latest_run['solution_data']
+ 
+    def get_student_name_from_id(self, student_id) -> Optional[tuple[str, str]]:
+        '''
+
+        '''
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute ("SELECT first_name, last_name FROM students WHERE id = %s", (student_id,))
+                res = cur.fetchall()
+                if not res:
+                    return None
+                # full_name = f"{res[0]['first_name']} {res[0]['last_name']}"
+                # return full_name
+                return res[0]['first_name'], res[0]['last_name']
+
+
+

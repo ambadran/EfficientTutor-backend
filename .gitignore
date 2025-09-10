@@ -27,3 +27,6 @@ __pychache__
 *.egg-info/
 tests/migrate_to_hashed.py
 tmp
+credentials.json
+web_app_creds.json
+token.json
