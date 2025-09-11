@@ -120,3 +120,21 @@ CREATE TABLE payment_logs (
 -- as the tables grow larger.
 CREATE INDEX idx_tuition_logs_parent ON tuition_logs(parent_user_id);
 CREATE INDEX idx_payment_logs_parent ON payment_logs(parent_user_id);
+
+
+-- This query updates the 'notes' column for a single student identified by their first_name.
+-- It uses COALESCE to safely handle cases where the 'notes' column is currently NULL,
+-- initializing it as an empty JSON array ('[]') before appending.
+-- The '||' operator is then used to append the new note object to the JSONB array.
+
+UPDATE students
+SET
+    notes = COALESCE(notes, '[]'::jsonb) || '{
+        "id": "ali-89",
+        "name": "Physics HWs",
+        "description": "Homeworks",
+        "url": "https://share.goodnotes.com/s/SGqwsqtyrHJ1LYDLiMvpDa"
+    }'::jsonb
+WHERE
+    first_name = 'Mila';
+
