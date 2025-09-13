@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 from typing import Optional
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
-from ..core.zoom_link import ZoomMeetingManager
 
 class DatabaseHandler:
     """
@@ -279,37 +278,6 @@ class DatabaseHandler:
                     return result['notes']
                 return []
 
-    def timetable_time_format_to_zoom_time_format(self, timetable_time_formated):
-        """
-        Converts a local time string to a future-dated UTC string for the Zoom API.
-        If the input time is in the past, it's moved 7 days into the future.
-        """
-        # 1. Parse the input string
-        local_time_str = timetable_time_formated
-        naive_dt = datetime.datetime.fromisoformat(local_time_str)
-
-        # 2. Create a timezone-aware datetime object for Egypt
-        local_tz = ZoneInfo("Africa/Cairo")
-        local_dt = naive_dt.replace(tzinfo=local_tz)
-        
-        # 3. Get the current time in the same timezone for a correct comparison
-        now_local = datetime.datetime.now(local_tz)
-
-        # 4. Check if the desired time is in the past
-        if local_dt < now_local:
-            print(f"Original time {local_dt.strftime('%Y-%m-%d %H:%M')} is in the past.")
-            # If it is, add 7 days
-            local_dt = local_dt + datetime.timedelta(days=7)
-            print(f"Rescheduling to 7 days in the future: {local_dt.strftime('%Y-%m-%d %H:%M')}")
-
-        # 5. Convert the (potentially updated) time to UTC
-        utc_dt = local_dt.astimezone(datetime.timezone.utc)
-
-        # 6. Format it into the required string for the API
-        final_utc_str = utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        
-        return final_utc_str
-
     def get_student_meeting_links(self, student_id):
         """
         Retrieves all scheduled tuitions for a specific student, joining
@@ -388,39 +356,11 @@ class DatabaseHandler:
                             start_time = scheduled_time_filtered[session_name]['start_time']
                             end_time = scheduled_time_filtered[session_name]['end_time']
 
-                            # set Meeting link if not set
-                            if not tuition['meeting_link']:
-                                # Step 1: check if the latest meet is up date with latest start and end time, else delete
-                                #TODO: VERY IMPORTANT and REMOVE the delete all zoom links feature from replace_all_tuitions method to not make save student very time consuming for the parent user
-
-                                # Step 2: if not created or deleted, create meeting link
-                                zoom_manager = ZoomMeetingManager()
-                                
-                                start_time_iso = self.timetable_time_format_to_zoom_time_format(start_time)
-                                # if the meeting is in the past just add 7 days for next week
-
-                                meeting_id, meeting_link = zoom_manager.create_meeting(
-                                                                    topic=session_name,
-                                                                    start_time_iso=start_time_iso,
-                                                                    duration_minutes=90,
-                                                                    timezone="Africa/Cairo"
-                                                            )
-
-                                # Step 3: save to db 
-                                meeting_data = {'meeting_link': meeting_link,
-                                                'meeting_id': meeting_id}
-
-
-                                sql_query = """
-                                    UPDATE tuitions
-                                    SET meeting_link = %s
-                                    WHERE id = %s;
-                                """
-                                cur.execute(sql_query, (json.dumps(meeting_data), tuition['id']))
-                            else:
-                                print("Got meeting from db")
+                            if tuition['meeting_link']:
                                 meeting_link = tuition['meeting_link']['meeting_link']
-                           
+                            else:
+                                meeting_link = None
+                          
                             results.append({
                                 "subject": tuition['subject'],
                                 "lesson_index": tuition['lesson_index'],
@@ -520,30 +460,6 @@ class DatabaseHandler:
                 cur.execute(query)
                 return cur.fetchall()
 
-    def delete_all_zoom_links(self):
-        '''
-        deletes all zoom links in the tuitions meeting_link column
-        happens before compelte tuition data delete to be replaced by latest
-        '''
-        with self._get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # This query selects the 'meeting_id' field from the 'meeting_link' JSONB column.
-                # It safely filters out any rows where the meeting_link is NULL or doesn't
-                # contain the 'meeting_id' key.
-                cur.execute(
-                    """
-                    SELECT meeting_link ->> 'meeting_id' AS meeting_id
-                    FROM tuitions
-                    WHERE meeting_link IS NOT NULL AND meeting_link ? 'meeting_id';
-                    """
-                )
-                # Return a simple list of the meeting ID strings
-                all_meeting_ids = [row['meeting_id'] for row in cur.fetchall()]
-
-                zoom_manager = ZoomMeetingManager()
-                for meeting_id in all_meeting_ids:
-                    zoom_manager.delete_meeting(meeting_id)
-
 
     def replace_all_tuitions(self, tuitions: list[dict]):
         """
@@ -553,9 +469,6 @@ class DatabaseHandler:
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 
-                # before deleting the actual data, let's delete the zoom meetings from zoom
-                self.delete_all_zoom_links()
-
                 cur.execute("DELETE FROM tuitions;")
                 
                 if not tuitions:
@@ -641,7 +554,7 @@ class DatabaseHandler:
                     else:
                         unpaid_count += 1
                         unpaid_tuition_total += log["cost"]
-                        print(f"tuition cost: {log['cost']}\ncurrent unpaid_tuition_total: {unpaid_tuition_total}")
+                        # print(f"tuition cost: {log['cost']}\ncurrent unpaid_tuition_total: {unpaid_tuition_total}")
                         log['status'] = 'Unpaid'
 
                 # Step 5: Calculate the final summary.

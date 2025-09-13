@@ -131,10 +131,10 @@ UPDATE students
 SET
     notes = COALESCE(notes, '[]'::jsonb) || '{
         "id": "ali-89",
-        "name": "Physics HWs",
+        "name": "Math HWs",
         "description": "Homeworks",
-        "url": "https://share.goodnotes.com/s/SGqwsqtyrHJ1LYDLiMvpDa"
+        "url": "https://web.goodnotes.com/s/OO5DVeGt3LwP5ojf5ke00I"
     }'::jsonb
 WHERE
-    first_name = 'Mila';
+    first_name = 'Abdullah';
 
