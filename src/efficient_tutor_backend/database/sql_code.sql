@@ -139,3 +139,12 @@ SET
 WHERE
     first_name = 'Yassin';
 
+
+-- Rename the column in the 'students' table
+ALTER TABLE students RENAME COLUMN cost_per_hour TO cost;
+
+-- Rename the column in the 'tuitions' table
+ALTER TABLE tuitions RENAME COLUMN cost_per_hour TO cost;
+
+-- Rename the column in the 'tuition_logs' table
+ALTER TABLE tuition_logs RENAME COLUMN cost_per_hour TO cost;
