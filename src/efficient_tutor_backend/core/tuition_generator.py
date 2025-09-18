@@ -1,5 +1,5 @@
 '''
-
+This file is responsible to create tuition entries given raw data from parents
 '''
 from ..database.db_handler import DatabaseHandler
 
