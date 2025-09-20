@@ -54,7 +54,7 @@ class TuitionGenerator:
                             "student_ids": student_ids_list,
                             "subject": subject_name,
                             "lesson_index": i + 1,
-                            "cost_per_hour": student_row['cost_per_hour'],
+                            "cost": student_row['cost'],
                             "min_duration_minutes": student_row['min_duration_mins'],
                             "max_duration_minutes": student_row['max_duration_mins'],
                             "meeting_link": None #TODO: get latest_value if data is the same, i've decided to run this individually when student is trying to access

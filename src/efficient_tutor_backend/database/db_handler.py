@@ -454,7 +454,7 @@ class DatabaseHandler:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
                     SELECT id, first_name, last_name, grade, student_data, 
-                           cost_per_hour, status, min_duration_mins, max_duration_mins 
+                           cost, status, min_duration_mins, max_duration_mins 
                     FROM students;
                 """
                 cur.execute(query)
@@ -480,7 +480,7 @@ class DatabaseHandler:
                 for t in tuitions:
                     cur.execute(
                         """
-                        INSERT INTO tuitions (student_ids, subject, lesson_index, cost_per_hour,
+                        INSERT INTO tuitions (student_ids, subject, lesson_index, cost,
                                             min_duration_minutes, max_duration_minutes)
                         -- THE FIX: Cast the student_ids placeholder to uuid[]
                         VALUES (%s::uuid[], %s, %s, %s, %s, %s);
@@ -489,7 +489,7 @@ class DatabaseHandler:
                             t['student_ids'],
                             t['subject'],
                             t['lesson_index'],
-                            t['cost_per_hour'],
+                            t['cost'],
                             t['min_duration_minutes'],
                             t['max_duration_minutes']
                             #TODO: add meeting link here
@@ -526,9 +526,7 @@ class DatabaseHandler:
                 for log in tuition_logs:
                     duration = log['end_time'] - log['start_time']
                     duration_hours = duration.total_seconds() / 3600.0
-                    #TODO: migrate cost_per_hour in datbase to just be cost
-                    # lesson_cost = duration_hours * float(log['cost_per_hour'])
-                    lesson_cost = float(log['cost_per_hour'])
+                    lesson_cost = float(log['cost'])
                     
                     # Format for the detailed log list
                     detailed_logs_processed.append({
