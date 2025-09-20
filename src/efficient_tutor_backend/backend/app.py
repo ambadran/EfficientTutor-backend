@@ -7,7 +7,10 @@ import time
 
 # Import the DatabaseHandler from its module
 from ..core.tuition_generator import TuitionGenerator
+from ..core.timetable_service import TimetableService
+from ..core.finance import LogbookService, FinancialLedgerService
 from ..database.db_handler import DatabaseHandler
+from ..common.logger import log
 
 # Instead of a full Flask app, we create a Blueprint to keep routes organized.
 main_routes = Blueprint('main_routes', __name__)
@@ -15,6 +18,10 @@ main_routes = Blueprint('main_routes', __name__)
 # Instantiate the database handler which will be used by our routes.
 db = DatabaseHandler()
 
+# Instantiate the new service
+timetable_service = TimetableService(db)
+logbook_service = LogbookService(db)
+ledger_service = FinancialLedgerService(db)
 
 @main_routes.route('/', methods=['GET'])
 def health_check():
@@ -218,4 +225,140 @@ def get_meeting_links():
     # The db handler returns an empty list if no links are found, so no
     # special error handling is needed here.
     return jsonify(links), 200
+
+
+# v0.3 stuff
+# methods to get data to choose from
+@main_routes.route('/schedulable-tuitions', methods=['GET'])
+def get_schedulable_tuitions():
+    """
+    Returns a list of all defined tuitions, enriched with their scheduled
+    times to be displayed on the teacher's UI.
+    """
+    try:
+        enriched_tuitions = timetable_service.get_schedulable_tuitions()
+        return jsonify(enriched_tuitions), 200
+    except Exception as e:
+        # A generic error handler is good practice
+        log.error(f"ERROR in /schedulable-tuitions: {e}")
+        return jsonify({"error": "An internal error occurred"}), 500
+
+
+@main_routes.route('/manual-entry-data', methods=['GET'])
+def get_manual_entry_data():
+    """
+    Returns the data needed for the teacher's UI to manually log a tuition:
+    a list of all students and a list of all possible subjects.
+    """
+    try:
+        students = db.get_all_students_basic_info()
+        subjects = db.get_subject_enum_values()
+        
+        response_data = {
+            "students": students,
+            "subjects": subjects
+        }
+        return jsonify(response_data), 200
+    except Exception as e:
+        log.error(f"ERROR in /manual-entry-data: {e}")
+        return jsonify({"error": "An internal error occurred"}), 500
+
+# methods to actually log stuff
+@main_routes.route('/tuition-logs', methods=['POST'])
+def create_tuition_log():
+    """
+    Receives data from the teacher's UI to create a new tuition log.
+    Delegates all logic to the LogbookService.
+    """
+    data = request.get_json()
+    try:
+        print("laksjdflkjlk")
+        new_log_id = logbook_service.create_tuition_log(data)
+        return jsonify({"message": "Tuition log created successfully", "log_id": new_log_id}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400 # Bad request
+    except Exception as e:
+        log.error(f"ERROR in /tuition-logs: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+@main_routes.route('/payment-logs', methods=['POST'])
+def create_payment_log():
+    """
+    Creates a new payment log entry.
+    """
+    data = request.get_json()
+    try:
+        if not data.get('parent_user_id') or data.get('amount_paid') is None:
+            raise ValueError("parent_user_id and amount_paid are required.")
+        
+        new_payment_id = db.insert_payment_log(data)
+        return jsonify({"message": "Payment log created", "payment_id": new_payment_id}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        log.error(f"ERROR in /payment-logs: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+@main_routes.route('/tuition-logs/<log_id>/void', methods=['POST'])
+def void_tuition_log(log_id):
+    """
+    Voids a specific tuition log. This is a safe alternative to deleting.
+    """
+    try:
+        success = db.void_tuition_log(log_id)
+        if not success:
+            return jsonify({"error": "Log not found or already voided"}), 404
+        return jsonify({"message": f"Log {log_id} has been voided"}), 200
+    except Exception as e:
+        log.error(f"ERROR in /tuition-logs/<log_id>/void: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+@main_routes.route('/tuition-logs/<log_id>/correction', methods=['POST'])
+def correct_tuition_log(log_id):
+    """
+    Corrects a log by voiding the original and creating a new one with
+    the data provided in the request body.
+    """
+    correction_data = request.get_json()
+    try:
+        new_log_id = logbook_service.perform_log_correction(log_id, correction_data)
+        return jsonify({
+            "message": "Log corrected successfully",
+            "original_log_id": log_id,
+            "new_log_id": new_log_id
+        }), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400 # Catches invalid IDs or bad data
+    except Exception as e:
+        log.error(f"ERROR in /tuition-logs/<log_id>/correction: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@main_routes.route('/financial-report/<parent_id>', methods=['GET'])
+def get_financial_report(parent_id):
+    """
+    Generates and returns a complete financial report for the specified parent.
+    """
+    try:
+        # Here you would typically validate that the user making the request
+        # is authorized to view this parent's report.
+        
+        report = ledger_service.generate_report(parent_id)
+        return jsonify(report), 200
+    except Exception as e:
+        log.error(f"ERROR in /financial-report/{parent_id}: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@main_routes.route('/tuition-logs', methods=['GET'])
+def get_all_tuition_logs():
+    """
+    Returns a list of all tuition logs for administrative review.
+    """
+    try:
+        all_logs = db.get_all_tuition_logs()
+        return jsonify(all_logs), 200
+    except Exception as e:
+        log.error(f"ERROR in GET /tuition-logs: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
 

@@ -10,33 +10,65 @@ import psycopg2
 import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional
+from contextlib import contextmanager
+from psycopg2 import pool
+from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
+from ..common.logger import log
 
 class DatabaseHandler:
     """
     Handles database interactions for the EfficientTutor user-facing app.
+    Uses a connection pool for efficient database access.
     """
-    def __init__(self):
-        self.database_url = os.environ.get('DATABASE_URL')
-        if not self.database_url:
-            raise ValueError("DATABASE_URL environment variable not set.")
+    _pool = None # Class-level variable to hold the pool
 
-    def _get_connection(self):
-        """Establishes and returns a new database connection."""
+    def __init__(self):
+        if not DatabaseHandler._pool:
+            load_dotenv()
+            self.database_url = os.environ.get('DATABASE_URL')
+            if not self.database_url:
+                raise ValueError("DATABASE_URL environment variable not set.")
+            try:
+                # Create a connection pool.
+                # minconn=1, maxconn=10 means it will keep 1 connection open
+                # and can open up to 10 connections under load.
+                DatabaseHandler._pool = pool.SimpleConnectionPool(
+                    1, 10, dsn=self.database_url
+                )
+                log.info("Database connection pool created successfully.")
+            except psycopg2.OperationalError as e:
+                log.error(f"!!! DATABASE POOL CREATION FAILED: {e} !!!")
+                raise
+
+    @contextmanager
+    def get_connection(self):
+        """
+        Provides a database connection from the pool.
+        This is a context manager, so it will handle returning the connection
+        to the pool automatically.
+        Usage: with self.get_connection() as conn: ...
+        """
+        if not DatabaseHandler._pool:
+            raise RuntimeError("Database pool is not initialized.")
+        
+        conn = None
         try:
-            return psycopg2.connect(self.database_url)
-        except psycopg2.OperationalError as e:
-            print(f"!!! DATABASE CONNECTION FAILED: {e} !!!")
-            return None
+            conn = DatabaseHandler._pool.getconn()
+            yield conn
+        finally:
+            if conn:
+                DatabaseHandler._pool.putconn(conn)
 
     def check_connection(self):
-        """Checks if a connection to the database can be established."""
-        conn = self._get_connection()
-        if conn:
-            conn.close()
-            return True
-        return False
+        """Checks if a connection from the pool can be established."""
+        try:
+            with self.get_connection() as conn:
+                return conn is not None
+        except Exception as e:
+            log.error(f"Connection check failed: {e}")
+            return False
 
     # --- User Authentication ---
 
@@ -44,7 +76,7 @@ class DatabaseHandler:
         """
         Retrieves a single user record from the database by their email.
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM users WHERE email = %s;", (email,))
                 user = cur.fetchone()
@@ -60,7 +92,7 @@ class DatabaseHandler:
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256:600000')
         new_user_id = str(uuid.uuid4())
 
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 try:
                     # THE FIX: Add 'role' to the RETURNING clause to get it back from the DB.
@@ -81,7 +113,7 @@ class DatabaseHandler:
 
                 except Exception as e:
                     conn.rollback()
-                    print(f"ERROR during signup transaction: {e}")
+                    log.error(f"ERROR during signup transaction: {e}")
                     return None, "An internal error occurred during signup."
 
     def login_user(self, user_record, password):
@@ -104,7 +136,7 @@ class DatabaseHandler:
         Retrieves all students for a user and reconstructs the full student object
         by combining dedicated columns with the remaining JSON data.
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Select the new dedicated columns AND the JSON data
                 cur.execute(
@@ -134,14 +166,14 @@ class DatabaseHandler:
         """
         student_id_str = student_data.get('id')
         
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 try:
                     self._save_student_transaction(cur, user_id, student_id_str, student_data)
                     conn.commit()
                 except Exception as e:
                     conn.rollback()
-                    print(f"ERROR during save_student transaction: {e}")
+                    log.error(f"ERROR during save_student transaction: {e}")
                     raise
 
         return student_id_str
@@ -265,7 +297,7 @@ class DatabaseHandler:
 
         ] 
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     "SELECT notes FROM students WHERE id = %s;",
@@ -300,7 +332,7 @@ class DatabaseHandler:
           }
         ]
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # --- Step 1: Get all required tuitions for the student ---
                 cur.execute(
@@ -399,7 +431,7 @@ class DatabaseHandler:
         Securely retrieves a student's generated email and password.
         It verifies that the requesting user is the student's parent.
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # This query joins users and students to ensure the parent_user_id is correct
                 cur.execute(
@@ -418,7 +450,7 @@ class DatabaseHandler:
         """
         Retrieves the full profile for a single student by their ID.
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
@@ -442,7 +474,7 @@ class DatabaseHandler:
 
     def delete_student(self, user_id, student_id):
         """Deletes a student from the database."""
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM students WHERE id = %s AND user_id = %s;", (student_id, user_id))
                 conn.commit()
@@ -450,7 +482,7 @@ class DatabaseHandler:
 
     def get_all_student_parameters(self):
         """ Fetches all students with their admin-defined parameters and new columns. """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
                     SELECT id, first_name, last_name, grade, student_data, 
@@ -466,7 +498,7 @@ class DatabaseHandler:
         Wipes the tuitions table and inserts the newly generated list.
         The 'subject' field is a string that matches the database ENUM.
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor() as cur:
                 
                 cur.execute("DELETE FROM tuitions;")
@@ -504,7 +536,7 @@ class DatabaseHandler:
         Fetches all tuition and payment logs for a given parent and computes
         a detailed summary and log list.
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Step 1: Fetch all tuition logs for the parent, oldest first.
                 cur.execute(
@@ -582,7 +614,7 @@ class DatabaseHandler:
         Fetches the latest completed timetable run, finds the specified student's
         name, and returns a formatted list of their scheduled tuitions for the week.
         """
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Step 1: Get the student's first name from their ID.
                 cur.execute("SELECT first_name FROM students WHERE id = %s;", (student_id,))
@@ -633,7 +665,7 @@ class DatabaseHandler:
 
 
     def get_latest_timetable_run_data(self):
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT solution_data FROM timetable_runs ORDER BY run_started_at DESC LIMIT 1;")
                 latest_run = cur.fetchone()
@@ -645,7 +677,7 @@ class DatabaseHandler:
         '''
 
         '''
-        with self._get_connection() as conn:
+        with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute ("SELECT first_name, last_name FROM students WHERE id = %s", (student_id,))
                 res = cur.fetchall()
@@ -656,4 +688,234 @@ class DatabaseHandler:
                 return res[0]['first_name'], res[0]['last_name']
 
 
+#### v0.3 stuff
 
+# methods for tuition log tuition list choosing
+    def get_active_tuitions(self):
+        """Fetches all records from the 'tuitions' table."""
+        #TODO: check if it did indeed returns any data
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id, student_ids, subject, lesson_index, cost FROM tuitions;")
+                return cur.fetchall()
+
+    
+    def get_latest_successful_schedule(self):
+        """
+        Fetches the most recent, successfully or manually completed timetable run.
+        """
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # MODIFICATION: Include 'MANUAL' in the status check
+                cur.execute("""
+                    SELECT solution_data 
+                    FROM timetable_runs 
+                    WHERE status IN ('SUCCESS', 'MANUAL') 
+                    ORDER BY run_started_at DESC 
+                    LIMIT 1;
+                """)
+                schedule = cur.fetchone()
+                
+                # NEW: Check if data was returned and log a warning if not
+                if not schedule:
+                    log.warning("No 'SUCCESS' or 'MANUAL' timetable runs found in the database.")
+                
+                return schedule
+                
+    def get_student_id_to_name_map(self):
+        """Returns a dictionary mapping student UUIDs to their first names."""
+        #TODO: check if it did indeed returns any data
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id, first_name FROM students;")
+                # Convert UUID objects to strings for consistent keying
+                return {str(row['id']): row['first_name'] for row in cur.fetchall()}
+
+
+# methods for tuition log manual choosing
+    def get_all_students_basic_info(self):
+        """
+        Fetches a list of all students with their ID and full name.
+        """
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, first_name, last_name FROM students ORDER BY first_name, last_name;"
+                )
+                return cur.fetchall()
+
+    def get_subject_enum_values(self):
+        """
+        Dynamically fetches the possible values for the 'subject_enum' type.
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cur: # No RealDictCursor needed
+                # This query inspects PostgreSQL's system catalogs for the enum values
+                cur.execute("""
+                    SELECT e.enumlabel
+                    FROM pg_type t
+                    JOIN pg_enum e ON t.oid = e.enumtypid
+                    WHERE t.typname = 'subject_enum'
+                    ORDER BY e.enumsortorder;
+                """)
+                # The result is a list of tuples, so we extract the first element of each
+                return [row[0] for row in cur.fetchall()]
+
+# methods for tuition log to actually log stuff
+    def get_tuition_details_by_id(self, tuition_id):
+        """Fetches a single tuition's details by its UUID."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT student_ids, subject, lesson_index, cost FROM tuitions WHERE id = %s;",
+                    (tuition_id,)
+                )
+                return cur.fetchone()
+
+    def get_parent_id_for_student(self, student_id):
+        """Finds the parent (user_id) associated with a given student."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT user_id FROM students WHERE id = %s;", (student_id,))
+                result = cur.fetchone()
+                return str(result['user_id']) if result else None
+    
+    def get_student_names_by_ids(self, student_ids: list):
+        """
+        Takes a list of student UUIDs and returns a list of their first names.
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                # Use ANY() for an efficient query with a list of IDs
+                # MODIFICATION: Add ::uuid[] to cast the text array to a uuid array
+                cur.execute(
+                    "SELECT first_name FROM students WHERE id = ANY(%s::uuid[]);",
+                    (student_ids,)
+                )
+                return [row[0] for row in cur.fetchall()]
+
+    def insert_tuition_log(self, log_payload: dict) -> str:
+        """Inserts a new record into the tuition_logs table."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO tuition_logs (
+                            id, create_type, tuition_id, parent_user_id, subject, attendee_names,
+                            lesson_index, cost, start_time, end_time
+                        ) VALUES (
+                            %(id)s, %(create_type)s, %(tuition_id)s, %(parent_user_id)s, %(subject)s, %(attendee_names)s,
+                            %(lesson_index)s, %(cost)s, %(start_time)s, %(end_time)s
+                        );
+                    """, log_payload)
+                    conn.commit()
+                    return log_payload['id']
+        except Exception as e:
+            # NEW: Log the detailed error and the payload that caused it
+            log.error(f"Failed to insert tuition log. Error: {e}")
+            log.error(f"Failing payload: {log_payload}")
+            # Re-raise the exception so the service layer can handle it
+            raise
+                
+    def insert_payment_log(self, payment_data: dict) -> str:
+        """Inserts a new record into the payment_logs table."""
+        payment_id = str(uuid.uuid4())
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO payment_logs (id, parent_user_id, amount_paid, payment_date, notes)
+                    VALUES (%s, %s, %s, %s, %s);
+                """, (
+                    payment_id,
+                    payment_data['parent_user_id'],
+                    payment_data['amount_paid'],
+                    payment_data.get('payment_date'), # Can be None to use DB default
+                    payment_data.get('notes')
+                ))
+                conn.commit()
+                return payment_id
+
+    def void_tuition_log(self, log_id: str) -> bool:
+        """Sets a tuition log's status to 'VOID'. Returns True if a row was updated."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE tuition_logs SET status = 'VOID' WHERE id = %s AND status = 'ACTIVE';",
+                    (log_id,)
+                )
+                conn.commit()
+                # cur.rowcount will be 1 if the update was successful, 0 otherwise
+                return cur.rowcount > 0
+
+    def link_corrected_log(self, new_log_id: str, original_log_id: str):
+        """Updates the new log to link it to the one it corrected."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE tuition_logs SET corrected_from_log_id = %s WHERE id = %s;",
+                    (original_log_id, new_log_id)
+                )
+                conn.commit()
+
+# methods to get payment data to create financial data to view
+    def get_tuition_logs_for_parent(self, parent_user_id: str):
+        """
+        Fetches all active tuition logs for a parent, ordered chronologically.
+        """
+        log.info(f"Fetching tuition logs for parent_id: {parent_user_id}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT id, subject, attendee_names, start_time, end_time, cost
+                        FROM tuition_logs
+                        WHERE parent_user_id = %s AND status = 'ACTIVE'
+                        ORDER BY start_time ASC;
+                    """, (parent_user_id,))
+                    
+                    logs = cur.fetchall()
+                    
+                    # NEW: Check if the query returned any results
+                    if not logs:
+                        # It's normal for a new parent to have no logs, so we use log.info
+                        log.info(f"No active tuition logs found for parent_id: {parent_user_id}")
+                        
+                    return logs
+        except Exception as e:
+            # NEW: Catch any database-related errors
+            log.error(f"Database error while fetching tuition logs for parent {parent_user_id}: {e}", exc_info=True)
+            # Re-raise the exception to be handled by the service layer
+            raise
+
+    def get_payment_logs_for_parent(self, parent_user_id: str):
+        """Fetches all payment logs for a parent."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT amount_paid, payment_date, notes FROM payment_logs WHERE parent_user_id = %s ORDER BY payment_date ASC;",
+                    (parent_user_id,)
+                )
+                return cur.fetchall()
+
+
+    def get_all_tuition_logs(self):
+        """
+        Fetches all tuition logs from the database, ordered by most recent first.
+        """
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT 
+                        id, 
+                        create_type,
+                        attendee_names, 
+                        subject, 
+                        start_time, 
+                        end_time, 
+                        cost, 
+                        status, 
+                        corrected_from_log_id 
+                    FROM tuition_logs 
+                    ORDER BY start_time DESC;
+                """)
+                return cur.fetchall()

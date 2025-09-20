@@ -131,11 +131,43 @@ UPDATE students
 SET
     notes = COALESCE(notes, '[]'::jsonb) || '{
         "id": "ali-89",
-        "name": "Electronic Configuration",
-        "description": "Chemistry",
-        "url": "https://web.goodnotes.com/s/zhzcRwwo19hp706f1zDZ5N"
+        "name": "Biology HW",
+        "description": "Biology",
+        "url": "https://web.goodnotes.com/s/Wr9h11Bw2nfrCxB4cdHzzY"
 
     }'::jsonb
 WHERE
-    first_name = 'Yassin';
+    first_name = 'Abdullah';
 
+-- Create the new ENUM type for log statuses
+CREATE TYPE log_status_enum AS ENUM ('ACTIVE', 'VOID');
+
+-- == Rename 'cost_per_hour' to 'cost' for clarity ==
+ALTER TABLE students RENAME COLUMN cost_per_hour TO cost;
+ALTER TABLE tuitions RENAME COLUMN cost_per_hour TO cost;
+ALTER TABLE tuition_logs RENAME COLUMN cost_per_hour TO cost;
+
+-- == Add columns to 'tuition_logs' for the correction system ==
+ALTER TABLE tuition_logs
+ADD COLUMN status log_status_enum NOT NULL DEFAULT 'ACTIVE',
+ADD COLUMN corrected_from_log_id UUID REFERENCES tuition_logs(id) DEFAULT NULL;
+
+-- == Add a 'notes' column to 'payment_logs' for adjustments ==
+ALTER TABLE payment_logs
+ADD COLUMN notes TEXT;
+
+-- Add an index to the new status column for faster queries
+CREATE INDEX idx_tuition_logs_status ON tuition_logs(status);
+
+
+-- Create the new ENUM type for the log creation method
+CREATE TYPE tuition_log_create_type_enum AS ENUM ('SCHEDULED', 'CUSTOM');
+
+-- Add the new column to the tuition_logs table
+ALTER TABLE tuition_logs
+ADD COLUMN create_type tuition_log_create_type_enum NOT NULL DEFAULT 'CUSTOM';
+
+UPDATE tuition_logs
+SET
+    start_time = start_time - INTERVAL '3 hours',
+    end_time = end_time - INTERVAL '3 hours';
