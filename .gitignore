@@ -22,7 +22,6 @@ __pychache__
 *.~*
 ~$*
 *.env
-*envrc
 .venv
 *.egg-info/
 tests/migrate_to_hashed.py
