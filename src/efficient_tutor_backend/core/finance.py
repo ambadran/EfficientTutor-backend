@@ -171,9 +171,8 @@ class FinancialLedgerService:
             cost = float(log_entry['cost'])
             
             # --- NEW: Calculate duration and format times ---
-            #TODO: add timezone
-            start_time = log_entry['start_time'] + timedelta(hours=3)
-            end_time = log_entry['end_time'] + timedelta(hours=3)
+            start_time = log_entry['start_time']
+            end_time = log_entry['end_time']
             duration_delta = end_time - start_time
             duration_hours = duration_delta.total_seconds() / 3600.0
 
