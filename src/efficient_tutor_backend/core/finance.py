@@ -180,7 +180,7 @@ class FinancialLedgerService:
                 "id": str(log_entry['id']),
                 "subject": log_entry['subject'],
                 "attendees": log_entry['attendee_names'],
-                "date": start_time.strftime('%Y-%m-%d'),
+                "date": start_time.strftime('%a, %d %b %Y'),
                 "start_time": start_time.strftime('%I:%M %p'),
                 "end_time": end_time.strftime('%I:%M %p'),
                 "duration": f"{duration_hours:.1f}h",
@@ -204,6 +204,7 @@ class FinancialLedgerService:
         }
         
         log.info(f"Ledger calculation complete. Total Due: {summary['total_due']}, Credit: {summary['credit_balance']}")
+        processed_logs.reverse()
 
         return {
             "summary": summary,

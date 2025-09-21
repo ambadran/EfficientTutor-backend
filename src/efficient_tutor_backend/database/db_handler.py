@@ -16,7 +16,6 @@ from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 from ..common.logger import log
-from ..common.config import APP_TIMEZONE
 
 class DatabaseHandler:
     """
@@ -864,7 +863,8 @@ class DatabaseHandler:
         Fetches all active tuition logs for a parent, ordered chronologically,
         with timestamps converted to the application's timezone.
         """
-        log.info(f"Fetching tuition logs for parent_id: {parent_user_id}")
+        timezone = self.get_user_timezone(parent_user_id)
+        log.info(f"Fetching tuition logs for parent_id: {parent_user_id} in timezone: {timezone}")
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -880,7 +880,7 @@ class DatabaseHandler:
                         FROM tuition_logs
                         WHERE parent_user_id = %(parent_id)s AND status = 'ACTIVE'
                         ORDER BY start_time ASC;
-                    """, {'tz': APP_TIMEZONE, 'parent_id': parent_user_id})
+                    """, {'tz': timezone, 'parent_id': parent_user_id})
                     
                     logs = cur.fetchall()
                     if not logs:
@@ -895,7 +895,8 @@ class DatabaseHandler:
         Fetches all payment logs for a parent, with timestamps converted
         to the application's timezone.
         """
-        log.info(f"Fetching payment logs for parent_id: {parent_user_id}")
+        timezone = self.get_user_timezone(parent_user_id)
+        log.info(f"Fetching payment logs for parent_id: {parent_user_id} in timezone: {timezone}")
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -908,7 +909,7 @@ class DatabaseHandler:
                         FROM payment_logs 
                         WHERE parent_user_id = %(parent_id)s 
                         ORDER BY payment_date ASC;
-                    """, {'tz': APP_TIMEZONE, 'parent_id': parent_user_id})
+                    """, {'tz': timezone, 'parent_id': parent_user_id})
                     
                     payments = cur.fetchall()
                     if not payments:
@@ -918,12 +919,13 @@ class DatabaseHandler:
             log.error(f"Database error fetching payment logs for parent {parent_user_id}: {e}", exc_info=True)
             raise
 
-    def get_all_tuition_logs(self):
+    def get_all_tuition_logs(self, viewer_id: str):
         """
         Fetches all tuition logs from the database, converting UTC timestamps
         to the application's configured timezone.
         """
-        log.info(f"Fetching all tuition logs, converting to timezone: {APP_TIMEZONE}")
+        timezone = self.get_user_timezone(viewer_id)
+        log.info(f"Fetching all tuition logs converting to timezone: {timezone}")
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -940,7 +942,7 @@ class DatabaseHandler:
                             corrected_from_log_id 
                         FROM tuition_logs 
                         ORDER BY start_time DESC;
-                    """, {'tz': APP_TIMEZONE})
+                    """, {'tz': timezone})
                     
                     logs = cur.fetchall()
                     if not logs:
@@ -951,4 +953,19 @@ class DatabaseHandler:
             raise
 
 
-
+    def get_user_timezone(self, user_id: str) -> str:
+        """Fetches the timezone for a specific user."""
+        log.info(f"Fetching timezone for user_id: {user_id}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT timezone FROM users WHERE id = %s;", (user_id,))
+                    result = cur.fetchone()
+                    if result:
+                        return result[0]
+                    # Fallback to UTC if user not found or has no timezone
+                    log.warning(f"Could not find timezone for user {user_id}. Defaulting to UTC.")
+                    return 'UTC'
+        except Exception as e:
+            log.error(f"Database error fetching timezone for user {user_id}: {e}", exc_info=True)
+            return 'UTC'

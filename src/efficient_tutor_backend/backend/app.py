@@ -353,12 +353,17 @@ def get_financial_report(parent_id):
 @main_routes.route('/tuition-logs', methods=['GET'])
 def get_all_tuition_logs():
     """
-    Returns a list of all tuition logs for administrative review.
+    Returns all tuition logs, converted to the viewer's timezone.
     """
+    viewer_id = request.args.get('viewer_id')
+    if not viewer_id:
+        return jsonify({"error": "viewer_id query parameter is required"}), 400
+        
     try:
-        all_logs = db.get_all_tuition_logs()
+        # The call is now direct, passing the viewer_id.
+        all_logs = db.get_all_tuition_logs(viewer_id)
         return jsonify(all_logs), 200
     except Exception as e:
-        log.error(f"ERROR in GET /tuition-logs: {e}")
+        log.error(f"Error in GET /tuition-logs: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
 
