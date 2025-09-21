@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 from ..common.logger import log
+from ..common.config import APP_TIMEZONE
 
 class DatabaseHandler:
     """
@@ -860,62 +861,94 @@ class DatabaseHandler:
 # methods to get payment data to create financial data to view
     def get_tuition_logs_for_parent(self, parent_user_id: str):
         """
-        Fetches all active tuition logs for a parent, ordered chronologically.
+        Fetches all active tuition logs for a parent, ordered chronologically,
+        with timestamps converted to the application's timezone.
         """
         log.info(f"Fetching tuition logs for parent_id: {parent_user_id}")
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    # MODIFICATION: Use AT TIME ZONE to convert timestamps
                     cur.execute("""
-                        SELECT id, subject, attendee_names, start_time, end_time, cost
+                        SELECT 
+                            id, 
+                            subject, 
+                            attendee_names, 
+                            start_time AT TIME ZONE %(tz)s AS start_time, 
+                            end_time AT TIME ZONE %(tz)s AS end_time, 
+                            cost
                         FROM tuition_logs
-                        WHERE parent_user_id = %s AND status = 'ACTIVE'
+                        WHERE parent_user_id = %(parent_id)s AND status = 'ACTIVE'
                         ORDER BY start_time ASC;
-                    """, (parent_user_id,))
+                    """, {'tz': APP_TIMEZONE, 'parent_id': parent_user_id})
                     
                     logs = cur.fetchall()
-                    
-                    # NEW: Check if the query returned any results
                     if not logs:
-                        # It's normal for a new parent to have no logs, so we use log.info
                         log.info(f"No active tuition logs found for parent_id: {parent_user_id}")
-                        
                     return logs
         except Exception as e:
-            # NEW: Catch any database-related errors
-            log.error(f"Database error while fetching tuition logs for parent {parent_user_id}: {e}", exc_info=True)
-            # Re-raise the exception to be handled by the service layer
+            log.error(f"Database error fetching tuition logs for parent {parent_user_id}: {e}", exc_info=True)
             raise
 
     def get_payment_logs_for_parent(self, parent_user_id: str):
-        """Fetches all payment logs for a parent."""
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT amount_paid, payment_date, notes FROM payment_logs WHERE parent_user_id = %s ORDER BY payment_date ASC;",
-                    (parent_user_id,)
-                )
-                return cur.fetchall()
-
+        """
+        Fetches all payment logs for a parent, with timestamps converted
+        to the application's timezone.
+        """
+        log.info(f"Fetching payment logs for parent_id: {parent_user_id}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    # MODIFICATION: Use AT TIME ZONE to convert timestamps
+                    cur.execute("""
+                        SELECT 
+                            amount_paid, 
+                            payment_date AT TIME ZONE %(tz)s AS payment_date, 
+                            notes 
+                        FROM payment_logs 
+                        WHERE parent_user_id = %(parent_id)s 
+                        ORDER BY payment_date ASC;
+                    """, {'tz': APP_TIMEZONE, 'parent_id': parent_user_id})
+                    
+                    payments = cur.fetchall()
+                    if not payments:
+                        log.info(f"No payment logs found for parent_id: {parent_user_id}")
+                    return payments
+        except Exception as e:
+            log.error(f"Database error fetching payment logs for parent {parent_user_id}: {e}", exc_info=True)
+            raise
 
     def get_all_tuition_logs(self):
         """
-        Fetches all tuition logs from the database, ordered by most recent first.
+        Fetches all tuition logs from the database, converting UTC timestamps
+        to the application's configured timezone.
         """
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT 
-                        id, 
-                        create_type,
-                        attendee_names, 
-                        subject, 
-                        start_time, 
-                        end_time, 
-                        cost, 
-                        status, 
-                        corrected_from_log_id 
-                    FROM tuition_logs 
-                    ORDER BY start_time DESC;
-                """)
-                return cur.fetchall()
+        log.info(f"Fetching all tuition logs, converting to timezone: {APP_TIMEZONE}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    # MODIFICATION: Use AT TIME ZONE to convert the timestamps
+                    cur.execute("""
+                        SELECT 
+                            id, 
+                            attendee_names, 
+                            subject, 
+                            start_time AT TIME ZONE %(tz)s AS start_time, 
+                            end_time AT TIME ZONE %(tz)s AS end_time, 
+                            cost, 
+                            status, 
+                            corrected_from_log_id 
+                        FROM tuition_logs 
+                        ORDER BY start_time DESC;
+                    """, {'tz': APP_TIMEZONE})
+                    
+                    logs = cur.fetchall()
+                    if not logs:
+                        log.info("No tuition logs found in the database.")
+                    return logs
+        except Exception as e:
+            log.error(f"Database error while fetching all tuition logs: {e}", exc_info=True)
+            raise
+
+
+

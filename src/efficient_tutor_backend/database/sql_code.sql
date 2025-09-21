@@ -171,3 +171,6 @@ UPDATE tuition_logs
 SET
     start_time = start_time - INTERVAL '3 hours',
     end_time = end_time - INTERVAL '3 hours';
+
+/* VERY IMPORTANT PIECE OF CODE TO VIEW THE DATA WITH CORRECT +/- UTC hours wanted
+SET timezone = 'Africa/Cairo';
