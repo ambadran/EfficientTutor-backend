@@ -172,5 +172,32 @@ SET
     start_time = start_time - INTERVAL '3 hours',
     end_time = end_time - INTERVAL '3 hours';
 
-/* VERY IMPORTANT PIECE OF CODE TO VIEW THE DATA WITH CORRECT +/- UTC hours wanted
+/* VERY IMPORTANT PIECE OF CODE TO VIEW THE DATA WITH CORRECT +/- UTC hours wanted */
 SET timezone = 'Africa/Cairo';
+
+-- Phase 1, Step 1: Add the new column to the tuition_logs table.
+-- We are adding an array of UUIDs.
+ALTER TABLE tuition_logs
+ADD COLUMN attendee_ids UUID[];
+
+-- Phase 1, Step 2: Migrate data from 'attendee_names' to 'attendee_ids'.
+-- This is the "smart" query that matches first names to student IDs.
+UPDATE tuition_logs
+SET attendee_ids = subquery.ids
+FROM (
+    -- This subquery creates a temporary table mapping each logs ID
+    -- to a correctly constructed array of student UUIDs.
+    SELECT
+        tl.id AS log_id,
+        array_agg(s.id) AS ids
+    FROM
+        tuition_logs tl,
+        -- 'unnest' turns the text array of names into a temporary table of rows,
+        -- allowing us to join on it.
+        unnest(tl.attendee_names) AS name_to_match
+    -- We join the un-nested names with the students table on their first name.
+    JOIN students s ON s.first_name = name_to_match
+    GROUP BY
+        tl.id
+) AS subquery
+WHERE tuition_logs.id = subquery.log_id;

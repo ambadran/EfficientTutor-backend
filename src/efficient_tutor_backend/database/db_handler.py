@@ -795,26 +795,25 @@ class DatabaseHandler:
                 return [row[0] for row in cur.fetchall()]
 
     def insert_tuition_log(self, log_payload: dict) -> str:
-        """Inserts a new record into the tuition_logs table."""
+        """Inserts a new record into the tuition_logs table using attendee_ids."""
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
+                    # MODIFICATION: Replaced attendee_names with attendee_ids
                     cur.execute("""
                         INSERT INTO tuition_logs (
-                            id, create_type, tuition_id, parent_user_id, subject, attendee_names,
+                            id, create_type, tuition_id, parent_user_id, subject, attendee_ids,
                             lesson_index, cost, start_time, end_time
                         ) VALUES (
-                            %(id)s, %(create_type)s, %(tuition_id)s, %(parent_user_id)s, %(subject)s, %(attendee_names)s,
+                            %(id)s, %(create_type)s, %(tuition_id)s, %(parent_user_id)s, %(subject)s, %(attendee_ids)s,
                             %(lesson_index)s, %(cost)s, %(start_time)s, %(end_time)s
                         );
                     """, log_payload)
                     conn.commit()
                     return log_payload['id']
         except Exception as e:
-            # NEW: Log the detailed error and the payload that caused it
             log.error(f"Failed to insert tuition log. Error: {e}")
             log.error(f"Failing payload: {log_payload}")
-            # Re-raise the exception so the service layer can handle it
             raise
                 
     def insert_payment_log(self, payment_data: dict) -> str:
@@ -859,21 +858,17 @@ class DatabaseHandler:
 
 # methods to get payment data to create financial data to view
     def get_tuition_logs_for_parent(self, parent_user_id: str):
-        """
-        Fetches all active tuition logs for a parent, ordered chronologically,
-        with timestamps converted to the application's timezone.
-        """
+        """Fetches tuition logs for a parent, now returning attendee_ids."""
         timezone = self.get_user_timezone(parent_user_id)
         log.info(f"Fetching tuition logs for parent_id: {parent_user_id} in timezone: {timezone}")
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # MODIFICATION: Use AT TIME ZONE to convert timestamps
                     cur.execute("""
                         SELECT 
                             id, 
                             subject, 
-                            attendee_names, 
+                            attendee_ids, 
                             start_time AT TIME ZONE %(tz)s AS start_time, 
                             end_time AT TIME ZONE %(tz)s AS end_time, 
                             cost
@@ -920,20 +915,17 @@ class DatabaseHandler:
             raise
 
     def get_all_tuition_logs(self, viewer_id: str):
-        """
-        Fetches all tuition logs from the database, converting UTC timestamps
-        to the application's configured timezone.
-        """
+        """Fetches all logs, now returning attendee_ids."""
         timezone = self.get_user_timezone(viewer_id)
-        log.info(f"Fetching all tuition logs converting to timezone: {timezone}")
+        log.info(f"Fetching all tuition logs, converting to timezone: {timezone}")
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # MODIFICATION: Use AT TIME ZONE to convert the timestamps
+                    # MODIFICATION: Replaced attendee_names with attendee_ids
                     cur.execute("""
                         SELECT 
                             id, 
-                            attendee_names, 
+                            attendee_ids, 
                             subject, 
                             start_time AT TIME ZONE %(tz)s AS start_time, 
                             end_time AT TIME ZONE %(tz)s AS end_time, 
@@ -951,7 +943,6 @@ class DatabaseHandler:
         except Exception as e:
             log.error(f"Database error while fetching all tuition logs: {e}", exc_info=True)
             raise
-
 
     def get_user_timezone(self, user_id: str) -> str:
         """Fetches the timezone for a specific user."""
