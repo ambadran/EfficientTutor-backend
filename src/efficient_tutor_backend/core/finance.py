@@ -32,7 +32,6 @@ class LogbookService:
             raise ValueError("Missing required fields: log_type, start_time, or end_time.")
 
         # Basic time validation
-        #TODO: put the defualt +2 hour
         start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
         end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
         if start_time >= end_time:

@@ -201,3 +201,148 @@ FROM (
         tl.id
 ) AS subquery
 WHERE tuition_logs.id = subquery.log_id;
+
+
+
+/* The new design */
+-- ====================================================================
+-- Step 1: Create New Tables & Establish Relationships
+-- ====================================================================
+
+-- Create the `parents` table with a 1-to-1 relationship to `users`
+CREATE TABLE parents (
+    id UUID PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    currency TEXT NOT NULL DEFAULT 'EGP'
+);
+
+-- Create the `teachers` table with a 1-to-1 relationship to `users`
+CREATE TABLE teachers (
+    id UUID PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE CASCADE
+    -- Add any teacher-specific fields here in the future, e.g., qualifications, bio, etc.
+);
+
+-- Create the table for tuition template charges
+CREATE TABLE tuition_template_charges (
+    id UUID PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
+    tuition_id UUID NOT NULL REFERENCES tuitions(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    parent_id UUID NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+    cost NUMERIC(10, 2) NOT NULL
+);
+
+-- Create the table for actual tuition log charges
+CREATE TABLE tuition_log_charges (
+    id UUID PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
+    tuition_log_id UUID NOT NULL REFERENCES tuition_logs(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    parent_id UUID NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+    cost NUMERIC(10, 2) NOT NULL
+);
+
+
+-- ====================================================================
+-- Step 2: Alter Existing Tables
+-- ====================================================================
+
+-- Add teacher_id to the `tuitions` table
+ALTER TABLE tuitions
+ADD COLUMN teacher_id UUID REFERENCES teachers(id) ON DELETE SET NULL;
+
+-- Add teacher_id to the `tuition_logs` table
+ALTER TABLE tuition_logs
+ADD COLUMN teacher_id UUID REFERENCES teachers(id) ON DELETE SET NULL;
+
+-- Add status and correction columns to `payment_logs`
+ALTER TABLE payment_logs
+ADD COLUMN status log_status_enum NOT NULL DEFAULT 'ACTIVE',
+ADD COLUMN corrected_from_log_id UUID REFERENCES payment_logs(id) DEFAULT NULL;
+
+
+-- ====================================================================
+-- Step 3: Data Migration
+-- ====================================================================
+
+-- First, populate the new `parents` table by finding all users who are listed
+-- as a parent in the `students` table.
+INSERT INTO parents (id)
+SELECT DISTINCT user_id FROM students
+ON CONFLICT (id) DO NOTHING; -- Prevents errors if a parent ID is already there
+
+-- Now, migrate the historical data from `tuition_logs` into `tuition_log_charges`
+INSERT INTO tuition_log_charges (tuition_log_id, student_id, parent_id, cost)
+SELECT
+    tl.id AS tuition_log_id,
+    s.id AS student_id,
+    s.user_id AS parent_id,
+    -- For now, we assume the cost is divided equally among all attendees.
+    -- This is the best we can do with the old data structure.
+    tl.cost / array_length(tl.attendee_ids, 1) AS cost
+FROM
+    tuition_logs tl,
+    -- Unnest the array of student IDs to process them one by one
+    unnest(tl.attendee_ids) AS student_id_from_array
+-- Join with the students table to get the students parent_id
+JOIN students s ON s.id = student_id_from_array
+-- Ensure the log is active before migrating
+WHERE tl.status = 'ACTIVE';
+
+-- another update
+-- Step 1: Add the new 'parent_id' column, allowing it to be temporarily null.
+ALTER TABLE students
+ADD COLUMN parent_id UUID;
+
+-- Step 2: Copy all existing parent IDs from the old 'user_id' column to the new 'parent_id' column.
+UPDATE students
+SET parent_id = user_id;
+
+-- Step 3: Add the new, more specific foreign key constraint to 'parent_id'.
+-- This ensures it correctly links to the 'parents' table.
+ALTER TABLE students
+ADD CONSTRAINT students_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES parents(id) ON DELETE CASCADE;
+
+-- Step 4: Now that the column is populated, make it non-nullable.
+ALTER TABLE students
+ALTER COLUMN parent_id SET NOT NULL;
+
+
+-- ====================================================================
+-- Step 4: Cleanup Script (DO NOT RUN UNTIL THE ENTIRE REFACTOR IS COMPLETE AND TESTED)
+-- ====================================================================
+
+/*
+-- Save this script for later. It will remove the old, now-redundant columns.
+
+-- Drop old name columns from `students`
+ALTER TABLE students DROP COLUMN first_name, DROP COLUMN last_name;
+
+ALTER TABLE tuition_logs DROP COLUMN parent_user_id;
+ALTER TABLE tuition_logs DROP COLUMN attendee_names; -- If you haven't already
+ALTER TABLE tuition_logs DROP COLUMN attendee_ids;
+ALTER TABLE tuition_logs DROP COLUMN cost;
+ALTER TABLE tuition_logs DROP COLUMN lesson_index; -- No longer needed as part of log
+
+
+-- You may also want to clean up the `tuitions` table if its structure has changed.
+-- For example, if cost and student info are now only in the template charges table.
+#TODO
+
+
+-- To be run after the full application refactor is complete and tested.
+-- Step 1: Drop the old foreign key constraint from the 'user_id' column.
+-- Note: Your constraint name might be different. Use `\d students` in pgcli to confirm.
+ALTER TABLE students
+DROP CONSTRAINT students_user_id_fkey;
+
+-- Step 2: Drop the old, now-redundant 'user_id' column.
+ALTER TABLE students
+DROP COLUMN user_id;
+*/
+
+INSERT INTO payment_logs (parent_user_id, amount_paid, status, notes, corrected_from_log_id)
+VALUES (
+    (SELECT id FROM users WHERE email = 'manalhasan857@gmail.com'),
+    102,
+    'ACTIVE',
+    NULL,
+    NULL
+);

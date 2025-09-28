@@ -269,10 +269,28 @@ def create_tuition_log():
     """
     Receives data from the teacher's UI to create a new tuition log.
     Delegates all logic to the LogbookService.
+
+    - scheduled tuition log json data
+    {"log_type":"scheduled",
+     "tuition_id":"dc7a18b0-1940-48c9-9ef4-2a7179b2e8d8",
+     "subject":"Math",
+     "student_names":["Ali"],
+     "scheduled_start_time":"2025-09-20T15:00:00",
+     "scheduled_end_time":"2025-09-20T16:30:00",
+     "start_time":"2025-09-27T12:21:00.000Z",
+     "end_time":"2025-09-27T13:30:00.000Z"}
+
+    - custom tuition log json data
+    {"log_type":"custom",
+     "student_ids":["ae522713-ea91-4c90-ba65-4abc3a6990ce"],
+     "student_names":["Omran"],
+     "subject":"Math",
+     "start_time":"2025-09-27T15:35:00.000Z",
+     "end_time":"2025-09-27T16:39:00.000Z",
+     "cost":6}
     """
     data = request.get_json()
     try:
-        print("laksjdflkjlk")
         new_log_id = logbook_service.create_tuition_log(data)
         return jsonify({"message": "Tuition log created successfully", "log_id": new_log_id}), 201
     except ValueError as e:
