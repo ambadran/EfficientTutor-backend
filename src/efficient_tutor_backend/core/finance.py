@@ -160,7 +160,7 @@ class FinancialLedgerService:
         """
         log.info(f"Calculating ledger for {len(tuition_logs)} tuition(s) and {len(payment_logs)} payment(s).")
         total_paid = sum(log['amount_paid'] for log in payment_logs)
-        paid_balance = total_paid
+        paid_balance = float(total_paid)
         
         unpaid_count = 0
         total_due = 0.0
