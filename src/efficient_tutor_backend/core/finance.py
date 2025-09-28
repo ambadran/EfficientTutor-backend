@@ -32,7 +32,6 @@ class LogbookService:
             raise ValueError("Missing required fields: log_type, start_time, or end_time.")
 
         # Basic time validation
-        #TODO: put the defualt +2 hour
         start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
         end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
         if start_time >= end_time:
@@ -160,7 +159,7 @@ class FinancialLedgerService:
         """
         log.info(f"Calculating ledger for {len(tuition_logs)} tuition(s) and {len(payment_logs)} payment(s).")
         total_paid = sum(log['amount_paid'] for log in payment_logs)
-        paid_balance = total_paid
+        paid_balance = float(total_paid)
         
         unpaid_count = 0
         total_due = 0.0

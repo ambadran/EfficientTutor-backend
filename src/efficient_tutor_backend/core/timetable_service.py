@@ -1,6 +1,7 @@
 """
 Provide all needed timetable_runs db  table interactions
 """
+
 class TimetableService:
     """
     Handles business logic related to fetching and processing timetable data.
