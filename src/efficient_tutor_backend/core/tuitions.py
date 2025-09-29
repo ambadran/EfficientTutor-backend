@@ -7,11 +7,11 @@ from datetime import timedelta
 from typing import Optional, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
 
 # Assuming these are in the same directory or accessible via PYTHONPATH
 from ..common.logger import log
-from ..database.db_handler import DatabaseHandler
+from ..database.db_handler2 import DatabaseHandler
 from .users import (
     Student, Parent, Teacher, Students, Parents, Teachers,
     SubjectEnum # Assuming you move the dynamic Enum creation here or a central place
@@ -39,13 +39,17 @@ class Tuition(BaseModel):
     lesson_index: int
     meeting_link: Optional[str] = None
 
-    class Config:
-        orm_mode = True
-        allow_population_by_field_name = True
-        json_encoders = {
-            timedelta: lambda v: v.total_seconds() / 60  # Store as minutes
-        }
+    # This replaces the old 'json_encoders' logic
+    @field_serializer('min_duration', 'max_duration')
+    def serialize_duration_to_minutes(self, value: timedelta) -> float:
+        """Serializes timedelta objects into a float representing total minutes."""
+        return value.total_seconds() / 60
 
+    # This replaces the old 'class Config'
+    model_config = ConfigDict(
+        from_attributes=True,      # Replaces orm_mode = True
+        populate_by_name=True,     # Replaces allow_population_by_field_name = True
+    )
 
 # --- Service Class ---
 

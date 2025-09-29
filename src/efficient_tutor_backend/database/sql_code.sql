@@ -338,6 +338,7 @@ ALTER TABLE students
 DROP COLUMN user_id;
 */
 
+/* VERY IMPORTANT: manually inserting the payment logs */
 INSERT INTO payment_logs (parent_user_id, amount_paid, status, notes, corrected_from_log_id)
 VALUES (
     (SELECT id FROM users WHERE email = 'eynashussein@gmail.com'),
@@ -346,3 +347,21 @@ VALUES (
     NULL,
     NULL
 );
+/********************************************************/
+
+-- This script populates the `tuition_template_charges` table based on
+-- the data in your existing `tuitions` table.
+INSERT INTO tuition_template_charges (tuition_id, student_id, parent_id, cost)
+SELECT
+    t.id AS tuition_id,
+    s.id AS student_id,
+    s.parent_id AS parent_id,
+    -- Assumes the template cost is divided equally among all students in the template.
+    t.cost / array_length(t.student_ids, 1) AS cost
+FROM
+    tuitions t,
+    -- Unnest the array of student IDs to process them one by one
+    unnest(t.student_ids) AS student_id_from_array
+-- Join with the students table to get each students parent_id
+JOIN students s ON s.id = student_id_from_array;
+

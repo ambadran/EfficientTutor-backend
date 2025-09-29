@@ -3,7 +3,7 @@
 '''
 import os
 import logging
-import uuid
+from uuid import UUID
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -23,7 +23,7 @@ class DatabaseHandler:
     _pool = None
 
     def __init__(self):
-        if not DatabaseHandler._pool
+        if not DatabaseHandler._pool:
             load_dotenv()
             database_url = os.environ.get('DATABASE_URL')
             if not database_url:
@@ -125,7 +125,7 @@ class DatabaseHandler:
             log.error(f"Error fetching user by {key_column} '{value}': {e}", exc_info=True)
             return None
 
-    def get_user_by_id(self, user_id: uuid.UUID) -> Optional[dict[str, Any]]:
+    def get_user_by_id(self, user_id: UUID) -> Optional[dict[str, Any]]:
         """Fetches a complete, unified user record by their UUID."""
         return self._get_unified_user('id', user_id)
 
@@ -133,7 +133,7 @@ class DatabaseHandler:
         """Fetches a complete, unified user record by their email."""
         return self._get_unified_user('email', email)
         
-    def get_students_by_parent_id(self, parent_id: uuid.UUID) -> list[dict[str, Any]]:
+    def get_students_by_parent_id(self, parent_id: UUID) -> list[dict[str, Any]]:
         """Fetches all students associated with a specific parent ID."""
         log.info(f"Fetching all students for parent_id: {parent_id}")
         # This query is specific to students and can be more direct
@@ -159,7 +159,7 @@ class DatabaseHandler:
         return results
 
     # --- User Creation (Write Operations) ---
-    def create_parent(self, email: str, password: str, first_name: str, last_name: str, currency: str = 'EGP') -> Optional[uuid.UUID]:
+    def create_parent(self, email: str, password: str, first_name: str, last_name: str, currency: str = 'EGP') -> Optional[UUID]:
         """
         Creates a new parent user in a single transaction.
         Handles hashing the password and creating records in 'users' and 'parents'.
@@ -222,7 +222,7 @@ class DatabaseHandler:
     # ... Other creation methods for Teacher, Student, etc. would follow a similar pattern ...
 
     # --- User Deletion ---
-    def delete_user(self, user_id: uuid.UUID) -> bool:
+    def delete_user(self, user_id: UUID) -> bool:
         """
         Deletes a user from the 'users' table.
         Due to 'ON DELETE CASCADE' constraints, records in 'students', 'parents',
