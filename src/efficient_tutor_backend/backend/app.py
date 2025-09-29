@@ -91,7 +91,7 @@ def handle_students():
         return jsonify(students), 200
 
     if request.method == 'POST':
-        time.sleep(1.5) # Simulate processing delay for loading spinner
+        time.sleep(0.5) # Simulate processing delay for loading spinner
         student_data = request.get_json().get('student')
         student_id = db.save_student(user_id, student_data)
 
@@ -231,6 +231,7 @@ def get_meeting_links():
 # methods to get data to choose from
 @main_routes.route('/schedulable-tuitions', methods=['GET'])
 def get_schedulable_tuitions():
+    #TODO: must take in teacher_id to return the schedulable tuitions for the specific teacher only
     """
     Returns a list of all defined tuitions, enriched with their scheduled
     times to be displayed on the teacher's UI.
