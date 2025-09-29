@@ -56,7 +56,7 @@ class DatabaseHandler:
                 DatabaseHandler._pool.putconn(conn)
 
     # --- ENUM Handling ---
-    def get_enum_labels(self, type_name: str) -> List[str]:
+    def get_enum_labels(self, type_name: str) -> list[str]:
         """
         Dynamically fetches the labels for a given PostgreSQL ENUM type.
         
@@ -90,7 +90,7 @@ class DatabaseHandler:
             return []
             
     # --- User Retrieval (Read Operations) ---
-    def _get_unified_user(self, key_column: str, value: Any) -> Optional[Dict[str, Any]]:
+    def _get_unified_user(self, key_column: str, value: Any) -> Optional[dict[str, Any]]:
         """
         Internal helper to fetch a unified user record by a specific key.
         This joins all user-related tables to create a complete user object.
@@ -125,15 +125,15 @@ class DatabaseHandler:
             log.error(f"Error fetching user by {key_column} '{value}': {e}", exc_info=True)
             return None
 
-    def get_user_by_id(self, user_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    def get_user_by_id(self, user_id: uuid.UUID) -> Optional[dict[str, Any]]:
         """Fetches a complete, unified user record by their UUID."""
         return self._get_unified_user('id', user_id)
 
-    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+    def get_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
         """Fetches a complete, unified user record by their email."""
         return self._get_unified_user('email', email)
         
-    def get_students_by_parent_id(self, parent_id: uuid.UUID) -> List[Dict[str, Any]]:
+    def get_students_by_parent_id(self, parent_id: uuid.UUID) -> list[dict[str, Any]]:
         """Fetches all students associated with a specific parent ID."""
         log.info(f"Fetching all students for parent_id: {parent_id}")
         # This query is specific to students and can be more direct
@@ -191,7 +191,34 @@ class DatabaseHandler:
                     conn.rollback()
                     log.error(f"Transaction failed for creating parent {email}: {e}", exc_info=True)
                     return None
-                    
+
+    def get_all_users_by_role(self, role: str) -> list[dict[str, Any]]:
+        """
+        Fetches all unified user records for a specific role.
+        """
+        log.info(f"Fetching all users with role: '{role}'")
+        query = """
+            SELECT
+                u.id, u.email, u.is_first_sign_in, u.role, u.timezone,
+                u.first_name, u.last_name,
+                p.currency,
+                s.parent_id, s.student_data, s.cost, s.status,
+                s.min_duration_mins, s.max_duration_mins, s.grade,
+                s.generated_password
+            FROM users u
+            LEFT JOIN parents p ON u.id = p.id
+            LEFT JOIN students s ON u.id = s.id
+            WHERE u.role = %s;
+        """
+        results = []
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, (role,))
+                    results = [dict(row) for row in cur.fetchall()]
+        except Exception as e:
+            log.error(f"Error fetching all users with role '{role}': {e}", exc_info=True)
+        return results                   
     # ... Other creation methods for Teacher, Student, etc. would follow a similar pattern ...
 
     # --- User Deletion ---
@@ -217,3 +244,165 @@ class DatabaseHandler:
                     conn.rollback()
                     log.error(f"Failed to delete user {user_id}: {e}", exc_info=True)
                     return False
+
+    def get_all_tuitions(self) -> list[dict[str, Any]]:
+        """
+        Fetches all tuitions and their related data in a structured format
+        suitable for Pydantic model hydration.
+        
+        This query uses Common Table Expressions (CTEs) and JSON aggregation
+        to gather all related data efficiently in a single database roundtrip.
+        """
+        log.info("Executing unified query to fetch all tuition data.")
+        query = """
+        WITH tuition_charges AS (
+            SELECT
+                ttc.tuition_id,
+                jsonb_build_object(
+                    'cost', ttc.cost,
+                    'student', to_jsonb(s_user.*),
+                    'parent', to_jsonb(p_user.*)
+                ) AS charge_details
+            FROM tuition_template_charges ttc
+            JOIN users s_user ON ttc.student_id = s_user.id
+            JOIN users p_user ON ttc.parent_id = p_user.id
+        ),
+        aggregated_charges AS (
+            SELECT
+                tuition_id,
+                jsonb_agg(charge_details) AS charges
+            FROM tuition_charges
+            GROUP BY tuition_id
+        )
+        SELECT
+            t.id,
+            t.subject,
+            t.lesson_index,
+            t.min_duration_minutes,
+            t.max_duration_minutes,
+            t.meeting_link,
+            to_jsonb(teacher_user.*) AS teacher,
+            ac.charges
+        FROM tuitions t
+        JOIN aggregated_charges ac ON t.id = ac.tuition_id
+        JOIN users teacher_user ON t.teacher_id = teacher_user.id;
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query)
+                    results = cur.fetchall()
+                    if not results:
+                        return []
+                    # Process results to match Pydantic model structure
+                    return [dict(row) for row in results]
+        except Exception as e:
+            log.error(f"Database error fetching all tuitions: {e}", exc_info=True)
+            raise # Re-raise the exception to be handled by the service layer
+
+    def regenerate_all_tuitions_transaction(self, tuitions: list[dict[str, Any]]) -> bool:
+        """
+        Atomically regenerates all tuitions and their charges in a single transaction.
+        It preserves existing meeting links based on the deterministic tuition ID.
+        """
+        log.info(f"Starting transaction to regenerate {len(tuitions)} tuitions.")
+        
+        old_meeting_links = {}
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    # 1. Preserve existing meeting links
+                    cur.execute("SELECT id, meeting_link FROM tuitions WHERE meeting_link IS NOT NULL;")
+                    for row in cur.fetchall():
+                        old_meeting_links[row[0]] = row[1]
+                    log.info(f"Preserved {len(old_meeting_links)} existing meeting links.")
+
+                    # 2. Truncate tables to clear old data efficiently
+                    log.warning("Truncating tuitions and tuition_template_charges tables...")
+                    cur.execute("TRUNCATE TABLE tuitions, tuition_template_charges RESTART IDENTITY CASCADE;")
+
+                    # 3. Insert new tuitions
+                    for tuition in tuitions:
+                        cur.execute(
+                            """
+                            INSERT INTO tuitions (id, teacher_id, subject, lesson_index, min_duration_minutes, max_duration_minutes)
+                            VALUES (%s, %s, %s, %s, %s, %s);
+                            """,
+                            (
+                                tuition['id'], tuition['teacher_id'], tuition['subject'],
+                                tuition['lesson_index'], tuition['min_duration_minutes'],
+                                tuition['max_duration_minutes']
+                            )
+                        )
+                        # 4. Insert corresponding charges
+                        for charge in tuition['charges']:
+                            cur.execute(
+                                """
+                                INSERT INTO tuition_template_charges (tuition_id, student_id, parent_id, cost)
+                                VALUES (%s, %s, %s, %s);
+                                """,
+                                (tuition['id'], charge['student_id'], charge['parent_id'], charge['cost'])
+                            )
+                    
+                    # 5. Restore meeting links
+                    if old_meeting_links:
+                        log.info("Restoring preserved meeting links...")
+                        for tuition_id, link in old_meeting_links.items():
+                             cur.execute(
+                                "UPDATE tuitions SET meeting_link = %s WHERE id = %s;",
+                                (json.dumps(link), tuition_id) # meeting_link is jsonb
+                            )
+                
+                conn.commit()
+                log.info("Tuition regeneration transaction committed successfully.")
+                return True
+        except Exception as e:
+            log.critical(f"Transaction failed! Rolling back tuition regeneration. Error: {e}", exc_info=True)
+            if 'conn' in locals() and conn:
+                conn.rollback()
+            return False
+
+    def truncate_tuitions(self) -> None:
+        """Helper to clear tuition tables if no students are found."""
+        log.warning("Executing truncate on tuition-related tables.")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("TRUNCATE TABLE tuitions, tuition_template_charges RESTART IDENTITY CASCADE;")
+                conn.commit()
+        except Exception as e:
+            log.error(f"Failed to truncate tuition tables: {e}", exc_info=True)
+            conn.rollback()
+
+
+    def update_tuition_field(self, tuition_id: UUID, column_name: str, new_value: Any) -> bool:
+        """
+        Generic method to update a single column for a given tuition.
+        Future-proofing method, not used in the current regeneration flow.
+        """
+        # A whitelist of updatable columns to prevent SQL injection on column names
+        allowed_columns = [
+            "subject", "lesson_index", "min_duration_minutes",
+            "max_duration_minutes", "meeting_link", "teacher_id"
+        ]
+        if column_name not in allowed_columns:
+            log.error(f"Attempted to update a non-allowed column: {column_name}")
+            return False
+
+        log.info(f"Updating tuition '{tuition_id}' set {column_name} to {new_value}.")
+        
+        # Use psycopg2.sql to safely format the query with a dynamic column name
+        query = sql.SQL("UPDATE tuitions SET {field} = %s WHERE id = %s;").format(
+            field=sql.Identifier(column_name)
+        )
+        
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (new_value, tuition_id))
+                conn.commit()
+                return cur.rowcount > 0 # Return True if a row was updated
+        except Exception as e:
+            log.error(f"Failed to update tuition field: {e}", exc_info=True)
+            conn.rollback()
+            return False

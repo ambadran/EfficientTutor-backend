@@ -340,8 +340,8 @@ DROP COLUMN user_id;
 
 INSERT INTO payment_logs (parent_user_id, amount_paid, status, notes, corrected_from_log_id)
 VALUES (
-    (SELECT id FROM users WHERE email = 'manalhasan857@gmail.com'),
-    102,
+    (SELECT id FROM users WHERE email = 'eynashussein@gmail.com'),
+    96,
     'ACTIVE',
     NULL,
     NULL
