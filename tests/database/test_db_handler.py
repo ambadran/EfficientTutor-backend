@@ -16,6 +16,9 @@ def test_db_get_all_users_by_role_parents(db_handler: DatabaseHandler):
     all_parents_data = db_handler.get_all_users_by_role('parent')
     pprint(all_parents_data)
 
-def test_db_get_all_tuitions(db_handler: DatabaseHandler):
-    all_tuitions = db_handler.get_all_tuitions()
+def test_db_check_tuition_data_integrity(db_handler: DatabaseHandler):
+    pprint(db_handler.check_tuition_data_integrity())
+
+def test_db_get_all_tuitions_raw(db_handler: DatabaseHandler):
+    all_tuitions = db_handler.get_all_tuitions_raw()
     pprint(all_tuitions)

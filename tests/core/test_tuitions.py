@@ -16,4 +16,7 @@ def test_tuitions_initialization(tuitions: Tuitions):
     assert tuitions.students_service is not None
 
 def test_tuitions_get_all(tuitions: Tuitions):
-    pprint(tuitions.get_all())
+    all_tuitions = tuitions.get_all()
+    print(f"No of Tuitions: {len(all_tuitions)}")
+    print(all_tuitions[0])
+

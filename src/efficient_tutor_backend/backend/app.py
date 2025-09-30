@@ -5,23 +5,41 @@ from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import time
 
-# Import the DatabaseHandler from its module
-from ..core.tuition_generator import TuitionGenerator
-from ..core.timetable_service import TimetableService
-from ..core.finance import LogbookService, FinancialLedgerService
-from ..database.db_handler import DatabaseHandler
+# Common Layer
 from ..common.logger import log
+
+# Database Layer
+#TODO should not be initiated here, only inside the service core layer classes
+from ..database.db_handler import DatabaseHandler
+
+# Core Layer
+from ..core.timetable_service import TimetableService
+from ..core.tuition_generator import TuitionGenerator
+from ..core.finance import LogbookService, FinancialLedgerService
+#v0.3
+from ..core.users import SubjectEnum, Users, Students, Parents, Teachers
+from ..core.tuitions import Tuitions
+from ..core.timetable import TimeTable
+
+
+# Database Layer Initiation
+db = DatabaseHandler() #TODO should not be initiated here, only inside the service core layer classes
+
+# Core Layer init
+timetable_service = TimetableService(db)
+logbook_service = LogbookService(db)
+ledger_service = FinancialLedgerService(db)
+# v0.3 services
+users_service = Users()
+students_service = Students()
+parents_service = Parents()
+teachers_service = Teachers()
+tuitions_service = Tuitions()
+timetable_service = TimeTable()
 
 # Instead of a full Flask app, we create a Blueprint to keep routes organized.
 main_routes = Blueprint('main_routes', __name__)
 
-# Instantiate the database handler which will be used by our routes.
-db = DatabaseHandler()
-
-# Instantiate the new service
-timetable_service = TimetableService(db)
-logbook_service = LogbookService(db)
-ledger_service = FinancialLedgerService(db)
 
 @main_routes.route('/', methods=['GET'])
 def health_check():
@@ -237,8 +255,8 @@ def get_schedulable_tuitions():
     times to be displayed on the teacher's UI.
     """
     try:
-        enriched_tuitions = timetable_service.get_schedulable_tuitions()
-        return jsonify(enriched_tuitions), 200
+        scheduled_tuitions = timetable_service.get_latest_for_api()
+        return jsonify(scheduled_tuitions), 200
     except Exception as e:
         # A generic error handler is good practice
         log.error(f"ERROR in /schedulable-tuitions: {e}")
@@ -252,8 +270,8 @@ def get_manual_entry_data():
     a list of all students and a list of all possible subjects.
     """
     try:
-        students = db.get_all_students_basic_info()
-        subjects = db.get_subject_enum_values()
+        students = students_service.get_all_for_api()
+        subjects = SubjectEnum.get_all_names()
         
         response_data = {
             "students": students,

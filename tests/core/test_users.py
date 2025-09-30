@@ -12,10 +12,16 @@ def test_users_service_initialization(users: Users):
     assert users.db is not None
 
 def test_parents_get_all(parents: Parents):
-    pprint(parents.get_all())
+    all_parents = parents.get_all()
+    print(f"No Parent Users: {len(all_parents)}")
+    print(all_parents[0])
 
 def test_teachers_get_all(teachers: Teachers):
-    pprint(teachers.get_all())
+    all_teachers = teachers.get_all()
+    print(f"No Teacher Users: {len(all_teachers)}")
+    print(all_teachers[0])
 
 def test_students_get_all(students: Students):
-    pprint(students.get_all())
+    all_students = students.get_all()
+    print(f"No Student Users: {len(all_students)}")
+    print(all_students[0])
