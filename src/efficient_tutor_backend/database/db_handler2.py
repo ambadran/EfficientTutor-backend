@@ -80,14 +80,13 @@ class DatabaseHandler:
                     cur.execute(query, (type_name,))
                     results = cur.fetchall()
                     if not results:
-                        log.warning(f"No labels found for ENUM type '{type_name}'.")
-                        return []
+                        raise ValueError(f"No labels found for ENUM type '{type_name}'.")
                     labels = [row[0] for row in results]
                     log.info(f"Successfully fetched labels for '{type_name}': {labels}")
                     return labels
         except Exception as e:
             log.error(f"Failed to fetch ENUM labels for '{type_name}': {e}", exc_info=True)
-            return []
+            raise
             
     # --- User Retrieval (Read Operations) ---
     def _get_unified_user(self, key_column: str, value: Any) -> Optional[dict[str, Any]]:
