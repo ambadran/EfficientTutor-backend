@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from efficient_tutor_backend.database.db_handler2 import DatabaseHandler
 from efficient_tutor_backend.core.tuitions import Tuitions
 from efficient_tutor_backend.core.users import Users, Parents, Students, Teachers
+from efficient_tutor_backend.core.timetable import TimeTable
 from efficient_tutor_backend import create_app
 
 # Load environment variables once when pytest starts
@@ -183,6 +184,33 @@ def teachers(monkeypatch) -> Teachers:
     yield service
 
     # Teardown: Clean up the database pool
+    if DatabaseHandler._pool:
+        DatabaseHandler._pool.closeall()
+    DatabaseHandler._pool = None
+
+@pytest.fixture
+def timetable(monkeypatch) -> TimeTable:
+    """
+    Provides a TimeTable service instance connected to the test database.
+    """
+    # 1. Reset the database pool to ensure a clean state
+    if DatabaseHandler._pool:
+        DatabaseHandler._pool.closeall()
+    DatabaseHandler._pool = None
+
+    # 2. Get the test database URL and perform a safety check
+    test_db_url = os.environ.get('DATABASE_URL_TEST')
+    if not test_db_url:
+        pytest.fail("DATABASE_URL_TEST is not set. Aborting tests.")
+
+    # 3. Use monkeypatch to set the correct DATABASE_URL
+    monkeypatch.setenv('DATABASE_URL', test_db_url)
+
+    # 4. Now, create the TimeTable service instance
+    service = TimeTable()
+    yield service
+
+    # 5. Teardown: Clean up the database pool after the test
     if DatabaseHandler._pool:
         DatabaseHandler._pool.closeall()
     DatabaseHandler._pool = None

@@ -51,6 +51,34 @@ class Tuition(BaseModel):
         populate_by_name=True,     # Replaces allow_population_by_field_name = True
     )
 
+    def __repr__(self) -> str:
+        """
+        Provides an unambiguous, developer-friendly representation of the Tuition object.
+        """
+        student_count = len(self.charges)
+        return (
+            f"Tuition(id={self.id!r}, subject='{self.subject.value}', "
+            f"lesson_index={self.lesson_index}, teacher='{self.teacher.email}', "
+            f"students={student_count})"
+        )
+
+    def __str__(self) -> str:
+        """
+        Provides a clean, human-readable summary of the Tuition object.
+        """
+        # Nicely format the list of student names
+        student_names = ", ".join(
+            [charge.student.first_name for charge in self.charges if charge.student.first_name]
+        )
+        # Fallback if names aren't set
+        if not student_names:
+            student_names = f"{len(self.charges)} student(s)"
+        
+        # Use the teacher's first name if available, otherwise their email
+        teacher_name = self.teacher.first_name or self.teacher.email
+
+        return f"[{self.subject.value} - Lesson {self.lesson_index}] with {teacher_name} for {student_names}"
+
 # --- Service Class ---
 
 class Tuitions:
@@ -79,22 +107,80 @@ class Tuitions:
         hasher = hashlib.sha256(id_string.encode('utf-8'))
         return UUID(bytes=hasher.digest()[:16])
 
+
     def get_all(self) -> list[Tuition]:
         """
         Fetches all tuitions from the database and constructs them into Tuition models.
+        This method orchestrates calls to other services to build the final objects.
         """
-        log.info("Fetching all tuitions...")
-        try:
-            tuition_data_list = self.db.get_all_tuitions()
-            if not tuition_data_list:
-                log.warning("No tuitions found in the database.")
-                return []
-            
-            # The DB method is designed to return data pre-structured for this model
-            return [Tuition.parse_obj(data) for data in tuition_data_list]
-        except Exception as e:
-            log.error(f"Failed to fetch and construct all tuitions: {e}", exc_info=True)
+        log.info("Fetching and orchestrating all tuitions...")
+        
+        # --- Eager Loading Phase to Prevent N+1 Queries ---
+        # Fetch all users in bulk and store them in dictionaries for fast lookups.
+        all_students_dict = {s.id: s for s in self.students_service.get_all()}
+        all_parents_dict = {p.id: p for p in self.parents_service.get_all()}
+        all_teachers_dict = {t.id: t for t in self.teachers_service.get_all()}
+        
+        # 1. Get the raw tuition data structures from the database.
+        raw_tuition_list = self.db.get_all_tuitions_raw()
+        if not raw_tuition_list:
+            log.warning("No raw tuitions found in the database.")
             return []
+            
+        final_tuitions = []
+        try:
+            # 2. Assemble the final Pydantic models in Python.
+            for raw_data in raw_tuition_list:
+                # Look up the full Teacher object from our eager-loaded dictionary.
+                teacher_obj = all_teachers_dict.get(UUID(raw_data['teacher_id']))
+                if not teacher_obj:
+                    log.warning(f"Skipping tuition {raw_data['id']}: teacher {raw_data['teacher_id']} not found.")
+                    continue
+
+                tuition_charges = []
+                for charge_data in raw_data.get('charges', []):
+                    # Look up the full Student and Parent objects.
+                    student_obj = all_students_dict.get(UUID(charge_data['student_id']))
+                    parent_obj = all_parents_dict.get(UUID(charge_data['parent_id']))
+
+                    if not student_obj or not parent_obj:
+                        log.warning(f"Skipping charge in tuition {raw_data['id']}: student or parent not found.")
+                        continue
+                    
+                    tuition_charges.append(
+                        TuitionCharge(
+                            student=student_obj,
+                            parent=parent_obj,
+                            cost=charge_data['cost']
+                        )
+                    )
+                
+                # If after checking, there are no valid charges, skip this tuition.
+                if not tuition_charges:
+                    log.warning(f"Skipping tuition {raw_data['id']}: no valid charges could be constructed.")
+                    continue
+
+                # Construct the final, validated Tuition object.
+                # Pydantic will handle the timedelta conversion from _minutes fields.
+                final_tuitions.append(
+                    Tuition(
+                        id=raw_data['id'],
+                        subject=raw_data['subject'],
+                        lesson_index=raw_data['lesson_index'],
+                        min_duration_minutes=raw_data['min_duration_minutes'],
+                        max_duration_minutes=raw_data['max_duration_minutes'],
+                        meeting_link=raw_data['meeting_link'],
+                        teacher=teacher_obj,
+                        charges=tuition_charges
+                    )
+                )
+            
+            return final_tuitions
+        except Exception as e:
+            # This will now catch both DB errors and Pydantic validation errors during assembly.
+            log.error(f"Failed to fetch and construct all tuitions: {e}", exc_info=True)
+            # You might want to re-raise the exception depending on your error handling strategy.
+            raise
 
     def regenerate_all_tuitions(self) -> bool:
         """
@@ -178,9 +264,31 @@ class Tuitions:
             success = self.db.regenerate_all_tuitions_transaction(tuitions_to_create)
             if success:
                 log.info("Successfully regenerated all tuitions in the database.")
+
+                # NEW: Run integrity check immediately after regeneration for verification.
+                log.info("Running post-regeneration integrity check...")
+                self.verify_data_integrity()
             else:
                 log.error("Tuition regeneration transaction failed.")
             return success
         except Exception as e:
             log.critical(f"A critical error occurred during tuition regeneration: {e}", exc_info=True)
             return False
+
+    def verify_data_integrity(self) -> list[dict[str, Any]]:
+        """
+        NEW: Service layer method to run the diagnostic check for tuition data.
+        This method finds and logs tuitions with missing linked data.
+        It can be called on demand by admin tools or scheduled tasks.
+        """
+        log.info("Verifying tuition data integrity...")
+        problematic_tuitions = self.db.check_tuition_data_integrity()
+        
+        if problematic_tuitions:
+            log.warning(f"Data integrity check found {len(problematic_tuitions)} problematic tuitions.")
+            for problem in problematic_tuitions:
+                log.warning(f"  - Tuition ID: {problem['tuition_id']}, Teacher Issue: {problem['teacher_issue']}, Charges Issue: {problem['charges_issue']}")
+        else:
+            log.info("Tuition data integrity check passed with no issues.")
+            
+        return problematic_tuitions
