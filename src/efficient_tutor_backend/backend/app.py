@@ -30,12 +30,15 @@ timetable_service = TimetableService(db)
 logbook_service = LogbookService(db)
 ledger_service = FinancialLedgerService(db)
 # v0.3 services
-users_service = Users()
-students_service = Students()
-parents_service = Parents()
-teachers_service = Teachers()
-tuitions_service = Tuitions()
-timetable_service = TimeTable()
+try:
+    users_service = Users()
+    students_service = Students()
+    parents_service = Parents()
+    teachers_service = Teachers()
+    tuitions_service = Tuitions()
+    timetable_service = TimeTable()
+except Exception as e:
+    raise ImportError("Couldn't Initialize Core modules!\n{e}")
 
 # Instead of a full Flask app, we create a Blueprint to keep routes organized.
 main_routes = Blueprint('main_routes', __name__)

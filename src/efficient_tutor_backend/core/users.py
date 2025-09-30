@@ -28,11 +28,9 @@ try:
     SubjectEnum = ListableEnum('SubjectEnum', {label: label for label in db_temp.get_enum_labels('subject_enum')})
     log.info("Successfully created ENUM classes.")
 except Exception as e:
-    log.critical(f"FATAL: Could not initialize dynamic ENUMs. Error: {e}", exc_info=True)
-    # Define placeholder Enums
-    UserRole = ListableEnum('UserRole', {'parent': 'parent', 'student': 'student', 'teacher': 'teacher'})
-    StudentStatus = ListableEnum('StudentStatus', {'NONE': 'NONE', 'Alpha': 'Alpha'})
-    SubjectEnum = ListableEnum('SubjectEnum', {'Math': 'Math', 'Physics': 'Physics'})
+    log.error(f"FATAL: Could not initialize dynamic ENUMs. Error: {e}", exc_info=True)
+    raise 
+
 
 # --- Pydantic Data Models (Singular Classes) ---
 
