@@ -463,3 +463,4 @@ class DatabaseHandler:
         except Exception as e:
             log.error(f"Database error fetching latest timetable: {e}", exc_info=True)
             raise
+
