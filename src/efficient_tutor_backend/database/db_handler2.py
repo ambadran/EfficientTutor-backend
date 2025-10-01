@@ -6,9 +6,11 @@ import logging
 from uuid import UUID
 from contextlib import contextmanager
 from typing import Any, Optional
+from datetime import datetime
+from decimal import Decimal
 
 import psycopg2
-from psycopg2 import pool
+from psycopg2 import pool, sql
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -464,3 +466,272 @@ class DatabaseHandler:
             log.error(f"Database error fetching latest timetable: {e}", exc_info=True)
             raise
 
+    # --- Finance Log Creation ---
+
+    def create_tuition_log_and_charges(
+        self,
+        teacher_id: UUID,
+        subject: str,
+        start_time: datetime,
+        end_time: datetime,
+        create_type: str,
+        charges: list[dict[str, Any]],
+        tuition_id: Optional[UUID] = None,
+        lesson_index: Optional[int] = None,
+        corrected_from_log_id: Optional[UUID] = None
+    ) -> Optional[UUID]:
+        """
+        Atomically creates a new tuition log and all its associated student charges
+        in a single transaction.
+        
+        Returns the new tuition_log ID on success, None on failure.
+        """
+        log.info(f"Creating new {create_type} tuition log with {len(charges)} charges.")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    # 1. Insert the main tuition_log record
+                    cur.execute(
+                        """
+                        INSERT INTO tuition_logs (
+                            teacher_id, subject, start_time, end_time, create_type,
+                            tuition_id, lesson_index, corrected_from_log_id
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                        """,
+                        (
+                            teacher_id, subject, start_time, end_time, create_type,
+                            tuition_id, lesson_index, corrected_from_log_id
+                        )
+                    )
+                    new_log_id = cur.fetchone()[0]
+
+                    # 2. Insert each associated student charge
+                    for charge in charges:
+                        cur.execute(
+                            """
+                            INSERT INTO tuition_log_charges (tuition_log_id, student_id, parent_id, cost)
+                            VALUES (%s, %s, %s, %s);
+                            """,
+                            (new_log_id, charge['student_id'], charge['parent_id'], charge['cost'])
+                        )
+                
+                conn.commit()
+                log.info(f"Successfully created tuition log {new_log_id}.")
+                return new_log_id
+        except Exception as e:
+            log.error(f"Transaction failed! Rolling back tuition log creation. Error: {e}", exc_info=True)
+            if 'conn' in locals() and conn:
+                conn.rollback()
+            return None
+
+    def create_payment_log(
+        self,
+        parent_user_id: UUID,
+        teacher_id: UUID,
+        amount_paid: Decimal,
+        notes: Optional[str] = None,
+        corrected_from_log_id: Optional[UUID] = None
+    ) -> Optional[UUID]:
+        """Creates a new payment log entry and returns its ID."""
+        log.info(f"Creating new payment log for parent {parent_user_id}.")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO payment_logs (parent_user_id, teacher_id, amount_paid, notes, corrected_from_log_id)
+                        VALUES (%s, %s, %s, %s, %s) RETURNING id;
+                        """,
+                        (parent_user_id, teacher_id, amount_paid, notes, corrected_from_log_id)
+                    )
+                    new_log_id = cur.fetchone()[0]
+                conn.commit()
+                log.info(f"Successfully created payment log {new_log_id}.")
+                return new_log_id
+        except Exception as e:
+            log.error(f"Failed to create payment log: {e}", exc_info=True)
+            conn.rollback()
+            return None
+
+    # --- Finance Log Updates (Voiding) ---
+
+    def set_log_status(self, table_name: str, log_id: UUID, status: str) -> bool:
+        """Generic helper to set the status of a log in a given table."""
+        log.info(f"Setting status for log {log_id} in table '{table_name}' to '{status}'.")
+        # Use psycopg2.sql for safe table name injection
+        query = sql.SQL("UPDATE {table} SET status = %s WHERE id = %s;").format(
+            table=sql.Identifier(table_name)
+        )
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (status, log_id))
+                conn.commit()
+                return cur.rowcount > 0 # True if a row was updated
+        except Exception as e:
+            log.error(f"Failed to set log status for {log_id}: {e}", exc_info=True)
+            conn.rollback()
+            return False
+
+    # --- Finance Log Retrieval ---
+
+    def get_earliest_log_start_time(self) -> Optional[datetime]:
+        """Finds the earliest start_time across all tuition logs for week number calculation."""
+        log.info("Fetching the earliest tuition log start time.")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT MIN(start_time) FROM tuition_logs WHERE status = 'ACTIVE';")
+                    result = cur.fetchone()
+                    return result[0] if result else None
+        except Exception as e:
+            log.error(f"Failed to fetch earliest log start time: {e}", exc_info=True)
+            return None
+    
+    def _get_hydrated_logs(self, where_clause: sql.SQL, params: tuple) -> list[dict]:
+        """
+        Private helper to fetch and construct rich tuition log data using a dynamic WHERE clause.
+        This efficiently gathers all related data in a single query.
+        """
+        # This query joins all necessary tables and uses JSON aggregation
+        # to build a nested structure that matches our Pydantic models.
+        query = sql.SQL("""
+            WITH aggregated_charges AS (
+                SELECT
+                    tlc.tuition_log_id,
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'cost', tlc.cost,
+                            'student', to_jsonb(s_user.*) || to_jsonb(s.*),
+                            'parent', to_jsonb(p_user.*) || to_jsonb(p.*)
+                        )
+                    ) AS charges
+                FROM tuition_log_charges tlc
+                JOIN users s_user ON tlc.student_id = s_user.id
+                JOIN students s ON tlc.student_id = s.id
+                JOIN users p_user ON tlc.parent_id = p_user.id
+                JOIN parents p ON tlc.parent_id = p.id
+                GROUP BY tlc.tuition_log_id
+            )
+            SELECT
+                tl.id, tl.subject, tl.lesson_index, tl.start_time,
+                tl.end_time, tl.status, tl.create_type, tl.corrected_from_log_id,
+                to_jsonb(t_user.*) AS teacher,
+                ac.charges
+            FROM tuition_logs tl
+            JOIN aggregated_charges ac ON tl.id = ac.tuition_log_id
+            JOIN users t_user ON tl.teacher_id = t_user.id
+            {where_clause};
+        """).format(where_clause=where_clause)
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, params)
+                    return [dict(row) for row in cur.fetchall()]
+        except Exception as e:
+            log.error(f"Error fetching hydrated logs: {e}", exc_info=True)
+            return []
+
+    def get_tuition_logs_by_teacher(self, teacher_id: UUID) -> list[dict]:
+        """Fetches all hydrated tuition logs for a specific teacher."""
+        log.info(f"Fetching tuition logs for teacher {teacher_id}.")
+        where = sql.SQL("WHERE tl.teacher_id = %s ORDER BY tl.start_time DESC")
+        return self._get_hydrated_logs(where, (teacher_id,))
+    
+    def get_tuition_logs_by_parent(self, parent_id: UUID) -> list[dict]:
+        """Fetches all hydrated tuition logs that a parent's child attended."""
+        log.info(f"Fetching tuition logs for parent {parent_id}.")
+        # We need to find logs where the parent_id exists in the aggregated charges
+        # This is a bit more complex as the parent_id is in the nested JSON.
+        # A simpler approach is to find the relevant tuition_log_ids first.
+        query = """
+            SELECT DISTINCT tuition_log_id FROM tuition_log_charges WHERE parent_id = %s
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (parent_id,))
+                    log_ids = [row[0] for row in cur.fetchall()]
+                    if not log_ids:
+                        return []
+            
+            # Now fetch the full logs for these specific IDs
+            where = sql.SQL("WHERE tl.id = ANY(%s) ORDER BY tl.start_time DESC")
+            return self._get_hydrated_logs(where, (log_ids,))
+        except Exception as e:
+            log.error(f"Error fetching logs by parent: {e}", exc_info=True)
+            return []
+            
+    def get_payment_logs_by_teacher(self, teacher_id: UUID) -> list[dict]:
+        """Fetches all hydrated payment logs for a specific teacher."""
+        log.info(f"Fetching payment logs for teacher {teacher_id}.")
+        # Similar hydration query for payment logs
+        query = """
+            SELECT
+                pl.*,
+                to_jsonb(p_user.*) || to_jsonb(p.*) as parent,
+                to_jsonb(t_user.*) as teacher
+            FROM payment_logs pl
+            JOIN users p_user ON pl.parent_user_id = p_user.id
+            JOIN parents p ON pl.parent_user_id = p.id
+            JOIN users t_user ON pl.teacher_id = t_user.id
+            WHERE pl.teacher_id = %s
+            ORDER BY pl.payment_date DESC;
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, (teacher_id,))
+                    return [dict(row) for row in cur.fetchall()]
+        except Exception as e:
+            log.error(f"Error fetching payment logs by teacher: {e}", exc_info=True)
+            return []
+
+    def get_payment_logs_by_parent(self, parent_id: UUID) -> list[dict]:
+        """Fetches all hydrated payment logs for a specific parent."""
+        log.info(f"Fetching payment logs for parent {parent_id}.")
+        query = """
+            SELECT
+                pl.*,
+                to_jsonb(p_user.*) || to_jsonb(p.*) as parent,
+                to_jsonb(t_user.*) as teacher
+            FROM payment_logs pl
+            JOIN users p_user ON pl.parent_user_id = p_user.id
+            JOIN parents p ON pl.parent_user_id = p.id
+            JOIN users t_user ON pl.teacher_id = t_user.id
+            WHERE pl.parent_user_id = %s
+            ORDER BY pl.payment_date DESC;
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, (parent_id,))
+                    return [dict(row) for row in cur.fetchall()]
+        except Exception as e:
+            log.error(f"Error fetching payment logs by parent: {e}", exc_info=True)
+            return []
+
+    def identify_user_role(self, user_id: UUID) -> str:
+        """
+        Fetches the role for a specific user ID.
+        
+        Raises:
+            UserNotFoundError: If no user is found with the given ID.
+        """
+        log.info(f"Identifying role for user_id: {user_id}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT role FROM users WHERE id = %s;", (user_id,))
+                    result = cur.fetchone()
+                    if result:
+                        return result[0]
+                    # CHANGED: Raise an exception instead of returning None
+                    raise UserNotFoundError(f"User with ID {user_id} not found.")
+        except Exception as e:
+            # Re-raise our specific error, but log the original DB error
+            if not isinstance(e, UserNotFoundError):
+                log.error(f"Database error identifying role for user {user_id}: {e}", exc_info=True)
+            raise
