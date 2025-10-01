@@ -5,31 +5,21 @@ from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import time
 
-# Common Layer
+# Common Layer Importing
 from ..common.logger import log
+from ..common.exceptions import UserNotFoundError, UnauthorizedRoleError
 
-# Database Layer
-#TODO should not be initiated here, only inside the service core layer classes
-from ..database.db_handler import DatabaseHandler
+# DB Layer Importing
+from ..database.db_handler import DatabaseHandler #TODO: should not be here
+db = DatabaseHandler()
 
-# Core Layer
-from ..core.timetable_service import TimetableService
-from ..core.tuition_generator import TuitionGenerator
-from ..core.finance import LogbookService, FinancialLedgerService
-#v0.3
+# Core Layer Importing
 from ..core.users import SubjectEnum, Users, Students, Parents, Teachers
 from ..core.tuitions import Tuitions
 from ..core.timetable import TimeTable
-
-
-# Database Layer Initiation
-db = DatabaseHandler() #TODO should not be initiated here, only inside the service core layer classes
+from ..core.finance import Finance
 
 # Core Layer init
-timetable_service = TimetableService(db)
-logbook_service = LogbookService(db)
-ledger_service = FinancialLedgerService(db)
-# v0.3 services
 try:
     users_service = Users()
     students_service = Students()
@@ -37,6 +27,7 @@ try:
     teachers_service = Teachers()
     tuitions_service = Tuitions()
     timetable_service = TimeTable()
+    finance_service = Finance()
 except Exception as e:
     raise ImportError("Couldn't Initialize Core modules!\n{e}")
 
@@ -400,10 +391,13 @@ def get_all_tuition_logs():
         return jsonify({"error": "viewer_id query parameter is required"}), 400
         
     try:
-        # The call is now direct, passing the viewer_id.
-        all_logs = db.get_all_tuition_logs(viewer_id)
-        return jsonify(all_logs), 200
+        logs = finance_service.get_tuition_logs_for_api(viewer_id)
+        return jsonify(logs), 200
+    except UserNotFoundError as e:
+        return jsonify({"error": str(e)}), 404 # Not Found
+    except UnauthorizedRoleError as e:
+        return jsonify({"error": str(e)}), 403 # Forbidden
     except Exception as e:
-        log.error(f"Error in GET /tuition-logs: {e}", exc_info=True)
+        log.error(f"An unexpected error occurred: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
 
