@@ -10,11 +10,17 @@ from datetime import datetime
 from decimal import Decimal
 
 import psycopg2
+import psycopg2.extras
 from psycopg2 import pool, sql
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
+
 from ..common.logger import log
+from ..common.exceptions import UserNotFoundError, UnauthorizedRoleError
+
+# Enabling UUID in psycopg2 queries
+psycopg2.extras.register_uuid()
 
 class DatabaseHandler:
     """
@@ -625,14 +631,18 @@ class DatabaseHandler:
             {where_clause};
         """).format(where_clause=where_clause)
 
+        
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute(query, params)
-                    return [dict(row) for row in cur.fetchall()]
+                    results = cur.fetchall()
+                    if not results:
+                        log.warning(f"No hydrated logs found for the given query.")
+                    return [dict(row) for row in results]
         except Exception as e:
-            log.error(f"Error fetching hydrated logs: {e}", exc_info=True)
-            return []
+            log.error(f"Database error in _get_hydrated_logs: {e}", exc_info=True)
+            raise # Re-raise the exception for the service layer to handle
 
     def get_tuition_logs_by_teacher(self, teacher_id: UUID) -> list[dict]:
         """Fetches all hydrated tuition logs for a specific teacher."""
@@ -643,26 +653,22 @@ class DatabaseHandler:
     def get_tuition_logs_by_parent(self, parent_id: UUID) -> list[dict]:
         """Fetches all hydrated tuition logs that a parent's child attended."""
         log.info(f"Fetching tuition logs for parent {parent_id}.")
-        # We need to find logs where the parent_id exists in the aggregated charges
-        # This is a bit more complex as the parent_id is in the nested JSON.
-        # A simpler approach is to find the relevant tuition_log_ids first.
-        query = """
-            SELECT DISTINCT tuition_log_id FROM tuition_log_charges WHERE parent_id = %s
-        """
         try:
+            log_ids_query = "SELECT DISTINCT tuition_log_id FROM tuition_log_charges WHERE parent_id = %s"
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(query, (parent_id,))
+                    cur.execute(log_ids_query, (parent_id,))
                     log_ids = [row[0] for row in cur.fetchall()]
                     if not log_ids:
+                        log.warning(f"No tuition logs found for parent {parent_id}.")
                         return []
             
             # Now fetch the full logs for these specific IDs
             where = sql.SQL("WHERE tl.id = ANY(%s) ORDER BY tl.start_time DESC")
             return self._get_hydrated_logs(where, (log_ids,))
         except Exception as e:
-            log.error(f"Error fetching logs by parent: {e}", exc_info=True)
-            return []
+            log.error(f"Database error fetching logs by parent {parent_id}: {e}", exc_info=True)
+            raise
             
     def get_payment_logs_by_teacher(self, teacher_id: UUID) -> list[dict]:
         """Fetches all hydrated payment logs for a specific teacher."""
@@ -684,10 +690,13 @@ class DatabaseHandler:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute(query, (teacher_id,))
-                    return [dict(row) for row in cur.fetchall()]
+                    results = cur.fetchall()
+                    if not results:
+                        log.warning(f"No payment logs found for teacher {teacher_id}.")
+                    return [dict(row) for row in results]
         except Exception as e:
-            log.error(f"Error fetching payment logs by teacher: {e}", exc_info=True)
-            return []
+            log.error(f"Database error fetching payment logs by teacher {teacher_id}: {e}", exc_info=True)
+            raise
 
     def get_payment_logs_by_parent(self, parent_id: UUID) -> list[dict]:
         """Fetches all hydrated payment logs for a specific parent."""
@@ -708,10 +717,13 @@ class DatabaseHandler:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute(query, (parent_id,))
-                    return [dict(row) for row in cur.fetchall()]
+                    results = cur.fetchall()
+                    if not results:
+                        log.warning(f"No payment logs found for parent {parent_id}.")
+                    return [dict(row) for row in results]
         except Exception as e:
-            log.error(f"Error fetching payment logs by parent: {e}", exc_info=True)
-            return []
+            log.error(f"Database error fetching payment logs by parent {parent_id}: {e}", exc_info=True)
+            raise
 
     def identify_user_role(self, user_id: UUID) -> str:
         """
@@ -734,4 +746,121 @@ class DatabaseHandler:
             # Re-raise our specific error, but log the original DB error
             if not isinstance(e, UserNotFoundError):
                 log.error(f"Database error identifying role for user {user_id}: {e}", exc_info=True)
+            raise
+
+
+    # --- Financial Summary Aggregations ---
+
+    def get_parent_financial_aggregates(self, parent_id: UUID) -> dict[str, Decimal]:
+        """
+        Calculates the total charges and total payments for a single parent.
+
+        Returns a dictionary with 'total_charges' and 'total_payments'.
+        """
+        log.info(f"Fetching financial aggregates for parent {parent_id}.")
+        query = """
+            SELECT
+                (
+                    SELECT COALESCE(SUM(tlc.cost), 0)
+                    FROM tuition_log_charges tlc
+                    JOIN tuition_logs tl ON tlc.tuition_log_id = tl.id
+                    WHERE tlc.parent_id = %(user_id)s AND tl.status = 'ACTIVE'
+                ) AS total_charges,
+                (
+                    SELECT COALESCE(SUM(pl.amount_paid), 0)
+                    FROM payment_logs pl
+                    WHERE pl.parent_user_id = %(user_id)s AND pl.status = 'ACTIVE'
+                ) AS total_payments;
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, {'user_id': parent_id})
+                    result = cur.fetchone()
+                    return dict(result) if result else {'total_charges': 0, 'total_payments': 0}
+        except Exception as e:
+            log.error(f"Database error fetching parent financial aggregates for {parent_id}: {e}", exc_info=True)
+            raise
+
+    def get_teacher_parent_balances(self, teacher_id: UUID) -> list[dict[str, Any]]:
+        """
+        For a given teacher, calculates the financial balance (payments - charges)
+        for every parent they have interacted with. This is a building block
+        for calculating the teacher's total amount owed.
+        """
+        log.info(f"Fetching per-parent balances for teacher {teacher_id}.")
+        query = """
+            WITH parent_charges AS (
+                SELECT tlc.parent_id, SUM(tlc.cost) as total_charges
+                FROM tuition_log_charges tlc
+                JOIN tuition_logs tl ON tlc.tuition_log_id = tl.id
+                WHERE tl.teacher_id = %(teacher_id)s AND tl.status = 'ACTIVE'
+                GROUP BY tlc.parent_id
+            ),
+            parent_payments AS (
+                SELECT pl.parent_user_id as parent_id, SUM(pl.amount_paid) as total_payments
+                FROM payment_logs pl
+                WHERE pl.teacher_id = %(teacher_id)s AND pl.status = 'ACTIVE'
+                GROUP BY pl.parent_user_id
+            )
+            SELECT
+                pc.parent_id,
+                (COALESCE(pp.total_payments, 0) - pc.total_charges) as balance
+            FROM parent_charges pc
+            LEFT JOIN parent_payments pp ON pc.parent_id = pp.parent_id;
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, {'teacher_id': teacher_id})
+                    results = cur.fetchall()
+                    if not results:
+                        log.warning(f"No parent balances found for teacher {teacher_id}.")
+                    return [dict(row) for row in results]
+        except Exception as e:
+            log.error(f"Database error fetching teacher parent balances for {teacher_id}: {e}", exc_info=True)
+            raise
+
+    def count_teacher_logs_this_month(self, teacher_id: UUID) -> int:
+        """
+        Counts the number of ACTIVE tuition logs for a teacher in the current calendar month.
+        """
+        log.info(f"Counting this month's logs for teacher {teacher_id}.")
+        # date_trunc('month', NOW()) gets the first moment of the current month.
+        query = """
+            SELECT COUNT(*)
+            FROM tuition_logs
+            WHERE teacher_id = %s
+              AND status = 'ACTIVE'
+              AND start_time >= date_trunc('month', NOW())
+              AND start_time < date_trunc('month', NOW()) + interval '1 month';
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (teacher_id,))
+                    result = cur.fetchone()
+                    return result[0] if result else 0
+        except Exception as e:
+            log.error(f"Database error counting teacher's monthly logs for {teacher_id}: {e}", exc_info=True)
+            raise
+
+
+    def count_parent_active_logs(self, parent_id: UUID) -> int:
+        """Counts the total number of ACTIVE tuition logs a parent is associated with."""
+        log.info(f"Counting active logs for parent {parent_id}.")
+        query = """
+            SELECT COUNT(DISTINCT tl.id)
+            FROM tuition_logs tl
+            JOIN tuition_log_charges tlc ON tl.id = tlc.tuition_log_id
+            WHERE tlc.parent_id = %s AND tl.status = 'ACTIVE';
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (parent_id,))
+                    result = cur.fetchone()
+                    return result[0] if result else 0
+        except Exception as e:
+            log.error(f"Database error counting parent's active logs for {parent_id}: {e}", exc_info=True)
             raise
