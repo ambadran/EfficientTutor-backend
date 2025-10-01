@@ -9,7 +9,7 @@ def setup_logger():
     """
     Configures and returns a root logger for the application.
     """
-    logger = logging.getLogger('EfficientTutorBackend')
+    logger = logging.getLogger('ET-backend')
     logger.setLevel(logging.INFO)
 
     handler = logging.StreamHandler(sys.stdout)

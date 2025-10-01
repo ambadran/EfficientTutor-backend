@@ -445,3 +445,83 @@ class Finance:
             
         api_models = [ApiPaymentLog(source=log) for log in rich_logs]
         return [model.model_dump(exclude={'source'}) for model in api_models]
+
+    def get_financial_summary(self, viewer_id: UUID) -> dict[str, Any]:
+        """
+        Public dispatcher method to get a financial summary for a given user.
+        It identifies the user's role and calls the appropriate helper.
+
+        Raises:
+            UserNotFoundError: If the viewer_id does not correspond to a user.
+            UnauthorizedRoleError: If the user's role is not 'parent' or 'teacher'.
+        """
+        log.info(f"Generating financial summary for user {viewer_id}.")
+        role = self.db.identify_user_role(viewer_id)
+
+        if role == UserRole.parent.name:
+            return self._get_summary_for_parent(viewer_id)
+        elif role == UserRole.teacher.name:
+            return self._get_summary_for_teacher(viewer_id)
+        else:
+            raise UnauthorizedRoleError(f"User with role '{role}' is not authorized to view a financial summary.")
+
+    def _get_summary_for_parent(self, parent_id: UUID) -> dict[str, str]:
+        """Calculates and returns the financial summary for a parent."""
+        
+        # 1. Fetch the raw aggregates from the database
+        aggregates = self.db.get_parent_financial_aggregates(parent_id)
+        total_charges = aggregates.get('total_charges', Decimal(0))
+        total_payments = aggregates.get('total_payments', Decimal(0))
+
+        # 2. Calculate the running balance
+        balance = total_payments - total_charges
+
+        # 3. Determine the final summary values
+        total_due = max(Decimal(0), -balance)
+        credit_balance = max(Decimal(0), balance)
+
+        # 4. Calculate unpaid_count
+        unpaid_count = 0
+        if total_due > 0:
+            # If the parent owes money, count how many lessons they have.
+            unpaid_count = self.db.count_parent_active_logs(parent_id)
+
+        # 5. Return the formatted dictionary
+        return {
+            "total_due": f"{total_due:.2f}",
+            "credit_balance": f"{credit_balance:.2f}",
+            "unpaid_count": unpaid_count
+        }
+
+    def _get_summary_for_teacher(self, teacher_id: UUID) -> dict[str, Any]:
+        """Calculates and returns the financial summary for a teacher."""
+
+        # 1. Fetch the per-parent balances for this teacher
+        parent_balances = self.db.get_teacher_parent_balances(teacher_id)
+
+        # 2. Calculate the total amount owed to the teacher
+        # This is the sum of all negative balances (money owed by parents)
+        total_owed_to_teacher = Decimal(0)
+        # Calculate total credit held
+        total_credit_held = Decimal(0)
+
+        
+        for item in parent_balances:
+            balance = item.get('balance', Decimal(0))
+            if balance < 0:
+                # Sum of negative balances (money owed by parents)
+                total_owed_to_teacher += -balance
+            elif balance > 0:
+                # NEW: Sum of positive balances (money paid in advance)
+                total_credit_held += balance
+
+        # 3. Fetch the count of lessons given this month
+        lessons_this_month = self.db.count_teacher_logs_this_month(teacher_id)
+
+        # 4. Return the formatted dictionary
+        return {
+            "total_owed_to_teacher": f"{total_owed_to_teacher:.2f}",
+            "total_credit_held": f"{total_credit_held:.2f}", # Add the new field
+            "total_lessons_given_this_month": lessons_this_month
+        }
+

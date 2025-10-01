@@ -4,6 +4,7 @@ Main backend API response
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import time
+from uuid import UUID
 
 # Common Layer Importing
 from ..common.logger import log
@@ -391,7 +392,8 @@ def get_all_tuition_logs():
         return jsonify({"error": "viewer_id query parameter is required"}), 400
         
     try:
-        logs = finance_service.get_tuition_logs_for_api(viewer_id)
+        logs = finance_service.get_tuition_logs_for_api(UUID(viewer_id))
+        log.info(f"Successfully fetched {len(logs)} Tuition logs for User '{viewer_id}'")
         return jsonify(logs), 200
     except UserNotFoundError as e:
         return jsonify({"error": str(e)}), 404 # Not Found
@@ -401,3 +403,41 @@ def get_all_tuition_logs():
         log.error(f"An unexpected error occurred: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
 
+@main_routes.route('/payment-logs', methods=['GET'])
+def get_all_payment_logs():
+    """
+    Returns all tuition logs, converted to the viewer's timezone.
+    """
+    viewer_id = request.args.get('viewer_id')
+    if not viewer_id:
+        return jsonify({"error": "viewer_id query parameter is required"}), 400
+        
+    try:
+        logs = finance_service.get_payment_logs_for_api(UUID(viewer_id))
+        log.info(f"Successfully fetched {len(logs)} Payment logs for User '{viewer_id}'")
+        return jsonify(logs), 200
+    except UserNotFoundError as e:
+        return jsonify({"error": str(e)}), 404 # Not Found
+    except UnauthorizedRoleError as e:
+        return jsonify({"error": str(e)}), 403 # Forbidden
+    except Exception as e:
+        log.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@main_routes.route('/financial-summary', methods=['GET'])
+def get_financial_summary():
+    viewer_id = request.args.get('viewer_id')
+    if not viewer_id:
+        return jsonify({"error": "viewer_id query parameter is required"}), 400
+    
+    try:
+        summary = finance_service.get_financial_summary(UUID(viewer_id))
+        return jsonify(summary), 200
+    except UserNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except UnauthorizedRoleError as e:
+        return jsonify({"error": str(e)}), 403
+    except Exception as e:
+        log.error(f"An unexpected error occurred in financial summary: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
