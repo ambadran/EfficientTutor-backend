@@ -172,6 +172,30 @@ class Parents(Users):
         )
         return self.get_by_id(new_id) if new_id else None
 
+    def get_all_for_api(self, teacher_id: UUID) -> list[dict[str, Any]]:
+        """
+        OVERRIDDEN: Fetches a lean list of ONLY the parents associated with a
+        specific teacher for API responses.
+        """
+        log.info(f"Fetching and preparing API list of parents for teacher {teacher_id}...")
+        
+        # 1. Get the list of relevant parent IDs from the database.
+        parent_ids = self.db.get_parent_ids_for_teacher(teacher_id)
+        if not parent_ids:
+            return []
+            
+        # 2. Fetch all user details for those specific parents in one batch.
+        parents_data = self.db.get_users_by_ids(parent_ids)
+        
+        # 3. Hydrate the raw data into our rich Pydantic models.
+        validated_parents = [Parent.model_validate(data) for data in parents_data]
+        
+        # 4. Convert the rich models to the lean ApiUser models.
+        api_users = [ApiUser.model_validate(user) for user in validated_parents]
+        
+        # 5. Return the final list of dictionaries.
+        return [model.model_dump() for model in api_users]
+
 class Students(Users):
     """Service class for managing Student users."""
     _model = Student

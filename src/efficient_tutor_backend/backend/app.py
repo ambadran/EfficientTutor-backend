@@ -249,8 +249,12 @@ def get_schedulable_tuitions():
     Returns a list of all defined tuitions, enriched with their scheduled
     times to be displayed on the teacher's UI.
     """
+    viewer_id = request.args.get('viewer_id')
+    if not viewer_id:
+        return jsonify({"error": "viewer_id query parameter is required"}), 400
+ 
     try:
-        scheduled_tuitions = timetable_service.get_latest_for_api()
+        scheduled_tuitions = timetable_service.get_latest_for_api(UUID(viewer_id))
         return jsonify(scheduled_tuitions), 200
     except Exception as e:
         # A generic error handler is good practice
@@ -264,8 +268,12 @@ def get_manual_entry_data():
     Returns the data needed for the teacher's UI to manually log a tuition:
     a list of all students and a list of all possible subjects.
     """
+    viewer_id = request.args.get('viewer_id')
+    if not viewer_id:
+        return jsonify({"error": "viewer_id query parameter is required"}), 400
+ 
     try:
-        students = students_service.get_all_for_api()
+        students = students_service.get_all_for_api(UUID(viewer_id))
         subjects = SubjectEnum.get_all_names()
         
         response_data = {
@@ -276,6 +284,27 @@ def get_manual_entry_data():
     except Exception as e:
         log.error(f"ERROR in /manual-entry-data: {e}")
         return jsonify({"error": "An internal error occurred"}), 500
+
+@main_routes.route('/tuition-logs', methods=['GET'])
+def get_tuition_logs():
+    """
+    Returns all tuition logs, converted to the viewer's timezone.
+    """
+    viewer_id = request.args.get('viewer_id')
+    if not viewer_id:
+        return jsonify({"error": "viewer_id query parameter is required"}), 400
+        
+    try:
+        logs = finance_service.get_tuition_logs_for_api(UUID(viewer_id))
+        log.info(f"Successfully fetched {len(logs)} Tuition logs for User '{viewer_id}'")
+        return jsonify(logs), 200
+    except UserNotFoundError as e:
+        return jsonify({"error": str(e)}), 404 # Not Found
+    except UnauthorizedRoleError as e:
+        return jsonify({"error": str(e)}), 403 # Forbidden
+    except Exception as e:
+        log.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
 
 # methods to actually log stuff
 @main_routes.route('/tuition-logs', methods=['POST'])
@@ -313,24 +342,6 @@ def create_tuition_log():
         log.error(f"ERROR in /tuition-logs: {e}")
         return jsonify({"error": "An internal server error occurred"}), 500
 
-@main_routes.route('/payment-logs', methods=['POST'])
-def create_payment_log():
-    """
-    Creates a new payment log entry.
-    """
-    data = request.get_json()
-    try:
-        if not data.get('parent_user_id') or data.get('amount_paid') is None:
-            raise ValueError("parent_user_id and amount_paid are required.")
-        
-        new_payment_id = db.insert_payment_log(data)
-        return jsonify({"message": "Payment log created", "payment_id": new_payment_id}), 201
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        log.error(f"ERROR in /payment-logs: {e}")
-        return jsonify({"error": "An internal server error occurred"}), 500
-
 @main_routes.route('/tuition-logs/<log_id>/void', methods=['POST'])
 def void_tuition_log(log_id):
     """
@@ -365,46 +376,29 @@ def correct_tuition_log(log_id):
         log.error(f"ERROR in /tuition-logs/<log_id>/correction: {e}")
         return jsonify({"error": "An internal server error occurred"}), 500
 
+# -- Payment Logs write/read --
 
-@main_routes.route('/financial-report/<parent_id>', methods=['GET'])
-def get_financial_report(parent_id):
+@main_routes.route('/parent-list', methods=['GET'])
+def get_parent_list_for_teacher():
     """
-    Generates and returns a complete financial report for the specified parent.
-    """
-    try:
-        # Here you would typically validate that the user making the request
-        # is authorized to view this parent's report.
-        
-        report = ledger_service.generate_report(parent_id)
-        return jsonify(report), 200
-    except Exception as e:
-        log.error(f"ERROR in /financial-report/{parent_id}: {e}")
-        return jsonify({"error": "An internal server error occurred"}), 500
-
-
-@main_routes.route('/tuition-logs', methods=['GET'])
-def get_all_tuition_logs():
-    """
-    Returns all tuition logs, converted to the viewer's timezone.
+    Returns a list of the parents teacher deal
     """
     viewer_id = request.args.get('viewer_id')
     if not viewer_id:
         return jsonify({"error": "viewer_id query parameter is required"}), 400
-        
     try:
-        logs = finance_service.get_tuition_logs_for_api(UUID(viewer_id))
-        log.info(f"Successfully fetched {len(logs)} Tuition logs for User '{viewer_id}'")
-        return jsonify(logs), 200
-    except UserNotFoundError as e:
-        return jsonify({"error": str(e)}), 404 # Not Found
-    except UnauthorizedRoleError as e:
-        return jsonify({"error": str(e)}), 403 # Forbidden
+        parents = parents_service.get_all_for_api(UUID(viewer_id))
+        response_data = {
+            "parents": parents
+        }
+        return jsonify(response_data), 200
+
     except Exception as e:
-        log.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return jsonify({"error": "An internal server error occurred"}), 500
+        log.error(f"ERROR in /payment-logs: {e}")
+        return jsonify({"error": "An internal error occurred"}), 500
 
 @main_routes.route('/payment-logs', methods=['GET'])
-def get_all_payment_logs():
+def get_payment_logs():
     """
     Returns all tuition logs, converted to the viewer's timezone.
     """
@@ -425,6 +419,62 @@ def get_all_payment_logs():
         return jsonify({"error": "An internal server error occurred"}), 500
 
 
+@main_routes.route('/payment-logs', methods=['POST'])
+def create_payment_log():
+    """
+    Creates a new payment log entry.
+    """
+    # data = request.get_json()
+    # try:
+    #     if not data.get('parent_user_id') or data.get('amount_paid') is None:
+    #         raise ValueError("parent_user_id and amount_paid are required.")
+        
+    #     new_payment_id = db.insert_payment_log(data)
+    #     return jsonify({"message": "Payment log created", "payment_id": new_payment_id}), 201
+    # except ValueError as e:
+    #     return jsonify({"error": str(e)}), 400
+    # except Exception as e:
+    #     log.error(f"ERROR in /payment-logs: {e}")
+        # return jsonify({"error": "An internal server error occurred"}), 500
+    return jsonify({"error": "Not implemented"}), 500
+
+@main_routes.route('/payment-logs/<log_id>/void', methods=['POST'])
+def void_payment_log(log_id):
+    """
+    Voids a specific tuition log. This is a safe alternative to deleting.
+    """
+    return jsonify({"error": "Not implemented"}), 500
+    # try:
+    #     success = db.void_tuition_log(log_id)
+    #     if not success:
+    #         return jsonify({"error": "Log not found or already voided"}), 404
+    #     return jsonify({"message": f"Log {log_id} has been voided"}), 200
+    # except Exception as e:
+    #     log.error(f"ERROR in /tuition-logs/<log_id>/void: {e}")
+    #     return jsonify({"error": "An internal server error occurred"}), 500
+
+@main_routes.route('/payment-logs/<log_id>/correction', methods=['POST'])
+def correct_payment_log(log_id):
+    """
+    Corrects a log by voiding the original and creating a new one with
+    the data provided in the request body.
+    """
+    return jsonify({"error": "Not implemented"}), 500
+    # correction_data = request.get_json()
+    # try:
+    #     new_log_id = logbook_service.perform_log_correction(log_id, correction_data)
+    #     return jsonify({
+    #         "message": "Log corrected successfully",
+    #         "original_log_id": log_id,
+    #         "new_log_id": new_log_id
+    #     }), 200
+    # except ValueError as e:
+    #     return jsonify({"error": str(e)}), 400 # Catches invalid IDs or bad data
+    # except Exception as e:
+    #     log.error(f"ERROR in /tuition-logs/<log_id>/correction: {e}")
+    #     return jsonify({"error": "An internal server error occurred"}), 500
+
+# -- Financial Summaries for users --
 @main_routes.route('/financial-summary', methods=['GET'])
 def get_financial_summary():
     viewer_id = request.args.get('viewer_id')

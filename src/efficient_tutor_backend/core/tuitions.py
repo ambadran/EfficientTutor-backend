@@ -132,7 +132,7 @@ class Tuitions:
             # 2. Assemble the final Pydantic models in Python.
             for raw_data in raw_tuition_list:
                 # Look up the full Teacher object from our eager-loaded dictionary.
-                teacher_obj = all_teachers_dict.get(UUID(raw_data['teacher_id']))
+                teacher_obj = all_teachers_dict.get(raw_data['teacher_id'])
                 if not teacher_obj:
                     log.warning(f"Skipping tuition {raw_data['id']}: teacher {raw_data['teacher_id']} not found.")
                     continue

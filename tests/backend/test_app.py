@@ -5,37 +5,6 @@ import pytest
 
 from pprint import pp as pprint
 
-def test_get_all_tuition_logs(client):
-    response = client.get('/tuition-logs?viewer_id=dcef54de-bc89-4388-a7a8-dba5d8327447')
-
-    print(f"\n=== GET /tuition-logs RESPONSE ===")
-    print(f"Status Code: {response.status_code}")
-    print(f"Response JSON:")
-    pprint(response.get_json())
-    print("===================================\n")
-
-    #TODO: test with a student id and must return unauthorized
-        
-
-    assert response.status_code == 200
-    assert isinstance(response.get_json(), list)
-
-def test_get_all_payment_logs(client):
-    response = client.get('/payment-logs?viewer_id=dcef54de-bc89-4388-a7a8-dba5d8327447')
-
-    print(f"\n=== GET /tuition-logs RESPONSE ===")
-    print(f"Status Code: {response.status_code}")
-    print(f"Response JSON:")
-    pprint(response.get_json())
-    print("===================================\n")
-
-    #TODO: test with a student id and must return unauthorized
-        
-
-    assert response.status_code == 200
-    assert isinstance(response.get_json(), list)
-
-
 def test_get_schedulable_tuitions(client):
     response = client.get('/schedulable-tuitions')
 
@@ -53,6 +22,73 @@ def test_get_manual_entry_data(client):
     print(f"Response JSON:")
     pprint(response.get_json())
     print("===================================\n")
+
+
+def test_get_all_tuition_logs(client):
+
+    # -- Testing Teacher User
+    response = client.get('/tuition-logs?viewer_id=dcef54de-bc89-4388-a7a8-dba5d8327447')
+
+    print(f"\n=== GET /tuition-logs? Teacher ID RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON 1 example:")
+    pprint(response.get_json()[0])
+    print("===================================\n")
+
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), list)
+
+    # -- Testing Parent user
+    response = client.get('/tuition-logs?viewer_id=d4c17e60-08de-47c7-9ef0-33ae8aa442fb')
+
+    print(f"\n=== GET /tuition-logs? Parent ID RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON 1 example:")
+    pprint(response.get_json()[0])
+    print("===================================\n")
+
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), list)
+
+    # -- Testing Student user
+    response = client.get('/tuition-logs?viewer_id=51505226-7902-4a02-a474-4e2a6b364dd6')
+
+    print(f"\n=== GET /tuition-logs? Parent ID RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON:")
+    pprint(response)
+    print("===================================\n")
+
+    assert response.status_code == 403
+
+def test_get_parent_list_for_teacher(client):
+    response = client.get('/parent-list?viewer_id=dcef54de-bc89-4388-a7a8-dba5d8327447')
+
+    print(f"\n=== GET /parent-list? Teacher ID RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON 1 example:")
+    pprint(response.get_json())
+    print("===================================\n")
+
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), dict)
+
+
+def test_get_all_payment_logs(client):
+    response = client.get('/payment-logs?viewer_id=dcef54de-bc89-4388-a7a8-dba5d8327447')
+
+    print(f"\n=== GET /tuition-logs RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON:")
+    pprint(response.get_json())
+    print("===================================\n")
+
+    #TODO: test with a student id and must return unauthorized
+        
+
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), list)
+
 
 def test_get_financial_report(client):
     response = client.get('/financial-report/d4c17e60-08de-47c7-9ef0-33ae8aa442fb')

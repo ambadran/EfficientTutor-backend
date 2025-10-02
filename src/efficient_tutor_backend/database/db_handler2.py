@@ -165,6 +165,60 @@ class DatabaseHandler:
             log.error(f"Error fetching students for parent {parent_id}: {e}", exc_info=True)
         return results
 
+    #NEW
+    def get_parent_ids_for_teacher(self, teacher_id: UUID) -> list[UUID]:
+        """
+        Finds all unique parent IDs that are linked to a teacher through
+        historical tuition logs.
+        """
+        log.info(f"Fetching unique parent IDs for teacher {teacher_id}.")
+        query = """
+            SELECT DISTINCT tlc.parent_id
+            FROM tuition_logs tl
+            JOIN tuition_log_charges tlc ON tl.id = tlc.tuition_log_id
+            WHERE tl.teacher_id = %s;
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (teacher_id,))
+                    return [row[0] for row in cur.fetchall()]
+        except Exception as e:
+            log.error(f"Database error fetching parent IDs for teacher {teacher_id}: {e}", exc_info=True)
+            raise
+    #NEW
+    def get_users_by_ids(self, user_ids: list[UUID]) -> list[dict]:
+        """
+        Fetches and hydrates a list of users from a list of user IDs.
+        This is an efficient bulk version of get_user_by_id.
+        """
+        if not user_ids:
+            return []
+        log.info(f"Fetching hydrated user data for {len(user_ids)} users.")
+        # This is the same unified query from _get_unified_user, but adapted for a list of IDs
+        query = """
+            SELECT
+                u.id, u.email, u.is_first_sign_in, u.role, u.timezone,
+                u.first_name, u.last_name,
+                p.currency,
+                s.parent_id, s.student_data, s.cost, s.status,
+                s.min_duration_mins, s.max_duration_mins, s.grade,
+                s.generated_password
+            FROM users u
+            LEFT JOIN parents p ON u.id = p.id
+            LEFT JOIN students s ON u.id = s.id
+            WHERE u.id = ANY(%s::uuid[]);
+        """
+        try:
+            str_user_ids = [str(uid) for uid in user_ids]
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, (str_user_ids,))
+                    return [dict(row) for row in cur.fetchall()]
+        except Exception as e:
+            log.error(f"Database error in get_users_by_ids: {e}", exc_info=True)
+            raise
+
     # --- User Creation (Write Operations) ---
     def create_parent(self, email: str, password: str, first_name: str, last_name: str, currency: str = 'EGP') -> Optional[UUID]:
         """
@@ -600,6 +654,7 @@ class DatabaseHandler:
         Private helper to fetch and construct rich tuition log data using a dynamic WHERE clause.
         This efficiently gathers all related data in a single query.
         """
+        #TODO: MUST LOG ERROR OR CRITICAL IF BROKEN DATA FOUND!!!!
         # This query joins all necessary tables and uses JSON aggregation
         # to build a nested structure that matches our Pydantic models.
         query = sql.SQL("""
@@ -647,7 +702,7 @@ class DatabaseHandler:
     def get_tuition_logs_by_teacher(self, teacher_id: UUID) -> list[dict]:
         """Fetches all hydrated tuition logs for a specific teacher."""
         log.info(f"Fetching tuition logs for teacher {teacher_id}.")
-        where = sql.SQL("WHERE tl.teacher_id = %s ORDER BY tl.start_time DESC")
+        where = sql.SQL("WHERE tl.teacher_id = %s ORDER BY tl.start_time ASC")
         return self._get_hydrated_logs(where, (teacher_id,))
     
     def get_tuition_logs_by_parent(self, parent_id: UUID) -> list[dict]:
@@ -664,7 +719,7 @@ class DatabaseHandler:
                         return []
             
             # Now fetch the full logs for these specific IDs
-            where = sql.SQL("WHERE tl.id = ANY(%s) ORDER BY tl.start_time DESC")
+            where = sql.SQL("WHERE tl.id = ANY(%s) ORDER BY tl.start_time ASC")
             return self._get_hydrated_logs(where, (log_ids,))
         except Exception as e:
             log.error(f"Database error fetching logs by parent {parent_id}: {e}", exc_info=True)
@@ -845,8 +900,8 @@ class DatabaseHandler:
             log.error(f"Database error counting teacher's monthly logs for {teacher_id}: {e}", exc_info=True)
             raise
 
-
     def count_parent_active_logs(self, parent_id: UUID) -> int:
+        #TODO: THIS METHOD IS OBSOLETE AND NOT NEEDED, SHOULD BE DELTEED AND REPLACED WHEN IMPLEMENTED PROPER unpaid_count
         """Counts the total number of ACTIVE tuition logs a parent is associated with."""
         log.info(f"Counting active logs for parent {parent_id}.")
         query = """
@@ -863,4 +918,32 @@ class DatabaseHandler:
                     return result[0] if result else 0
         except Exception as e:
             log.error(f"Database error counting parent's active logs for {parent_id}: {e}", exc_info=True)
+            raise
+
+    def get_total_payments_for_parents(self, parent_ids: list[UUID]) -> dict[UUID, Decimal]:
+        """
+        Fetches the total sum of ACTIVE payments for a given list of parent IDs.
+        """
+        if not parent_ids:
+            return {}
+        log.info(f"Fetching total payments for {len(parent_ids)} parents.")
+        # FIXED: Add ::uuid[] to explicitly cast the array parameter to a UUID array.
+        query = """
+            SELECT parent_user_id, SUM(amount_paid)
+            FROM payment_logs
+            WHERE parent_user_id = ANY(%s::uuid[]) AND status = 'ACTIVE'
+            GROUP BY parent_user_id;
+        """
+        try:
+            # Convert UUID objects to strings for the driver, the DB will cast them back.
+            str_parent_ids = [str(pid) for pid in parent_ids]
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (str_parent_ids,))
+                    results = {pid: Decimal(0) for pid in parent_ids}
+                    for row in cur.fetchall():
+                        results[row[0]] = row[1]
+                    return results
+        except Exception as e:
+            log.error(f"Database error fetching total payments for parents: {e}", exc_info=True)
             raise
