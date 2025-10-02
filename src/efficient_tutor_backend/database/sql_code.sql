@@ -131,13 +131,13 @@ UPDATE students
 SET
     notes = COALESCE(notes, '[]'::jsonb) || '{
         "id": "ali-89",
-        "name": "Mirrors and Lenses",
+        "name": "Graphs",
         "description": "Physics",
-        "url": "https://web.goodnotes.com/s/jhyrfKaPsgCp72n8dTgQQe"
+        "url": "https://web.goodnotes.com/s/tNJ6hxNaD6yvggdC27WeNa"
 
     }'::jsonb
 WHERE
-    first_name = 'Adham';
+    first_name = 'Mila';
 
 -- Create the new ENUM type for log statuses
 CREATE TYPE log_status_enum AS ENUM ('ACTIVE', 'VOID');
@@ -324,7 +324,8 @@ ALTER TABLE tuition_logs DROP COLUMN lesson_index; -- No longer needed as part o
 
 -- You may also want to clean up the `tuitions` table if its structure has changed.
 -- For example, if cost and student info are now only in the template charges table.
-#TODO
+ALTER TABLE tuitions DROP COLUMN student_ids;
+ALTER TABLE tuitions DROP COLUMN cost;
 
 
 -- To be run after the full application refactor is complete and tested.
@@ -365,3 +366,103 @@ FROM
 -- Join with the students table to get each students parent_id
 JOIN students s ON s.id = student_id_from_array;
 
+
+/************************************************************************************/
+/** V IMP: these are the steps to migrate all old tuition_log data to the new format **/
+/* Step 1: Clear any existing data in the target table. */
+TRUNCATE TABLE tuition_log_charges RESTART IDENTITY CASCADE;
+
+/* Step 2, Part A: Migrate logs that have explicit `attendee_ids`. */
+INSERT INTO tuition_log_charges (tuition_log_id, student_id, parent_id, cost)
+SELECT tl.id, s.id, s.parent_id, tl.cost / array_length(tl.attendee_ids, 1)
+FROM tuition_logs tl, unnest(tl.attendee_ids) AS aid
+JOIN students s ON s.id = aid
+WHERE tl.status = 'ACTIVE' AND array_length(tl.attendee_ids, 1) > 0;
+
+/* Step 2, Part B: Migrate logs that reference a `tuition_id` template. */
+INSERT INTO tuition_log_charges (tuition_log_id, student_id, parent_id, cost)
+SELECT tl.id, s.id, s.parent_id, t.cost / array_length(t.student_ids, 1)
+FROM tuition_logs tl
+JOIN tuitions t ON tl.tuition_id = t.id
+JOIN unnest(t.student_ids) AS aid ON true
+JOIN students s ON s.id = aid
+WHERE tl.status = 'ACTIVE' AND (tl.attendee_ids IS NULL OR array_length(tl.attendee_ids, 1) IS NULL);
+
+/* Step 2, Part C: Migrate logs that only have `attendee_names`. */
+INSERT INTO tuition_log_charges (tuition_log_id, student_id, parent_id, cost)
+SELECT tl.id, s.id, s.parent_id, tl.cost / array_length(tl.attendee_names, 1)
+FROM tuition_logs tl, unnest(tl.attendee_names) AS aname
+JOIN students s ON s.first_name = aname
+WHERE tl.status = 'ACTIVE' AND (tl.attendee_ids IS NULL OR array_length(tl.attendee_ids, 1) IS NULL) AND tl.tuition_id IS NULL;
+
+/* unrelated important step: update the teacher_id column for the newest ones */
+UPDATE tuition_logs SET teacher_id = 'dcef54de-bc89-4388-a7a8-dba5d8327447';
+
+/* another important step is to update the tuition_template_charges too */
+/* part 1: delete any data in the current tuition_template_charges */
+TRUNCATE TABLE tuition_template_charges RESTART IDENTITY CASCADE;
+
+/* part 2: load */
+INSERT INTO tuition_template_charges (tuition_id, student_id, parent_id, cost)
+SELECT
+    t.id AS tuition_id,
+    s.id AS student_id,
+    s.parent_id AS parent_id,
+    t.cost / array_length(t.student_ids, 1) AS cost
+FROM
+    tuitions t,
+    unnest(t.student_ids) AS student_id_from_array
+JOIN students s ON s.id = student_id_from_array;
+
+/* Step 3: make sure the number of logs in the tuition_logs are all mapped in the tuition_charges */
+-- select COUNT(*) from tuition_logs;
+-- select COUNT(DISTINCT tuition_log_id) FROM tuition_log_charges;
+
+/* in case, there is a mismatch, I can identify them exactly using this */
+-- SELECT tl.*
+-- FROM tuition_logs tl
+-- LEFT JOIN tuition_log_charges tlc ON tl.id = tlc.tuition_log_id
+-- WHERE tlc.tuition_log_id IS NULL; 
+
+/* Step 4: Delete the old duplicated logs of abdullah & jacob */
+/* part a: identify them from frontend, the dates are (sep 16 and sep 11) */
+/* part b: get the id */
+-- SELECT * FROM tuition_logs WHERE start_time::date = '2025-09-11';
+-- SELECT * FROM tuition_logs WHERE start_time::date = '2025-09-16';
+/* part c: delete them */
+DELETE from tuition_logs WHERE id = 'c0248183-86b6-4e74-a8c7-4ce9bf48ba5a';
+DELETE from tuition_logs WHERE id = '70eebd82-9743-4b35-9262-b5d2782f0ddc';
+
+/* Then finally check again using step 3 */
+
+-- ====================================================================
+-- Step 4: Cleanup Script (DO NOT RUN UNTIL THE ENTIRE REFACTOR IS COMPLETE AND TESTED)
+-- ====================================================================
+
+-- Save this script for later. It will remove the old, now-redundant columns.
+
+-- Drop old name columns from `students`
+ALTER TABLE students DROP COLUMN first_name, DROP COLUMN last_name;
+
+ALTER TABLE tuition_logs DROP COLUMN parent_user_id;
+ALTER TABLE tuition_logs DROP COLUMN attendee_names;
+ALTER TABLE tuition_logs DROP COLUMN attendee_ids;
+ALTER TABLE tuition_logs DROP COLUMN cost;
+
+-- You may also want to clean up the `tuitions` table if its structure has changed.
+-- For example, if cost and student info are now only in the template charges table.
+ALTER TABLE tuitions DROP COLUMN student_ids;
+ALTER TABLE tuitions DROP COLUMN cost;
+
+
+-- To be run after the full application refactor is complete and tested.
+-- Step 1: Drop the old foreign key constraint from the 'user_id' column.
+-- Note: Your constraint name might be different. Use `\d students` in pgcli to confirm.
+ALTER TABLE students
+DROP CONSTRAINT students_user_id_fkey;
+
+-- Step 2: Drop the old, now-redundant 'user_id' column.
+ALTER TABLE students
+DROP COLUMN user_id;
+
+/* ********************************************************************* */

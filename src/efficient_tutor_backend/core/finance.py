@@ -2,7 +2,7 @@
 This files handles all the finance logic
 '''
 import enum
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, Any, Literal
 from uuid import UUID
@@ -10,6 +10,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, computed_field, Field
 
 from ..common.logger import log
+from ..common.config import FIRST_DAY_OF_WEEK
+from ..common.exceptions import UserNotFoundError, UnauthorizedRoleError
 from ..database.db_handler2 import DatabaseHandler
 from .users import (
     ListableEnum, UserRole, Student, Parent, Teacher, SubjectEnum,
@@ -26,6 +28,12 @@ try:
 except Exception as e:
     log.critical(f"FATAL: Could not initialize finance-related ENUMs. Error: {e}", exc_info=True)
     raise
+
+
+# internal Enums
+class PaidStatus(str, enum.Enum):
+    PAID = "Paid"
+    UNPAID = "Unpaid"
 
 # --- 1. Internal "Rich" Pydantic Models ---
 # These models represent the complete, hydrated data for internal service layer use.
@@ -50,7 +58,17 @@ class TuitionLog(BaseModel):
     tuition: Optional[Tuition] = None
     lesson_index: Optional[int] = None
     corrected_from_log_id: Optional[UUID] = None
+
+    # A field to hold the calculated status. It's not from the DB.
+    paid_status: Optional[PaidStatus] = None
+
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def total_cost(self) -> Decimal:
+        """A helper property to get the total cost of this specific log."""
+        return sum(charge.cost for charge in self.charges)
 
 class PaymentLog(BaseModel):
     """A fully hydrated representation of a single payment log entry."""
@@ -102,6 +120,16 @@ class ApiTuitionLog(BaseModel):
     # Internal fields used for computation, excluded from final output.
     source: TuitionLog
     earliest_log_date: datetime
+
+
+    # --- Helper method for week calculation ---
+    def _get_start_of_week(self, a_date: datetime) -> datetime:
+        """Finds the date of the first day of the week for a given date."""
+        # Calculate how many days to subtract to get to the first day of the week
+        days_to_subtract = (a_date.weekday() - FIRST_DAY_OF_WEEK + 7) % 7
+        # Return the date of that day, keeping the time as the start of the day
+        start_of_week_date = a_date.date() - timedelta(days=days_to_subtract)
+        return datetime.combine(start_of_week_date, datetime.min.time())
 
     @computed_field
     @property
@@ -159,15 +187,34 @@ class ApiTuitionLog(BaseModel):
     @computed_field
     @property
     def week_number(self) -> int:
-        """Calculates the week number relative to the first-ever log entry."""
-        delta = self.source.start_time - self.earliest_log_date
+        """
+        REVISED: Calculates the week number relative to the first-ever log entry,
+        with the week starting on the configured FIRST_DAY_OF_WEEK.
+        """
+        # Find the true start of the week for both dates
+        start_of_log_week = self._get_start_of_week(self.source.start_time)
+        start_of_earliest_week = self._get_start_of_week(self.earliest_log_date)
+
+        # Calculate the number of full weeks between these two dates
+        delta_days = (start_of_log_week - start_of_earliest_week).days
+        
         # Add 1 so the first week is week 1, not week 0
-        return (delta.days // 7) + 1
+        return (delta_days // 7) + 1
 
     @computed_field
     @property
     def corrected_from_log_id(self) -> Optional[str]:
         return str(self.source.corrected_from_log_id) if self.source.corrected_from_log_id else None
+
+    @computed_field
+    @property
+    def paid_status(self) -> str:
+        """Returns the pre-calculated paid status from the source object."""
+        # The service layer has already done the hard work of calculating this.
+        if self.source.paid_status:
+            return self.source.paid_status.value
+        # Fallback in case status was not calculated
+        return PaidStatus.UNPAID.value
 
 class ApiPaymentLog(BaseModel):
     """FINALIZED: Defines the JSON structure for a payment log sent to the frontend."""
@@ -377,18 +424,62 @@ class Finance:
         # This is a placeholder for that logic.
         pass
 
-    def get_payment_log_by_id(self, log_id: UUID) -> Optional[PaymentLog]:
-        pass # Placeholder
-
     def get_tuition_logs_by_teacher(self, teacher_id: UUID) -> list[TuitionLog]:
         """Fetches all tuition logs for a teacher, returning rich Pydantic models."""
         raw_logs = self.db.get_tuition_logs_by_teacher(teacher_id)
-        return [TuitionLog.model_validate(data) for data in raw_logs]
+        if not raw_logs:
+            return []
+
+        # FIXED: Use consistent UUID objects as dictionary keys.
+        logs_by_parent = {}
+        for data in raw_logs:
+            # The 'id' from the raw JSON-like data is a string, convert it to UUID.
+            parent_id = UUID(data['charges'][0]['parent']['id'])
+            if parent_id not in logs_by_parent:
+                logs_by_parent[parent_id] = []
+            logs_by_parent[parent_id].append(data)
+
+        all_parent_ids = list(logs_by_parent.keys())
+        parent_payments = self.db.get_total_payments_for_parents(all_parent_ids)
+
+        hydrated_logs = []
+        # Apply FIFO logic for each parent's group of logs
+        for parent_id, logs_data in logs_by_parent.items():
+            remaining_credit = parent_payments.get(parent_id, Decimal(0))
+            for data in logs_data: # These are already sorted ASC by date
+                log = TuitionLog.model_validate(data)
+                if remaining_credit >= log.total_cost:
+                    log.paid_status = PaidStatus.PAID
+                    remaining_credit -= log.total_cost
+                else:
+                    log.paid_status = PaidStatus.UNPAID
+                hydrated_logs.append(log)
+        
+        # Return the final list, sorted DESC for the API
+        return sorted(hydrated_logs, key=lambda log: log.start_time, reverse=True)
 
     def get_tuition_logs_by_parent(self, parent_id: UUID) -> list[TuitionLog]:
         """Fetches all tuition logs for a parent, returning rich Pydantic models."""
+        # 1. Get financial aggregates for this parent
+        aggregates = self.db.get_parent_financial_aggregates(parent_id)
+        remaining_credit = aggregates.get('total_payments', Decimal(0))
+
+        # 2. Get all logs for this parent, sorted chronologically (ASC)
         raw_logs = self.db.get_tuition_logs_by_parent(parent_id)
-        return [TuitionLog.model_validate(data) for data in raw_logs]
+
+        # 3. Apply FIFO logic
+        hydrated_logs = []
+        for data in raw_logs:
+            log = TuitionLog.model_validate(data)
+            if remaining_credit >= log.total_cost:
+                log.paid_status = PaidStatus.PAID
+                remaining_credit -= log.total_cost
+            else:
+                log.paid_status = PaidStatus.UNPAID
+            hydrated_logs.append(log)
+
+        # 4. Return the final list, sorted DESC for the API
+        return sorted(hydrated_logs, key=lambda log: log.start_time, reverse=True)
 
     def get_payment_logs_by_teacher(self, teacher_id: UUID) -> list[PaymentLog]:
         """Fetches all payment logs for a teacher, returning rich Pydantic models."""
@@ -416,7 +507,7 @@ class Finance:
         elif role == UserRole.parent.name:
             rich_logs = self.get_tuition_logs_by_parent(view_id)
         else:
-            # CHANGED: Raise a specific authorization error.
+            # Raise a specific authorization error.
             raise UnauthorizedRoleError(f"User with role '{role}' is not authorized to view tuition logs.")
         
         if not rich_logs:
@@ -445,6 +536,8 @@ class Finance:
             
         api_models = [ApiPaymentLog(source=log) for log in rich_logs]
         return [model.model_dump(exclude={'source'}) for model in api_models]
+
+    # -- Financial Summaries --
 
     def get_financial_summary(self, viewer_id: UUID) -> dict[str, Any]:
         """
@@ -481,6 +574,7 @@ class Finance:
         credit_balance = max(Decimal(0), balance)
 
         # 4. Calculate unpaid_count
+        #TODO: re-implement this properly
         unpaid_count = 0
         if total_due > 0:
             # If the parent owes money, count how many lessons they have.
