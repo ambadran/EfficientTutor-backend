@@ -15,6 +15,7 @@ from psycopg2 import pool
 from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
+from uuid import UUID
 from ..common.logger import log
 
 class DatabaseHandler:
@@ -960,3 +961,26 @@ class DatabaseHandler:
         except Exception as e:
             log.error(f"Database error fetching timezone for user {user_id}: {e}", exc_info=True)
             return 'UTC'
+
+    def identify_user_role(self, user_id: UUID) -> str:
+        """
+        Fetches the role for a specific user ID.
+        
+        Raises:
+            UserNotFoundError: If no user is found with the given ID.
+        """
+        log.info(f"Identifying role for user_id: {user_id}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT role FROM users WHERE id = %s;", (user_id,))
+                    result = cur.fetchone()
+                    if result:
+                        return result[0]
+                    # CHANGED: Raise an exception instead of returning None
+                    raise UserNotFoundError(f"User with ID {user_id} not found.")
+        except Exception as e:
+            # Re-raise our specific error, but log the original DB error
+            if not isinstance(e, UserNotFoundError):
+                log.error(f"Database error identifying role for user {user_id}: {e}", exc_info=True)
+            raise

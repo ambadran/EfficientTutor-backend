@@ -4,12 +4,14 @@
 import enum
 from datetime import datetime
 from typing import Optional, Any
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
 from ..common.logger import log
 from ..database.db_handler2 import DatabaseHandler
+from .users import ApiUser, UserRole
 from .tuitions import Tuition, Tuitions  # Import the Tuition model and service
 
 
@@ -57,28 +59,10 @@ class ScheduledTuition(BaseModel):
 
         return f"{start_formatted}–{end_formatted}: {tuition_summary}"
 
-
-class ApiScheduledTuition(BaseModel):
-    """
-    A Pydantic model that defines the exact JSON structure for a scheduled
-    tuition to be sent to the frontend via the API.
-    """
-    # The source ScheduledTuition object, kept private for internal use
+class ApiScheduledTuitionForGuardian(BaseModel):
+    """The API model for a scheduled tuition as seen by a parent or student."""
     source: ScheduledTuition
-
-    def __repr__(self) -> str:
-        """
-        Provides a developer-friendly representation showing the API model's
-        most important computed properties.
-        """
-        return f"ApiScheduledTuition(id='{self.id}', scheduled_start_time='{self.scheduled_start_time}')"
-
-    def __str__(self) -> str:
-        """
-        Provides a human-readable summary by delegating to the source object's
-        __str__ method.
-        """
-        return str(self.source)
+    viewer_id: UUID
 
     @computed_field
     @property
@@ -123,11 +107,75 @@ class ApiScheduledTuition(BaseModel):
 
     @computed_field
     @property
-    def cost(self) -> str:
-        if not self.source.tuition.charges:
-            return "0.00"
-        total_cost = sum(charge.cost for charge in self.source.tuition.charges)
-        return f"{total_cost:.2f}"
+    def charge(self) -> str:
+        for charge in self.source.tuition.charges:
+            if charge.parent.id == self.viewer_id or charge.student.id == self.viewer_id:
+                return f"{charge.cost:.2f}"
+        return "0.00"
+
+class ApiScheduledTuitionForTeacher(BaseModel):
+    """The API model for a scheduled tuition as seen by a teacher."""
+    source: ScheduledTuition
+
+    @computed_field
+    @property
+    def id(self) -> str:
+        return str(self.source.tuition.id)
+
+    @computed_field
+    @property
+    def subject(self) -> str:
+        return self.source.tuition.subject.value
+
+    @computed_field
+    @property
+    def lesson_index(self) -> int:
+        return self.source.tuition.lesson_index
+
+    @computed_field
+    @property
+    def scheduled_start_time(self) -> str:
+        return self.source.start_time.isoformat()
+
+    @computed_field
+    @property
+    def scheduled_end_time(self) -> str:
+        return self.source.end_time.isoformat()
+
+    @computed_field
+    @property
+    def student_ids(self) -> str:
+        # CHANGED: Formats the IDs into the required PostgreSQL array string format.
+        ids_list = [str(charge.student.id) for charge in self.source.tuition.charges]
+        return f"{{{','.join(ids_list)}}}"
+
+    @computed_field
+    @property
+    def student_names(self) -> list[str]:
+        names = []
+        for charge in self.source.tuition.charges:
+            full_name = f"{charge.student.first_name or ''} {charge.student.last_name or ''}".strip()
+            names.append(full_name or "Unknown Student")
+        return names
+
+    @computed_field
+    @property
+    def total_cost(self) -> str:
+        total = sum(charge.cost for charge in self.source.tuition.charges)
+        return f"{total:.2f}"
+
+    @computed_field
+    @property
+    def charges(self) -> list[dict]: # Using dict for simplicity
+        """Provides a detailed list of charges for the teacher."""
+        charge_list = []
+        for c in self.source.tuition.charges:
+            student_api_user = ApiUser.model_validate(c.student)
+            charge_list.append({
+                "student": student_api_user.model_dump(),
+                "cost": f"{c.cost:.2f}"
+            })
+        return charge_list
 
 # --- Service Class ---
 class TimeTable:
@@ -139,17 +187,17 @@ class TimeTable:
         self.db = DatabaseHandler()
         self.tuitions_service = Tuitions()
 
-    def get_latest_scheduled_tuitions(self) -> list[ScheduledTuition]:
+    def get_all(self, viewer_id: UUID) -> list[ScheduledTuition]:
         """
         Fetches the latest successful timetable, filters for tuition events,
         and returns a list of fully hydrated ScheduledTuition objects.
         """
-        log.info("Fetching latest scheduled tuitions...")
-        
-        # 1. Fetch all existing tuition objects for efficient lookup (eager loading)
-        all_tuitions_dict = {t.id: t for t in self.tuitions_service.get_all()}
+        log.info(f"Fetching latest scheduled tuitions for viewer {viewer_id}...")
+
+        # 1. Fetch only the tuition objects relevant to the viewer.
+        all_tuitions_dict = {t.id: t for t in self.tuitions_service.get_all(viewer_id=viewer_id)}
         if not all_tuitions_dict:
-            log.warning("No tuitions exist in the system. Cannot schedule anything.")
+            log.warning(f"No tuitions exist for viewer {viewer_id}. Cannot schedule anything.")
             return []
 
         # 2. Get the raw solution data from the latest timetable run
@@ -177,8 +225,6 @@ class TimeTable:
                                 end_time=event['end_time']
                             )
                         )
-                    else:
-                        log.warning(f"Timetable references a tuition ID ({tuition_id_str}) that no longer exists. Skipping.")
 
             log.info(f"Successfully constructed {len(scheduled_tuitions)} scheduled tuition events.")
             return scheduled_tuitions
@@ -187,19 +233,27 @@ class TimeTable:
             log.error(f"Failed to parse timetable solution_data. Error: {e}", exc_info=True)
             return []
 
-    def get_latest_for_api(self) -> list[dict[str, Any]]:
+    def get_all_for_api(self, viewer_id: UUID) -> list[dict[str, Any]]:
         """
-        Fetches the latest scheduled tuitions and transforms them into the specific
-        JSON-serializable dictionary format required by the API frontend.
+        RENAMED & REFACTORED: Public dispatcher that returns a lean list of scheduled
+        tuitions formatted correctly for the viewer's role.
         """
-        log.info("Fetching and preparing latest timetable for API.")
-        
-        # 1. Get the list of rich, fully-hydrated ScheduledTuition objects.
-        scheduled_tuitions = self.get_latest_scheduled_tuitions()
-        
-        # 2. Transform each rich object into the lean API model.
-        api_models = [ApiScheduledTuition(source=st) for st in scheduled_tuitions]
-        
-        # 3. Convert the Pydantic models to dictionaries for JSON serialization.
+        role = self.db.identify_user_role(viewer_id)
+        rich_scheduled_tuitions = self.get_all(viewer_id) # Get the filtered rich objects
+
+        if role == UserRole.teacher.name:
+            return self._format_scheduled_for_teacher_api(rich_scheduled_tuitions)
+        elif role in (UserRole.parent.name, UserRole.student.name):
+            return self._format_scheduled_for_guardian_api(rich_scheduled_tuitions, viewer_id)
+        else:
+            raise UnauthorizedRoleError(f"User with role '{role}' is not authorized to view the timetable.")
+
+    def _format_scheduled_for_teacher_api(self, scheduled_tuitions: list[ScheduledTuition]) -> list[dict[str, Any]]:
+        """Formats scheduled tuitions for a teacher's view."""
+        api_models = [ApiScheduledTuitionForTeacher(source=st) for st in scheduled_tuitions]
         return [model.model_dump(exclude={'source'}) for model in api_models]
 
+    def _format_scheduled_for_guardian_api(self, scheduled_tuitions: list[ScheduledTuition], viewer_id: UUID) -> list[dict[str, Any]]:
+        """Formats scheduled tuitions for a parent's or student's view."""
+        api_models = [ApiScheduledTuitionForGuardian(source=st, viewer_id=viewer_id) for st in scheduled_tuitions]
+        return [model.model_dump(exclude={'source', 'viewer_id'}) for model in api_models]
