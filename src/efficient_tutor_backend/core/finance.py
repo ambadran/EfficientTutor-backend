@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Optional, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, computed_field, Field
+from pydantic import BaseModel, ConfigDict, computed_field, Field, ValidationError
 
 from ..common.logger import log
 from ..common.config import FIRST_DAY_OF_WEEK
@@ -285,28 +285,26 @@ class Finance:
 
     # --- Tuition Log - Write Operations ---
 
-    def create_tuition_log(self, log_data: dict[str, Any], corrected_from_log_id: Optional[UUID] = None) -> Optional[TuitionLog]:
+    def create_tuition_log(self, log_data: dict[str, Any], corrected_from_log_id: Optional[UUID] = None) -> TuitionLog:
         """
-        Public dispatcher method to create a new tuition log.
-        It validates the input and calls the appropriate private helper based on 'log_type'.
+        Public dispatcher to create a new tuition log.
+        Raises ValidationError on invalid input.
         """
-        log_type = log_data.get('log_type')
+        log_type = log_data.get('log_type').lower()
         try:
-            if log_type == 'scheduled':
+            if log_type == TuitionLogCreateType.SCHEDULED.value.lower():
                 input_model = CreateScheduledTuitionLogInput.model_validate(log_data)
                 return self._create_from_scheduled(input_model, corrected_from_log_id)
-            elif log_type == 'custom':
+            elif log_type == TuitionLogCreateType.CUSTOM.value.lower():
                 input_model = CreateCustomTuitionLogInput.model_validate(log_data)
                 return self._create_from_custom(input_model, corrected_from_log_id)
             else:
-                log.error(f"Invalid log_type provided: {log_type}")
-                return None
-        except ValidationError as e:
-            log.error(f"Pydantic validation failed for creating tuition log. Data: {log_data}, Error: {e}")
-            # In a real API, you'd raise an exception here to return a 422 error
-            return None
+                raise ValueError(f"Invalid log_type provided: {log_type}")
+        except (ValidationError, ValueError) as e:
+            log.error(f"Validation failed for creating tuition log. Data: {log_data}, Error: {e}")
+            raise
 
-    def _create_from_scheduled(self, data: CreateScheduledTuitionLogInput, corrected_from_log_id: Optional[UUID]) -> Optional[TuitionLog]:
+    def _create_from_scheduled(self, data: CreateScheduledTuitionLogInput, corrected_from_log_id: Optional[UUID]) -> TuitionLog:
         """Private helper to create a log from a scheduled tuition."""
         log.info(f"Creating SCHEDULED log from tuition ID {data.tuition_id}.")
         # Fetch the full Tuition object to get its details
@@ -335,21 +333,26 @@ class Finance:
             lesson_index=tuition.lesson_index,
             corrected_from_log_id=corrected_from_log_id
         )
-        return self.get_tuition_log_by_id(new_log_id) if new_log_id else None
 
-    def _create_from_custom(self, data: CreateCustomTuitionLogInput, corrected_from_log_id: Optional[UUID]) -> Optional[TuitionLog]:
+        if not new_log_id:
+            raise Exception("Failed to create tuition log in the database. Got error:\n{e}")
+
+        return self.get_tuition_log_by_id(new_log_id)
+
+    def _create_from_custom(self, data: CreateCustomTuitionLogInput, corrected_from_log_id: Optional[UUID]) -> TuitionLog:
         """Private helper to create a log from custom data."""
         log.info(f"Creating CUSTOM log for teacher {data.teacher_id}.")
-        # Eager load all students for efficient parent_id lookup
-        all_students_dict = {s.id: s for s in self.students_service.get_all()}
+
+        # OPTIMIZED: Fetch only the required students instead of all of them.
+        student_ids = [charge.student_id for charge in data.charges]
+        students_data = self.db.get_users_by_ids(student_ids)
+        students_dict = {s['id']: Student.model_validate(s) for s in students_data}
         
         charges_to_create = []
         for charge_input in data.charges:
-            student = all_students_dict.get(charge_input.student_id)
+            student = students_dict.get(charge_input.student_id)
             if not student:
-                log.error(f"Cannot create custom log: Student with ID {charge_input.student_id} not found.")
-                return None
-            
+                raise ValueError(f"Cannot create custom log: Student with ID {charge_input.student_id} not found.")
             charges_to_create.append({
                 'student_id': student.id,
                 'parent_id': student.parent_id, # The required lookup
@@ -366,16 +369,17 @@ class Finance:
             lesson_index=data.lesson_index,
             corrected_from_log_id=corrected_from_log_id
         )
-        return self.get_tuition_log_by_id(new_log_id) if new_log_id else None
+        if not new_log_id:
+            raise Exception("Failed to create tuition log in the database.")
+        return self.get_tuition_log_by_id(new_log_id)
 
     def edit_tuition_log(self, old_log_id: UUID, new_log_data: dict[str, Any]) -> Optional[TuitionLog]:
         """Edits a tuition log by voiding the old one and creating a new, corrected one."""
         log.info(f"Editing tuition log {old_log_id} by voiding and creating a new log.")
         # Step 1: Void the old log
         if not self.db.set_log_status('tuition_logs', old_log_id, LogStatus.VOID.value):
-            log.error(f"Failed to void old tuition log {old_log_id}. Aborting edit.")
-            return None
-        
+            raise Exception(f"Failed to void old tuition log {old_log_id}. Aborting edit.")
+
         # Step 2: Create the new log, linking it back to the old one
         return self.create_tuition_log(new_log_data, corrected_from_log_id=old_log_id)
 
@@ -415,6 +419,12 @@ class Finance:
         return self.db.set_log_status('payment_logs', log_id, LogStatus.VOID.value)
         
     # --- Read Operations (Internal) ---
+    def get_tuition_log_by_id(self, log_id: UUID) -> Optional[TuitionLog]:
+        """IMPLEMENTED: Fetches a single, fully hydrated tuition log by its ID."""
+        raw_log = self.db.get_tuition_log_by_id(log_id)
+        if not raw_log:
+            return None
+        return TuitionLog.model_validate(raw_log)
 
     def get_tuition_log_by_id(self, log_id: UUID) -> Optional[TuitionLog]:
         """Fetches a single, fully hydrated tuition log by its ID."""

@@ -3,47 +3,106 @@ testing the api endpoints
 '''
 import pytest
 
+from tests.constants import TEST_PARENT_ID, TEST_TEACHER_ID, TEST_STUDENT_ID, TEST_PARENT_IDS
+
 from pprint import pp as pprint
 
 def test_get_schedulable_tuitions(client):
+
+    # Test 1: testing no viewer_id
     response = client.get('/schedulable-tuitions')
+    print(f"\n=== GET /schedulable-tuitions No user RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print("===================================\n")
+    assert response.status_code == 400
 
-    print(f"\n=== GET /schedulable-tuitions RESPONSE ===")
+    # Test 2: testing teacher user
+    response = client.get(f'/schedulable-tuitions?viewer_id={TEST_TEACHER_ID}')
+    print(f"\n=== GET /schedulable-tuitions Teacher User RESPONSE ===")
     print(f"Status Code: {response.status_code}")
     print(f"Response JSON:")
     pprint(response.get_json())
     print("===================================\n")
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), list)
+    
+    # Test 3: testing parent user
+    response = client.get(f'/schedulable-tuitions?viewer_id={TEST_PARENT_ID}')
+    print(f"\n=== GET /schedulable-tuitions Parent User RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON:")
+    pprint(response.get_json())
+    print("===================================\n")
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), list)
+
+    # Test 4: testing student user
+    response = client.get(f'/schedulable-tuitions?viewer_id={TEST_STUDENT_ID}')
+    print(f"\n=== GET /schedulable-tuitions Student User RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON:")
+    pprint(response.get_json())
+    print("===================================\n")
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), list)
  
-def test_get_manual_entry_data(client):
-    response = client.get('/manual-entry-data')
+def test_get_custom_log_entry_data(client):
 
-    print(f"\n=== GET /manual-entry-data RESPONSE ===")
+    # Test 1: testing no viewer_id
+    response = client.get('/custom-log-entry-data')
+    print(f"\n=== GET /custom-log-entry-data no user RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print("===================================\n")
+    assert response.status_code == 400
+
+    # Test 2: testing parent user
+    response = client.get(f'/custom-log-entry-data?viewer_id={TEST_PARENT_ID}')
+    print(f"\n=== GET /custom-log-entry-data Parent user RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print("===================================\n")
+    assert response.status_code == 401
+ 
+    # Test 2: testing teacher user
+    response = client.get(f'/custom-log-entry-data?viewer_id={TEST_TEACHER_ID}')
+    print(f"\n=== GET /custom-log-entry-data Teacher User RESPONSE ===")
     print(f"Status Code: {response.status_code}")
     print(f"Response JSON:")
     pprint(response.get_json())
     print("===================================\n")
-
-
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), dict)
+ 
 def test_get_all_tuition_logs(client):
 
     # -- Testing Teacher User
-    response = client.get('/tuition-logs?viewer_id=dcef54de-bc89-4388-a7a8-dba5d8327447')
+    response = client.get(f'/tuition-logs?viewer_id={TEST_TEACHER_ID}')
 
     print(f"\n=== GET /tuition-logs? Teacher ID RESPONSE ===")
     print(f"Status Code: {response.status_code}")
-    print(f"Response JSON 1 example:")
-    pprint(response.get_json()[0])
+    print(f"Got {len(response.get_json())} logs")
+    found_custom = False
+    found_scheduled = False
+    for example_log in response.get_json():
+        if example_log['create_type'] == 'CUSTOM' and not found_custom:
+            print("CUSTOM Type response:")
+            pprint(example_log)
+            found_custom = True
+        elif example_log['create_type'] == 'SCHEDULED' and not found_scheduled:
+            print("SCHEDULED Type response:")
+            pprint(example_log)
+            found_scheduled = True
     print("===================================\n")
 
     assert response.status_code == 200
     assert isinstance(response.get_json(), list)
 
     # -- Testing Parent user
-    response = client.get('/tuition-logs?viewer_id=d4c17e60-08de-47c7-9ef0-33ae8aa442fb')
+    response = client.get(f'/tuition-logs?viewer_id={TEST_PARENT_ID}')
 
     print(f"\n=== GET /tuition-logs? Parent ID RESPONSE ===")
-    print(f"Status Code: {response.status_code}")
-    print(f"Response JSON 1 example:")
+    print(f"Status Code: {response.status_code}, should be 403, forbidden/unauthorized")
+    print(f"Got {len(response.get_json())} logs")
+    print(f"Got {len(response.get_json())} logs for parent user\nExample:\n")
     pprint(response.get_json()[0])
     print("===================================\n")
 
@@ -51,9 +110,9 @@ def test_get_all_tuition_logs(client):
     assert isinstance(response.get_json(), list)
 
     # -- Testing Student user
-    response = client.get('/tuition-logs?viewer_id=51505226-7902-4a02-a474-4e2a6b364dd6')
+    response = client.get(f'/tuition-logs?viewer_id={TEST_STUDENT_ID}')
 
-    print(f"\n=== GET /tuition-logs? Parent ID RESPONSE ===")
+    print(f"\n=== GET /tuition-logs? Student ID RESPONSE ===")
     print(f"Status Code: {response.status_code}")
     print(f"Response JSON:")
     pprint(response)

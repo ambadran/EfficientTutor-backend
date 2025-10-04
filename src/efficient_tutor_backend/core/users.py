@@ -205,6 +205,43 @@ class Students(Users):
         students_data = self.db.get_students_by_parent_id(parent_id)
         return [Student.model_validate(data) for data in students_data]
 
+    def get_all(self, viewer_id: UUID) -> list[Student]:
+        """
+        NEW: A generic method to fetch all students relevant to a given viewer.
+        - If viewer is a Parent, returns their children.
+        - If viewer is a Teacher, returns all students they have taught.
+        """
+        log.info(f"Fetching all students relevant to viewer {viewer_id}")
+        role = self.db.identify_user_role(viewer_id)
+
+        students_data = []
+        if role == UserRole.parent.name:
+            # We already have a method for this, so we reuse it.
+            students_data = self.db.get_students_by_parent_id(viewer_id)
+        elif role == UserRole.teacher.name:
+            # Use our new database method for this case.
+            students_data = self.db.get_students_for_teacher(viewer_id)
+        else:
+            log.warning(f"User {viewer_id} with role '{role}' is not authorized to view student lists. Returning empty.")
+            return []
+            
+        return [Student.model_validate(data) for data in students_data]
+
+    def get_all_for_api(self, viewer_id: UUID) -> list[dict[str, Any]]:
+        """
+        NEW & OVERRIDDEN: Fetches all students relevant to a viewer and formats
+        them into a lean list of dictionaries for API responses.
+        """
+        log.info(f"Fetching and preparing student API list for viewer {viewer_id}...")
+        
+        # 1. Get the rich, filtered Student objects using our new get_all method.
+        all_students = self.get_all(viewer_id)
+        
+        # 2. Convert the full Student objects into the leaner ApiUser models.
+        api_users = [ApiUser.model_validate(user) for user in all_students]
+        
+        # 3. Convert the models to a list of dictionaries for the final JSON response.
+        return [model.model_dump() for model in api_users]
    
     # Note: A create method for students would be more complex, requiring details for
     # both the 'users' and 'students' tables. It can be added here following the same pattern.

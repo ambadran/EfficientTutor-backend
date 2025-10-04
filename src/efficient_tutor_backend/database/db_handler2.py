@@ -130,6 +130,7 @@ class DatabaseHandler:
                     return dict(user_data)
         except Exception as e:
             log.error(f"Error fetching user by {key_column} '{value}': {e}", exc_info=True)
+            raise
             return None
 
     def get_user_by_id(self, user_id: UUID) -> Optional[dict[str, Any]]:
@@ -163,6 +164,7 @@ class DatabaseHandler:
                     results = [dict(row) for row in cur.fetchall()]
         except Exception as e:
             log.error(f"Error fetching students for parent {parent_id}: {e}", exc_info=True)
+            raise
         return results
 
     #NEW
@@ -217,6 +219,35 @@ class DatabaseHandler:
                     return [dict(row) for row in cur.fetchall()]
         except Exception as e:
             log.error(f"Database error in get_users_by_ids: {e}", exc_info=True)
+            raise
+
+    def get_students_for_teacher(self, teacher_id: UUID) -> list[dict]:
+        """
+        Finds all unique students linked to a teacher via tuition_logs
+        and returns their fully hydrated user data.
+        """
+        log.info(f"Fetching all students for teacher {teacher_id}.")
+        # First, find all unique student IDs associated with the teacher
+        student_ids_query = """
+            SELECT DISTINCT tlc.student_id
+            FROM tuition_logs tl
+            JOIN tuition_log_charges tlc ON tl.id = tlc.tuition_log_id
+            WHERE tl.teacher_id = %s;
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(student_ids_query, (teacher_id,))
+                    student_ids = [row[0] for row in cur.fetchall()]
+            
+            if not student_ids:
+                return []
+            
+            # Now, use our existing bulk fetcher to get their full details
+            return self.get_users_by_ids(student_ids)
+
+        except Exception as e:
+            log.error(f"Database error fetching students for teacher {teacher_id}: {e}", exc_info=True)
             raise
 
     # --- User Creation (Write Operations) ---
@@ -279,6 +310,7 @@ class DatabaseHandler:
                     results = [dict(row) for row in cur.fetchall()]
         except Exception as e:
             log.error(f"Error fetching all users with role '{role}': {e}", exc_info=True)
+            raise
         return results                   
     # ... Other creation methods for Teacher, Student, etc. would follow a similar pattern ...
 
@@ -306,6 +338,9 @@ class DatabaseHandler:
                     log.error(f"Failed to delete user {user_id}: {e}", exc_info=True)
                     return False
 
+    # -------------------------- Tuitions ----------------------------------
+
+    # -- read transactions ---
     def check_tuition_data_integrity(self) -> list[dict[str, Any]]:
         """
         Finds tuitions that have missing linked data and would fail a strict JOIN.
@@ -347,49 +382,95 @@ class DatabaseHandler:
             log.error(f"Error during tuition integrity check: {e}", exc_info=True)
             return []
 
-    def get_all_tuitions_raw(self) -> list[dict[str, Any]]:
+    def _get_all_tuitions_raw_base(self, where_clause: str = "", params: Optional[dict] = None) -> list[dict]:
         """
-        Fetches the raw structural data for all tuitions, including the IDs of
-        related entities. This data is intended for the service layer to orchestrate.
+        PRIVATE HELPER: The single source of truth for fetching raw tuition data.
+        It accepts an optional WHERE clause to allow for flexible filtering.
         """
-        log.info("Executing raw query to fetch all tuition structures.")
-        # This query is now simpler and more robust.
-        query = """
-        WITH aggregated_charges AS (
+        # This is the true "base" query, with no WHERE clause at the end.
+        base_query = """
+            WITH aggregated_charges AS (
+                SELECT
+                    tuition_id,
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'cost', cost,
+                            'student_id', student_id,
+                            'parent_id', parent_id
+                        )
+                    ) AS charges
+                FROM tuition_template_charges
+                GROUP BY tuition_id
+            )
             SELECT
-                tuition_id,
-                jsonb_agg(
-                    jsonb_build_object(
-                        'cost', cost,
-                        'student_id', student_id,
-                        'parent_id', parent_id
-                    )
-                ) AS charges
-            FROM tuition_template_charges
-            GROUP BY tuition_id
-        )
-        SELECT
-            t.id,
-            t.subject,
-            t.lesson_index,
-            t.min_duration_minutes,
-            t.max_duration_minutes,
-            t.meeting_link->>'meeting_link' AS meeting_link, -- FIXED: Extracts the string value
-            t.teacher_id,
-            ac.charges
-        FROM tuitions t
-        LEFT JOIN aggregated_charges ac ON t.id = ac.tuition_id
-        WHERE t.teacher_id IS NOT NULL AND ac.charges IS NOT NULL; -- Ensure basic data exists
+                t.id,
+                t.subject,
+                t.lesson_index,
+                t.min_duration_minutes,
+                t.max_duration_minutes,
+                t.meeting_link->>'meeting_link' AS meeting_link,
+                t.teacher_id,
+                ac.charges
+            FROM tuitions t
+            LEFT JOIN aggregated_charges ac ON t.id = ac.tuition_id
         """
+        
+        # Safely append the WHERE clause to the base query
+        final_query = f"{base_query} {where_clause}"
+
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute(query)
-                    results = cur.fetchall()
-                    return [dict(row) for row in results] if results else []
+                    cur.execute(final_query, params)
+                    return [dict(row) for row in cur.fetchall()]
         except Exception as e:
-            log.error(f"Database error fetching raw tuitions: {e}", exc_info=True)
+            log.error(f"DB error fetching raw tuitions with clause '{where_clause}': {e}", exc_info=True)
             raise
+
+    def get_tuition_raw_by_id(self, tuition_id: UUID) -> Optional[dict]:
+        """Fetches a single raw tuition by its ID."""
+        log.info(f"Fetching raw tuition for id {tuition_id}.")
+        where = "WHERE t.id = %(tuition_id)s"
+        results = self._get_all_tuitions_raw_base(where_clause=where, params={'tuition_id': tuition_id})
+        return results[0] if results else None
+
+    def get_all_tuitions_raw(self) -> list[dict[str, Any]]:
+        """
+        NEW PUBLIC METHOD: Fetches all valid tuitions (replaces your old implementation).
+        """
+        log.info("Executing raw query to fetch all tuition structures.")
+        where = "WHERE t.teacher_id IS NOT NULL AND ac.charges IS NOT NULL"
+        return self._get_all_tuitions_raw_base(where_clause=where)
+
+    def get_all_tuitions_raw_for_teacher(self, teacher_id: UUID) -> list[dict]:
+        """Fetches all raw tuition data for a specific teacher."""
+        log.info(f"Fetching all raw tuitions for teacher {teacher_id}.")
+        where = "WHERE t.teacher_id = %(viewer_id)s AND ac.charges IS NOT NULL"
+        return self._get_all_tuitions_raw_base(where_clause=where, params={'viewer_id': teacher_id})
+
+    def get_all_tuitions_raw_for_parent(self, parent_id: UUID) -> list[dict]:
+        """Fetches all raw tuition data relevant to a specific parent."""
+        log.info(f"Fetching all raw tuitions for parent {parent_id}.")
+        where = """
+            WHERE t.id IN (
+                SELECT DISTINCT tuition_id FROM tuition_template_charges WHERE parent_id = %(viewer_id)s
+            )
+            AND t.teacher_id IS NOT NULL AND ac.charges IS NOT NULL
+        """
+        return self._get_all_tuitions_raw_base(where_clause=where, params={'viewer_id': parent_id})
+
+    def get_all_tuitions_raw_for_student(self, student_id: UUID) -> list[dict]:
+        """Fetches all raw tuition data relevant to a specific student."""
+        log.info(f"Fetching all raw tuitions for student {student_id}.")
+        where = """
+            WHERE t.id IN (
+                SELECT DISTINCT tuition_id FROM tuition_template_charges WHERE student_id = %(viewer_id)s
+            )
+            AND t.teacher_id IS NOT NULL AND ac.charges IS NOT NULL
+        """
+        return self._get_all_tuitions_raw_base(where_clause=where, params={'viewer_id': student_id})
+
+    # ---- Write transactions ----------
 
     def regenerate_all_tuitions_transaction(self, tuitions: list[dict[str, Any]]) -> bool:
         """
@@ -498,6 +579,8 @@ class DatabaseHandler:
             conn.rollback()
             return False
 
+    # -- Timetable stuff -----
+
     def get_latest_timetable_solution(self) -> Optional[list[dict[str, Any]]]:
         """
         Fetches the 'solution_data' JSONB from the latest successful or manual
@@ -583,7 +666,7 @@ class DatabaseHandler:
             log.error(f"Transaction failed! Rolling back tuition log creation. Error: {e}", exc_info=True)
             if 'conn' in locals() and conn:
                 conn.rollback()
-            return None
+            raise
 
     def create_payment_log(
         self,
@@ -612,7 +695,7 @@ class DatabaseHandler:
         except Exception as e:
             log.error(f"Failed to create payment log: {e}", exc_info=True)
             conn.rollback()
-            return None
+            raise
 
     # --- Finance Log Updates (Voiding) ---
 
@@ -698,6 +781,13 @@ class DatabaseHandler:
         except Exception as e:
             log.error(f"Database error in _get_hydrated_logs: {e}", exc_info=True)
             raise # Re-raise the exception for the service layer to handle
+
+    def get_tuition_log_by_id(self, log_id: UUID) -> Optional[dict]:
+        """Fetches a single hydrated tuition log by its ID."""
+        log.info(f"Fetching tuition log for id {log_id}.")
+        where = sql.SQL("WHERE tl.id = %s")
+        results = self._get_hydrated_logs(where, (log_id,))
+        return results[0] if results else None
 
     def get_tuition_logs_by_teacher(self, teacher_id: UUID) -> list[dict]:
         """Fetches all hydrated tuition logs for a specific teacher."""
@@ -947,3 +1037,4 @@ class DatabaseHandler:
         except Exception as e:
             log.error(f"Database error fetching total payments for parents: {e}", exc_info=True)
             raise
+

@@ -15,7 +15,7 @@ from ..database.db_handler import DatabaseHandler #TODO: should not be here
 db = DatabaseHandler()
 
 # Core Layer Importing
-from ..core.users import SubjectEnum, Users, Students, Parents, Teachers
+from ..core.users import UserRole, SubjectEnum, Users, Students, Parents, Teachers
 from ..core.tuitions import Tuitions
 from ..core.timetable import TimeTable
 from ..core.finance import Finance
@@ -254,16 +254,15 @@ def get_schedulable_tuitions():
         return jsonify({"error": "viewer_id query parameter is required"}), 400
  
     try:
-        scheduled_tuitions = timetable_service.get_latest_for_api(UUID(viewer_id))
+        scheduled_tuitions = timetable_service.get_all_for_api(UUID(viewer_id))
         return jsonify(scheduled_tuitions), 200
     except Exception as e:
         # A generic error handler is good practice
         log.error(f"ERROR in /schedulable-tuitions: {e}")
         return jsonify({"error": "An internal error occurred"}), 500
 
-
-@main_routes.route('/manual-entry-data', methods=['GET'])
-def get_manual_entry_data():
+@main_routes.route('/custom-log-entry-data', methods=['GET'])
+def get_custom_log_entry_data():
     """
     Returns the data needed for the teacher's UI to manually log a tuition:
     a list of all students and a list of all possible subjects.
@@ -271,6 +270,8 @@ def get_manual_entry_data():
     viewer_id = request.args.get('viewer_id')
     if not viewer_id:
         return jsonify({"error": "viewer_id query parameter is required"}), 400
+    elif db.identify_user_role(UUID(viewer_id)) != UserRole.teacher.name:
+        return jsonify({"error": "Unauthorized User"}), 401
  
     try:
         students = students_service.get_all_for_api(UUID(viewer_id))
@@ -316,10 +317,6 @@ def create_tuition_log():
     - scheduled tuition log json data
     {"log_type":"scheduled",
      "tuition_id":"dc7a18b0-1940-48c9-9ef4-2a7179b2e8d8",
-     "subject":"Math",
-     "student_names":["Ali"],
-     "scheduled_start_time":"2025-09-20T15:00:00",
-     "scheduled_end_time":"2025-09-20T16:30:00",
      "start_time":"2025-09-27T12:21:00.000Z",
      "end_time":"2025-09-27T13:30:00.000Z"}
 
@@ -334,7 +331,7 @@ def create_tuition_log():
     """
     data = request.get_json()
     try:
-        new_log_id = logbook_service.create_tuition_log(data)
+        new_log_id = finance_service.create_tuition_log(data)
         return jsonify({"message": "Tuition log created successfully", "log_id": new_log_id}), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400 # Bad request
@@ -348,7 +345,7 @@ def void_tuition_log(log_id):
     Voids a specific tuition log. This is a safe alternative to deleting.
     """
     try:
-        success = db.void_tuition_log(log_id)
+        success = finance_service.delete_tuition_log(log_id)
         if not success:
             return jsonify({"error": "Log not found or already voided"}), 404
         return jsonify({"message": f"Log {log_id} has been voided"}), 200
@@ -364,7 +361,7 @@ def correct_tuition_log(log_id):
     """
     correction_data = request.get_json()
     try:
-        new_log_id = logbook_service.perform_log_correction(log_id, correction_data)
+        new_log_id = finance_service.edit_tuition_log(log_id, correction_data)
         return jsonify({
             "message": "Log corrected successfully",
             "original_log_id": log_id,

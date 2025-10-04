@@ -6,14 +6,13 @@ import hashlib
 from datetime import timedelta
 from typing import Optional, Any
 from uuid import UUID
+from decimal import Decimal
+from pydantic import BaseModel, Field, ConfigDict, field_serializer, computed_field
 
-from pydantic import BaseModel, Field, ConfigDict, field_serializer
-
-# Assuming these are in the same directory or accessible via PYTHONPATH
 from ..common.logger import log
 from ..database.db_handler2 import DatabaseHandler
 from .users import (
-    Student, Parent, Teacher, Students, Parents, Teachers,
+    UserRole, ApiUser, Student, Parent, Teacher, Students, Parents, Teachers,
     SubjectEnum # Assuming you move the dynamic Enum creation here or a central place
 )
 
@@ -79,6 +78,88 @@ class Tuition(BaseModel):
 
         return f"[{self.subject.value} - Lesson {self.lesson_index}] with {teacher_name} for {student_names}"
 
+
+# --- NEW: API-Specific Models for Tuitions ---
+
+class ApiTuitionCharge(BaseModel):
+    """A lean representation of a student charge for the teacher's view."""
+    student: ApiUser
+    cost: Decimal
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ApiTuitionForGuardian(BaseModel):
+    """The API model for a tuition as seen by a parent or student."""
+    # Internal fields for computation
+    source: Tuition
+    viewer_id: UUID
+
+    @computed_field
+    @property
+    def id(self) -> str:
+        return str(self.source.id)
+
+    @computed_field
+    @property
+    def subject(self) -> str:
+        return self.source.subject.value
+        
+    @computed_field
+    @property
+    def attendee_names(self) -> list[str]:
+        """Shows all attendees for context."""
+        names = []
+        for charge in self.source.charges:
+            full_name = f"{charge.student.first_name or ''} {charge.student.last_name or ''}".strip()
+            names.append(full_name or "Unknown Student")
+        return names
+
+    @computed_field
+    @property
+    def charge(self) -> str:
+        """Finds the specific cost for the viewer (parent or student)."""
+        for charge in self.source.charges:
+            if charge.parent.id == self.viewer_id or charge.student.id == self.viewer_id:
+                return f"{charge.cost:.2f}"
+        return "0.00" # Fallback
+
+class ApiTuitionForTeacher(BaseModel):
+    """The API model for a tuition as seen by a teacher."""
+    source: Tuition # Keep this simple, we'll use a helper for transformation
+
+    @computed_field
+    @property
+    def id(self) -> str:
+        return str(self.source.id)
+
+    @computed_field
+    @property
+    def subject(self) -> str:
+        return self.source.subject.value
+
+    @computed_field
+    @property
+    def attendee_names(self) -> list[str]:
+        """Shows all attendees for context."""
+        names = []
+        for charge in self.source.charges:
+            full_name = f"{charge.student.first_name or ''} {charge.student.last_name or ''}".strip()
+            names.append(full_name or "Unknown Student")
+        return names
+
+    @computed_field
+    @property
+    def total_cost(self) -> str:
+        """Calculates the total value of the tuition."""
+        total = sum(charge.cost for charge in self.source.charges)
+        return f"{total:.2f}"
+
+    @computed_field
+    @property
+    def charges(self) -> list[ApiTuitionCharge]:
+        """Provides a detailed list of charges for the teacher."""
+        return [ApiTuitionCharge(student=ApiUser.model_validate(c.student), cost=c.cost) for c in self.source.charges]
+
 # --- Service Class ---
 
 class Tuitions:
@@ -107,26 +188,112 @@ class Tuitions:
         hasher = hashlib.sha256(id_string.encode('utf-8'))
         return UUID(bytes=hasher.digest()[:16])
 
+    def get_by_id(self, tuition_id: UUID) -> Optional[Tuition]:
+        """
+        CORRECTED: Fetches a single, fully hydrated Tuition object by its ID
+        using an efficient, bulk-fetching hydration pattern.
+        """
+        # 1. Fetch the single raw tuition data.
+        raw_data = self.db.get_tuition_raw_by_id(tuition_id)
+        if not raw_data:
+            return None
 
-    def get_all(self) -> list[Tuition]:
+        # 2. Collect all unique user IDs needed from this single raw object.
+        user_ids_to_fetch = set()
+        user_ids_to_fetch.add(raw_data['teacher_id'])
+        if raw_data.get('charges'):
+            for charge in raw_data['charges']:
+                user_ids_to_fetch.add(UUID(charge['student_id']))
+                user_ids_to_fetch.add(UUID(charge['parent_id']))
+
+        # 3. Fetch all required user details in a single, efficient batch.
+        all_needed_users_data = self.db.get_users_by_ids(list(user_ids_to_fetch))
+
+        # 4. Create lookup dictionaries from the fetched data.
+        all_students_dict = {
+            s['id']: Student.model_validate(s) for s in all_needed_users_data if s['role'] == 'student'
+        }
+        all_parents_dict = {
+            p['id']: Parent.model_validate(p) for p in all_needed_users_data if p['role'] == 'parent'
+        }
+        all_teachers_dict = {
+            t['id']: Teacher.model_validate(t) for t in all_needed_users_data if t['role'] == 'teacher'
+        }
+        
+        # 5. Hydrate the final Tuition object.
+        teacher_obj = all_teachers_dict.get(raw_data['teacher_id'])
+        if not teacher_obj:
+            log.error(f"Hydration failed for tuition {tuition_id}: Teacher {raw_data['teacher_id']} not found.")
+            return None # Data integrity issue
+
+        tuition_charges = []
+        if raw_data.get('charges'):
+            for charge_data in raw_data['charges']:
+                student_obj = all_students_dict.get(UUID(charge_data['student_id']))
+                parent_obj = all_parents_dict.get(UUID(charge_data['parent_id']))
+                if student_obj and parent_obj:
+                    tuition_charges.append(TuitionCharge(student=student_obj, parent=parent_obj, cost=charge_data['cost']))
+        
+        return Tuition(
+            id=raw_data['id'],
+            subject=raw_data['subject'],
+            lesson_index=raw_data['lesson_index'],
+            min_duration_minutes=raw_data['min_duration_minutes'],
+            max_duration_minutes=raw_data['max_duration_minutes'],
+            meeting_link=raw_data['meeting_link'],
+            teacher=teacher_obj,
+            charges=tuition_charges
+        )
+    def get_all(self, viewer_id: UUID) -> list[Tuition]:
         """
         Fetches all tuitions from the database and constructs them into Tuition models.
         This method orchestrates calls to other services to build the final objects.
         """
         log.info("Fetching and orchestrating all tuitions...")
+        role = self.db.identify_user_role(viewer_id)
         
-        # --- Eager Loading Phase to Prevent N+1 Queries ---
-        # Fetch all users in bulk and store them in dictionaries for fast lookups.
-        all_students_dict = {s.id: s for s in self.students_service.get_all()}
-        all_parents_dict = {p.id: p for p in self.parents_service.get_all()}
-        all_teachers_dict = {t.id: t for t in self.teachers_service.get_all()}
-        
-        # 1. Get the raw tuition data structures from the database.
-        raw_tuition_list = self.db.get_all_tuitions_raw()
+        # 1. Get the raw tuition data structures from the database only related to specific user
+        raw_tuition_list = []
+        if role == UserRole.teacher.name:
+            raw_tuition_list = self.db.get_all_tuitions_raw_for_teacher(viewer_id)
+        elif role == UserRole.parent.name:
+            raw_tuition_list = self.db.get_all_tuitions_raw_for_parent(viewer_id)
+        elif role == UserRole.student.name:
+            raw_tuition_list = self.db.get_all_tuitions_raw_for_student(viewer_id)
+        else:
+            raise UnauthorizedRoleError(f"User with role '{role}' is not authorized to view tuitions.")
+
         if not raw_tuition_list:
-            log.warning("No raw tuitions found in the database.")
+            log.warning("No raw tuitions found in the database for this viewer.")
             return []
-            
+
+        # 2. OPTIMIZATION: Collect all unique user IDs needed from the raw data.
+        student_ids = set()
+        parent_ids = set()
+        teacher_ids = set()
+        for raw_data in raw_tuition_list:
+            teacher_ids.add(raw_data['teacher_id'])
+            if raw_data.get('charges'):
+                for charge in raw_data['charges']:
+                    student_ids.add(charge['student_id'])
+                    parent_ids.add(charge['parent_id'])
+
+        # 3. OPTIMIZATION: Fetch all required users in efficient batches.
+        # We use our powerful get_users_by_ids method here.
+        all_needed_users_data = self.db.get_users_by_ids(list(student_ids | parent_ids | teacher_ids))
+        
+        # 4. Create lookup dictionaries from the fetched data.
+        all_students_dict = {
+            s['id']: Student.model_validate(s) for s in all_needed_users_data if s['role'] == 'student'
+        }
+        all_parents_dict = {
+            p['id']: Parent.model_validate(p) for p in all_needed_users_data if p['role'] == 'parent'
+        }
+        all_teachers_dict = {
+            t['id']: Teacher.model_validate(t) for t in all_needed_users_data if t['role'] == 'teacher'
+        }
+              
+        # 5. Hydrate the final Tuition objects 
         final_tuitions = []
         try:
             # 2. Assemble the final Pydantic models in Python.
@@ -174,14 +341,39 @@ class Tuitions:
                         charges=tuition_charges
                     )
                 )
-            
             return final_tuitions
+
         except Exception as e:
             # This will now catch both DB errors and Pydantic validation errors during assembly.
             log.error(f"Failed to fetch and construct all tuitions: {e}", exc_info=True)
             # You might want to re-raise the exception depending on your error handling strategy.
             raise
 
+    def get_all_for_api(self, viewer_id: UUID) -> list[dict[str, Any]]:
+        """
+        NEW: Public dispatcher that returns a lean list of tuitions formatted
+        correctly for the viewer's role.
+        """
+        role = self.db.identify_user_role(viewer_id)
+        rich_tuitions = self.get_all(viewer_id) # Get the filtered rich objects
+
+        if role == UserRole.teacher.name:
+            return self._format_for_teacher_api(rich_tuitions)
+        elif role in (UserRole.parent.name, UserRole.student.name):
+            return self._format_for_guardian_api(rich_tuitions, viewer_id)
+        else:
+            raise UnauthorizedRoleError(f"User with role '{role}' is not authorized to view tuitions.")
+
+    def _format_for_teacher_api(self, tuitions: list[Tuition]) -> list[dict[str, Any]]:
+        """Formats tuitions for a teacher's view."""
+        api_models = [ApiTuitionForTeacher(source=t) for t in tuitions]
+        return [model.model_dump(exclude={'source'}) for model in api_models]
+
+    def _format_for_guardian_api(self, tuitions: list[Tuition], viewer_id: UUID) -> list[dict[str, Any]]:
+        """Formats tuitions for a parent's or student's view."""
+        api_models = [ApiTuitionForGuardian(source=t, viewer_id=viewer_id) for t in tuitions]
+        return [model.model_dump(exclude={'source', 'viewer_id'}) for model in api_models]
+    
     def regenerate_all_tuitions(self) -> bool:
         """
         The main method to regenerate all tuitions. It reads all necessary student and teacher
