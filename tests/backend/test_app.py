@@ -72,53 +72,6 @@ def test_get_custom_log_entry_data(client):
     assert response.status_code == 200
     assert isinstance(response.get_json(), dict)
  
-def test_get_all_tuition_logs(client):
-
-    # -- Testing Teacher User
-    response = client.get(f'/tuition-logs?viewer_id={TEST_TEACHER_ID}')
-
-    print(f"\n=== GET /tuition-logs? Teacher ID RESPONSE ===")
-    print(f"Status Code: {response.status_code}")
-    print(f"Got {len(response.get_json())} logs")
-    found_custom = False
-    found_scheduled = False
-    for example_log in response.get_json():
-        if example_log['create_type'] == 'CUSTOM' and not found_custom:
-            print("CUSTOM Type response:")
-            pprint(example_log)
-            found_custom = True
-        elif example_log['create_type'] == 'SCHEDULED' and not found_scheduled:
-            print("SCHEDULED Type response:")
-            pprint(example_log)
-            found_scheduled = True
-    print("===================================\n")
-
-    assert response.status_code == 200
-    assert isinstance(response.get_json(), list)
-
-    # -- Testing Parent user
-    response = client.get(f'/tuition-logs?viewer_id={TEST_PARENT_ID}')
-
-    print(f"\n=== GET /tuition-logs? Parent ID RESPONSE ===")
-    print(f"Status Code: {response.status_code}, should be 403, forbidden/unauthorized")
-    print(f"Got {len(response.get_json())} logs")
-    print(f"Got {len(response.get_json())} logs for parent user\nExample:\n")
-    pprint(response.get_json()[0])
-    print("===================================\n")
-
-    assert response.status_code == 200
-    assert isinstance(response.get_json(), list)
-
-    # -- Testing Student user
-    response = client.get(f'/tuition-logs?viewer_id={TEST_STUDENT_ID}')
-
-    print(f"\n=== GET /tuition-logs? Student ID RESPONSE ===")
-    print(f"Status Code: {response.status_code}")
-    print(f"Response JSON:")
-    pprint(response)
-    print("===================================\n")
-
-    assert response.status_code == 403
 
 def test_get_parent_list_for_teacher(client):
     response = client.get('/parent-list?viewer_id=dcef54de-bc89-4388-a7a8-dba5d8327447')

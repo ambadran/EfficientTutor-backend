@@ -1,7 +1,7 @@
 '''
 testing core/timetable.py
 '''
-from tests.constants import TEST_PARENT_ID, TEST_TEACHER_ID, TEST_STUDENT_ID, TEST_PARENT_IDS
+from tests.constants import *
 from efficient_tutor_backend.core.timetable import TimeTable
 
 from pprint import pprint

@@ -332,7 +332,7 @@ def create_tuition_log():
     data = request.get_json()
     try:
         new_log_id = finance_service.create_tuition_log(data)
-        return jsonify({"message": "Tuition log created successfully", "log_id": new_log_id}), 201
+        return jsonify({"message": "Tuition log created successfully", "log_data": new_log_id}), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400 # Bad request
     except Exception as e:

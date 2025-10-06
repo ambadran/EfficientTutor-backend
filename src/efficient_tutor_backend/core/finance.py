@@ -55,7 +55,7 @@ class TuitionLog(BaseModel):
     status: LogStatus
     create_type: TuitionLogCreateType
     charges: list[TuitionLogCharge]
-    tuition: Optional[Tuition] = None
+    tuition_id: Optional[UUID] = None
     lesson_index: Optional[int] = None
     corrected_from_log_id: Optional[UUID] = None
 
@@ -69,6 +69,29 @@ class TuitionLog(BaseModel):
     def total_cost(self) -> Decimal:
         """A helper property to get the total cost of this specific log."""
         return sum(charge.cost for charge in self.charges)
+
+
+    def __repr__(self) -> str:
+        """Provides a developer-friendly representation for debugging."""
+        return (
+            f"TuitionLog(id={self.id!r}, subject='{self.subject.value}', "
+            f"start_time='{self.start_time.isoformat()}', status='{self.status.value}', "
+            f"students={len(self.charges)}, "
+            f"create_type={self.create_type.value})"
+        )
+
+    def __str__(self) -> str:
+        """Provides a human-readable summary of the tuition log."""
+        attendee_names = ", ".join(
+            [c.student.first_name for c in self.charges if c.student.first_name]
+        ) or f"{len(self.charges)} student(s)"
+        
+        time_format = "%b %d at %H:%M" # e.g., "Oct 06 at 14:30"
+        start_formatted = self.start_time.strftime(time_format)
+        
+        # Add a status indicator only if the log is not ACTIVE
+        status_indicator = f" [{self.status.value}]"         
+        return f"{self.subject.value} log for {attendee_names} on {start_formatted}{status_indicator}"
 
 class PaymentLog(BaseModel):
     """A fully hydrated representation of a single payment log entry."""
@@ -115,12 +138,17 @@ class CreatePaymentLogInput(BaseModel):
 # --- 3. API Output Pydantic Models ---
 # These lean models define the exact shape of the JSON sent back to the frontend.
 
-class ApiTuitionLog(BaseModel):
+class ApiLogCharge(BaseModel):
+    """A lean representation of a charge within a log for the teacher's view."""
+    student_name: str
+    cost: str
+
+class ApiTuitionLogForGuardian(BaseModel):
     """Defines the JSON structure for a tuition log sent to the frontend."""
     # Internal fields used for computation, excluded from final output.
     source: TuitionLog
     earliest_log_date: datetime
-
+    viewer_id: UUID
 
     # --- Helper method for week calculation ---
     def _get_start_of_week(self, a_date: datetime) -> datetime:
@@ -170,9 +198,12 @@ class ApiTuitionLog(BaseModel):
     @computed_field
     @property
     def cost(self) -> str:
-        """Calculates the total cost of the tuition log."""
-        total_cost = sum(charge.cost for charge in self.source.charges)
-        return f"{total_cost:.2f}"
+        """Finds the specific cost for the viewer (parent or their child)."""
+        cost = 0
+        for charge in self.source.charges:
+            if charge.parent.id == self.viewer_id or charge.student.id == self.viewer_id:
+                cost += charge.cost
+        return f"{cost:.2f}"
 
     @computed_field
     @property
@@ -183,6 +214,18 @@ class ApiTuitionLog(BaseModel):
     @property
     def create_type(self) -> str:
         return self.source.create_type.value
+
+    @computed_field
+    @property
+    def tuition_id(self) -> Optional[str]:
+        """
+        Returns the original tuition template ID if the log was created
+        from a scheduled tuition, otherwise null.
+        """
+        tuition_id = self.source.tuition_id
+        if tuition_id is None:
+            return tuition_id
+        return str(tuition_id)
 
     @computed_field
     @property
@@ -215,6 +258,128 @@ class ApiTuitionLog(BaseModel):
             return self.source.paid_status.value
         # Fallback in case status was not calculated
         return PaidStatus.UNPAID.value
+
+class ApiTuitionLogForTeacher(BaseModel):
+    """Defines the JSON structure for a tuition log sent to the frontend."""
+    # Internal fields used for computation, excluded from final output.
+    source: TuitionLog
+    earliest_log_date: datetime
+
+    # --- Helper method for week calculation ---
+    def _get_start_of_week(self, a_date: datetime) -> datetime:
+        """Finds the date of the first day of the week for a given date."""
+        # Calculate how many days to subtract to get to the first day of the week
+        days_to_subtract = (a_date.weekday() - FIRST_DAY_OF_WEEK + 7) % 7
+        # Return the date of that day, keeping the time as the start of the day
+        start_of_week_date = a_date.date() - timedelta(days=days_to_subtract)
+        return datetime.combine(start_of_week_date, datetime.min.time())
+
+    @computed_field
+    @property
+    def id(self) -> str:
+        return str(self.source.id)
+
+    @computed_field
+    @property
+    def subject(self) -> str:
+        return self.source.subject.value
+
+    @computed_field
+    @property
+    def attendee_names(self) -> list[str]:
+        names = []
+        for charge in self.source.charges:
+            full_name = f"{charge.student.first_name or ''} {charge.student.last_name or ''}".strip()
+            names.append(full_name or "Unknown Student")
+        return names
+
+    @computed_field
+    @property
+    def start_time(self) -> str:
+        return self.source.start_time.isoformat().replace('+00:00', 'Z')
+
+    @computed_field
+    @property
+    def end_time(self) -> str:
+        return self.source.end_time.isoformat().replace('+00:00', 'Z')
+
+    @computed_field
+    @property
+    def duration(self) -> str:
+        """Calculates duration and formats it as 'X.Yh'."""
+        duration_hours = (self.source.end_time - self.source.start_time).total_seconds() / 3600
+        return f"{duration_hours:.1f}h"
+
+    @computed_field
+    @property
+    def status(self) -> str:
+        return self.source.status.value
+
+    @computed_field
+    @property
+    def create_type(self) -> str:
+        return self.source.create_type.value
+
+    @computed_field
+    @property
+    def tuition_id(self) -> Optional[str]:
+        """
+        Returns the original tuition template ID if the log was created
+        from a scheduled tuition, otherwise null.
+        """
+        tuition_id = self.source.tuition_id
+        if tuition_id is None:
+            return tuition_id
+        return str(tuition_id)
+
+    @computed_field
+    @property
+    def week_number(self) -> int:
+        """
+        REVISED: Calculates the week number relative to the first-ever log entry,
+        with the week starting on the configured FIRST_DAY_OF_WEEK.
+        """
+        # Find the true start of the week for both dates
+        start_of_log_week = self._get_start_of_week(self.source.start_time)
+        start_of_earliest_week = self._get_start_of_week(self.earliest_log_date)
+
+        # Calculate the number of full weeks between these two dates
+        delta_days = (start_of_log_week - start_of_earliest_week).days
+        
+        # Add 1 so the first week is week 1, not week 0
+        return (delta_days // 7) + 1
+
+    @computed_field
+    @property
+    def corrected_from_log_id(self) -> Optional[str]:
+        return str(self.source.corrected_from_log_id) if self.source.corrected_from_log_id else None
+
+    @computed_field
+    @property
+    def paid_status(self) -> str:
+        """Returns the pre-calculated paid status from the source object."""
+        # The service layer has already done the hard work of calculating this.
+        if self.source.paid_status:
+            return self.source.paid_status.value
+        # Fallback in case status was not calculated
+        return PaidStatus.UNPAID.value
+
+    @computed_field
+    @property
+    def total_cost(self) -> str:
+        """Calculates the total value of the tuition log."""
+        return f"{self.source.total_cost:.2f}"
+    
+    @computed_field
+    @property
+    def charges(self) -> list[ApiLogCharge]:
+        """Provides a detailed list of student charges for the teacher."""
+        charge_list = []
+        for c in self.source.charges:
+            student_name = f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
+            charge_list.append(ApiLogCharge(student_name=student_name, cost=f"{c.cost:.2f}"))
+        return charge_list
+
 
 class ApiPaymentLog(BaseModel):
     """FINALIZED: Defines the JSON structure for a payment log sent to the frontend."""
@@ -290,19 +455,35 @@ class Finance:
         Public dispatcher to create a new tuition log.
         Raises ValidationError on invalid input.
         """
-        log_type = log_data.get('log_type').lower()
+        log_type = log_data.get('log_type').upper()
+        new_log_object: Optional[TuitionLog] = None
         try:
-            if log_type == TuitionLogCreateType.SCHEDULED.value.lower():
+            # Step 1: Validate input and create the rich TuitionLog object
+            if log_type == TuitionLogCreateType.SCHEDULED.value:
                 input_model = CreateScheduledTuitionLogInput.model_validate(log_data)
-                return self._create_from_scheduled(input_model, corrected_from_log_id)
-            elif log_type == TuitionLogCreateType.CUSTOM.value.lower():
+                new_log_object = self._create_from_scheduled(input_model, corrected_from_log_id)
+
+            elif log_type == TuitionLogCreateType.CUSTOM.value:
                 input_model = CreateCustomTuitionLogInput.model_validate(log_data)
-                return self._create_from_custom(input_model, corrected_from_log_id)
+                new_log_object = self._create_from_custom(input_model, corrected_from_log_id)
+
             else:
                 raise ValueError(f"Invalid log_type provided: {log_type}")
+
         except (ValidationError, ValueError) as e:
             log.error(f"Validation failed for creating tuition log. Data: {log_data}, Error: {e}")
             raise
+
+        if not new_log_object:
+            # This should not happen if creation is successful, but it's a safe check
+            raise Exception("Tuition log creation did not return a valid object.")
+
+        # Step 2: Transform the rich object into the lean API model
+        earliest_date = self.db.get_earliest_log_start_time() or datetime.now()
+        api_model = ApiTuitionLogForTeacher(source=new_log_object, earliest_log_date=earliest_date)
+        
+        # Step 3: Convert the API model to a dictionary and return
+        return api_model.model_dump(exclude={'source', 'earliest_log_date'})
 
     def _create_from_scheduled(self, data: CreateScheduledTuitionLogInput, corrected_from_log_id: Optional[UUID]) -> TuitionLog:
         """Private helper to create a log from a scheduled tuition."""
@@ -426,20 +607,13 @@ class Finance:
             return None
         return TuitionLog.model_validate(raw_log)
 
-    def get_tuition_log_by_id(self, log_id: UUID) -> Optional[TuitionLog]:
-        """Fetches a single, fully hydrated tuition log by its ID."""
-        # This would require a new DB method `get_tuition_log_by_id`
-        # For now, we can filter from a larger list as a simple implementation.
-        # In a real-world scenario, a dedicated DB call is better.
-        # This is a placeholder for that logic.
-        pass
-
     def get_tuition_logs_by_teacher(self, teacher_id: UUID) -> list[TuitionLog]:
         """Fetches all tuition logs for a teacher, returning rich Pydantic models."""
         raw_logs = self.db.get_tuition_logs_by_teacher(teacher_id)
         if not raw_logs:
             return []
 
+        #### getting paid/unpaid status
         # FIXED: Use consistent UUID objects as dictionary keys.
         logs_by_parent = {}
         for data in raw_logs:
@@ -522,13 +696,24 @@ class Finance:
         
         if not rich_logs:
             return []
-            
-        earliest_date = self.db.get_earliest_log_start_time()
-        if not earliest_date:
-            earliest_date = datetime.now()
 
-        api_models = [ApiTuitionLog(source=log, earliest_log_date=earliest_date) for log in rich_logs]
+        earliest_date = self.db.get_earliest_log_start_time() or datetime.now()
+
+        # Dispatch to the correct formatter based on role
+        if role == UserRole.teacher.name:
+            return self._format_logs_for_teacher_api(rich_logs, earliest_date)
+        else: # Parent or Student
+            return self._format_logs_for_guardian_api(rich_logs, earliest_date, view_id)
+
+    def _format_logs_for_teacher_api(self, logs: list[TuitionLog], earliest_date: datetime) -> list[dict]:
+        """Formats a list of tuition logs for a teacher's view."""
+        api_models = [ApiTuitionLogForTeacher(source=log, earliest_log_date=earliest_date) for log in logs]
         return [model.model_dump(exclude={'source', 'earliest_log_date'}) for model in api_models]
+
+    def _format_logs_for_guardian_api(self, logs: list[TuitionLog], earliest_date: datetime, viewer_id: UUID) -> list[dict]:
+        """Formats a list of tuition logs for a parent's or student's view."""
+        api_models = [ApiTuitionLogForGuardian(source=log, earliest_log_date=earliest_date, viewer_id=viewer_id) for log in logs]
+        return [model.model_dump(exclude={'source', 'earliest_log_date', 'viewer_id'}) for model in api_models]
 
     def get_payment_logs_for_api(self, view_id: UUID) -> list[dict[str, Any]]:
         """Fetches payment logs for the API, formatted for the frontend."""

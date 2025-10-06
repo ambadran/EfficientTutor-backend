@@ -735,11 +735,7 @@ class DatabaseHandler:
     def _get_hydrated_logs(self, where_clause: sql.SQL, params: tuple) -> list[dict]:
         """
         Private helper to fetch and construct rich tuition log data using a dynamic WHERE clause.
-        This efficiently gathers all related data in a single query.
         """
-        #TODO: MUST LOG ERROR OR CRITICAL IF BROKEN DATA FOUND!!!!
-        # This query joins all necessary tables and uses JSON aggregation
-        # to build a nested structure that matches our Pydantic models.
         query = sql.SQL("""
             WITH aggregated_charges AS (
                 SELECT
@@ -759,8 +755,15 @@ class DatabaseHandler:
                 GROUP BY tlc.tuition_log_id
             )
             SELECT
-                tl.id, tl.subject, tl.lesson_index, tl.start_time,
-                tl.end_time, tl.status, tl.create_type, tl.corrected_from_log_id,
+                tl.id,
+                tl.tuition_id, -- ADDED: The missing tuition_id field
+                tl.subject,
+                tl.lesson_index,
+                tl.start_time,
+                tl.end_time,
+                tl.status,
+                tl.create_type,
+                tl.corrected_from_log_id,
                 to_jsonb(t_user.*) AS teacher,
                 ac.charges
             FROM tuition_logs tl
@@ -769,7 +772,6 @@ class DatabaseHandler:
             {where_clause};
         """).format(where_clause=where_clause)
 
-        
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -780,7 +782,7 @@ class DatabaseHandler:
                     return [dict(row) for row in results]
         except Exception as e:
             log.error(f"Database error in _get_hydrated_logs: {e}", exc_info=True)
-            raise # Re-raise the exception for the service layer to handle
+            raise
 
     def get_tuition_log_by_id(self, log_id: UUID) -> Optional[dict]:
         """Fetches a single hydrated tuition log by its ID."""
@@ -794,27 +796,36 @@ class DatabaseHandler:
         log.info(f"Fetching tuition logs for teacher {teacher_id}.")
         where = sql.SQL("WHERE tl.teacher_id = %s ORDER BY tl.start_time ASC")
         return self._get_hydrated_logs(where, (teacher_id,))
-    
+
     def get_tuition_logs_by_parent(self, parent_id: UUID) -> list[dict]:
-        """Fetches all hydrated tuition logs that a parent's child attended."""
-        log.info(f"Fetching tuition logs for parent {parent_id}.")
+        """
+        Fetches all ACTIVE hydrated tuition logs that a parent's child attended,
+        sorted chronologically.
+        """
+        log.info(f"Fetching active tuition logs for parent {parent_id}.")
         try:
-            log_ids_query = "SELECT DISTINCT tuition_log_id FROM tuition_log_charges WHERE parent_id = %s"
+            # This query now joins with tuition_logs to filter by status
+            log_ids_query = """
+                SELECT DISTINCT tlc.tuition_log_id
+                FROM tuition_log_charges tlc
+                JOIN tuition_logs tl ON tlc.tuition_log_id = tl.id -- ADDED JOIN
+                WHERE tlc.parent_id = %s AND tl.status = 'ACTIVE';   -- ADDED STATUS CHECK
+            """
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(log_ids_query, (parent_id,))
                     log_ids = [row[0] for row in cur.fetchall()]
                     if not log_ids:
-                        log.warning(f"No tuition logs found for parent {parent_id}.")
+                        log.info(f"No active tuition logs found for parent {parent_id}.")
                         return []
             
-            # Now fetch the full logs for these specific IDs
+            # This part remains the same, fetching the already-filtered log IDs
             where = sql.SQL("WHERE tl.id = ANY(%s) ORDER BY tl.start_time ASC")
             return self._get_hydrated_logs(where, (log_ids,))
         except Exception as e:
             log.error(f"Database error fetching logs by parent {parent_id}: {e}", exc_info=True)
             raise
-            
+                
     def get_payment_logs_by_teacher(self, teacher_id: UUID) -> list[dict]:
         """Fetches all hydrated payment logs for a specific teacher."""
         log.info(f"Fetching payment logs for teacher {teacher_id}.")
