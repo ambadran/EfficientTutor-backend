@@ -131,13 +131,13 @@ UPDATE students
 SET
     notes = COALESCE(notes, '[]'::jsonb) || '{
         "id": "ali-89",
-        "name": "Graphs",
+        "name": "Precision and Accuracy",
         "description": "Physics",
-        "url": "https://web.goodnotes.com/s/tNJ6hxNaD6yvggdC27WeNa"
+        "url": "https://web.goodnotes.com/s/ZiBbMMxDDTpgLF5Li4JC2A"
 
     }'::jsonb
 WHERE
-    first_name = 'Mila';
+    first_name = 'Yassin';
 
 -- Create the new ENUM type for log statuses
 CREATE TYPE log_status_enum AS ENUM ('ACTIVE', 'VOID');
