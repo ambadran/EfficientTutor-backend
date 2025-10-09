@@ -49,5 +49,16 @@ def test_finance_get_tuition_logs_by_teacher_for_api(finance: Finance):
 def test_finance_get_tuition_logs_by_parent_for_api(finance: Finance):
     all_logs = finance.get_tuition_logs_for_api(TEST_PARENT_ID)
     print(f"Core Tuition Log API GET Response Test.\nFound {len(all_logs)} logs.\nExample:")
-    pprint(all_logs)
+    found_custom = False
+    found_scheduled = False
+    for example_log in all_logs:
+        if example_log['create_type'] == 'CUSTOM' and not found_custom:
+            print("CUSTOM Type response:")
+            pprint(example_log)
+            found_custom = True
+        elif example_log['create_type'] == 'SCHEDULED' and not found_scheduled:
+            print("SCHEDULED Type response:")
+            pprint(example_log)
+            found_scheduled = True
+
 

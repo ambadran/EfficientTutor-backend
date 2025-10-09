@@ -415,7 +415,6 @@ def get_payment_logs():
         log.error(f"An unexpected error occurred: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
 
-
 @main_routes.route('/payment-logs', methods=['POST'])
 def create_payment_log():
     """

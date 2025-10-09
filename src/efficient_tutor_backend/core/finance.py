@@ -140,6 +140,7 @@ class CreatePaymentLogInput(BaseModel):
 
 class ApiLogCharge(BaseModel):
     """A lean representation of a charge within a log for the teacher's view."""
+    student_id: str
     student_name: str
     cost: str
 
@@ -370,16 +371,25 @@ class ApiTuitionLogForTeacher(BaseModel):
         """Calculates the total value of the tuition log."""
         return f"{self.source.total_cost:.2f}"
     
+
     @computed_field
     @property
     def charges(self) -> list[ApiLogCharge]:
-        """Provides a detailed list of student charges for the teacher."""
+        """
+        REVISED: Provides a detailed list of student charges for the teacher,
+        now including the student_id.
+        """
         charge_list = []
         for c in self.source.charges:
             student_name = f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
-            charge_list.append(ApiLogCharge(student_name=student_name, cost=f"{c.cost:.2f}"))
+            charge_list.append(
+                ApiLogCharge(
+                    student_id=str(c.student.id), # Pass the student's ID
+                    student_name=student_name,
+                    cost=f"{c.cost:.2f}"
+                )
+            )
         return charge_list
-
 
 class ApiPaymentLog(BaseModel):
     """FINALIZED: Defines the JSON structure for a payment log sent to the frontend."""
