@@ -129,9 +129,10 @@ class CreateCustomTuitionLogInput(BaseModel):
     charges: list[CustomTuitionChargeInput]
 
 class CreatePaymentLogInput(BaseModel):
-    parent_user_id: UUID
+    parent_id: UUID
     teacher_id: UUID
     amount_paid: Decimal
+    payment_date: datetime
     notes: Optional[str] = None
 
 
@@ -465,7 +466,10 @@ class Finance:
         Public dispatcher to create a new tuition log.
         Raises ValidationError on invalid input.
         """
-        log_type = log_data.get('log_type').upper()
+        log_type = log_data.get('log_type')
+        if log_type is None:
+            raise ValueError("log_type is None, incomplete/corrupted log")
+        log_type = log_type.upper()
         new_log_object: Optional[TuitionLog] = None
         try:
             # Step 1: Validate input and create the rich TuitionLog object
@@ -583,26 +587,34 @@ class Finance:
     def create_payment_log(self, log_data: dict[str, Any], corrected_from_log_id: Optional[UUID] = None) -> Optional[PaymentLog]:
         """Creates a new payment log after validating input data."""
         try:
+            log.info(f"Creating new payment log..")
             input_model = CreatePaymentLogInput.model_validate(log_data)
+
             new_log_id = self.db.create_payment_log(
-                parent_user_id=input_model.parent_user_id,
+                parent_id=input_model.parent_id,
                 teacher_id=input_model.teacher_id,
                 amount_paid=input_model.amount_paid,
+                payment_date=input_model.payment_date,
                 notes=input_model.notes,
                 corrected_from_log_id=corrected_from_log_id
             )
-            return self.get_payment_log_by_id(new_log_id) if new_log_id else None
-        except ValidationError as e:
+
+            new_log_object = self.get_payment_log_by_id(new_log_id)
+            if not new_log_object:
+                 raise Exception(f"Could not fetch newly created payment log with ID {new_log_id}.")
+
+            api_model = ApiPaymentLog(source=new_log_object)
+            return api_model.model_dump(exclude={'source'})
+
+        except (ValidationError, ValueError) as e:
             log.error(f"Pydantic validation failed for creating payment log. Data: {log_data}, Error: {e}")
-            return None
+            raise
 
     def edit_payment_log(self, old_log_id: UUID, new_log_data: dict[str, Any]) -> Optional[PaymentLog]:
         """Edits a payment log by voiding the old one and creating a new one."""
-        log.info(f"Editing payment log {old_log_id} by voiding and creating a new log.")
+        log.info(f"Editing payment log {old_log_id}...")
         if not self.db.set_log_status('payment_logs', old_log_id, LogStatus.VOID.value):
-            log.error(f"Failed to void old payment log {old_log_id}. Aborting edit.")
-            return None
-        
+            raise Exception(f"Failed to void old payment log {old_log_id}. Aborting edit.")
         return self.create_payment_log(new_log_data, corrected_from_log_id=old_log_id)
 
     def delete_payment_log(self, log_id: UUID) -> bool:
@@ -674,6 +686,13 @@ class Finance:
 
         # 4. Return the final list, sorted DESC for the API
         return sorted(hydrated_logs, key=lambda log: log.start_time, reverse=True)
+
+    def get_payment_log_by_id(self, log_id: UUID) -> Optional[PaymentLog]:
+        """NEW: Fetches a single, fully hydrated payment log by its ID."""
+        raw_log = self.db.get_payment_log_by_id(log_id)
+        if not raw_log:
+            return None
+        return PaymentLog.model_validate(raw_log)
 
     def get_payment_logs_by_teacher(self, teacher_id: UUID) -> list[PaymentLog]:
         """Fetches all payment logs for a teacher, returning rich Pydantic models."""
