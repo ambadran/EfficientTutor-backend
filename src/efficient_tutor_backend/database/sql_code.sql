@@ -368,6 +368,8 @@ JOIN students s ON s.id = student_id_from_array;
 
 
 /************************************************************************************/
+/************************************************************************************/
+/************************************************************************************/
 /** V IMP: these are the steps to migrate all old tuition_log data to the new format **/
 /* Step 1: Clear any existing data in the target table. */
 TRUNCATE TABLE tuition_log_charges RESTART IDENTITY CASCADE;
@@ -461,8 +463,12 @@ ALTER TABLE tuitions DROP COLUMN cost;
 ALTER TABLE students
 DROP CONSTRAINT students_user_id_fkey;
 
--- Step 2: Drop the old, now-redundant 'user_id' column.
+-- Step 2: Drop the old, now-redundant user_id column.
 ALTER TABLE students
 DROP COLUMN user_id;
+
+-- rename the parent_user_id to parent_id
+ALTER TABLE payment_logs
+RENAME COLUMN parent_user_id TO parent_id;
 
 /* ********************************************************************* */

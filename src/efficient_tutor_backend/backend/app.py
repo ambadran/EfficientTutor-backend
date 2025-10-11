@@ -5,6 +5,7 @@ from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import time
 from uuid import UUID
+from pydantic import ValidationError
 
 # Common Layer Importing
 from ..common.logger import log
@@ -142,20 +143,21 @@ def get_timetable():
     # The final JSON structure matches exactly what the frontend expects.
     return jsonify({ "tuitions": student_timetable }), 200
 
-@main_routes.route('/logs', methods=['GET'])
-def get_logs():
-    """
-    Returns a full financial summary and detailed logs for a given parent user.
-    """
-    # NOTE: The frontend sends the parent's user ID as 'userId'
-    parent_user_id = request.args.get('userId')
-    if not parent_user_id:
-        return jsonify({"error": "User ID is required"}), 400
+#deprecated
+# @main_routes.route('/logs', methods=['GET'])
+# def get_logs():
+#     """
+#     Returns a full financial summary and detailed logs for a given parent user.
+#     """
+#     # NOTE: The frontend sends the parent's user ID as 'userId'
+#     parent_user_id = request.args.get('userId')
+#     if not parent_user_id:
+#         return jsonify({"error": "User ID is required"}), 400
 
-    # The db handler now performs all complex calculations.
-    log_data = db.get_user_logs(parent_user_id)
+#     # The db handler now performs all complex calculations.
+#     log_data = db.get_user_logs(parent_user_id)
     
-    return jsonify(log_data), 200
+#     return jsonify(log_data), 200
 
 @main_routes.route('/student-credentials', methods=['GET'])
 def get_student_credentials():
@@ -418,57 +420,68 @@ def get_payment_logs():
 @main_routes.route('/payment-logs', methods=['POST'])
 def create_payment_log():
     """
-    Creates a new payment log entry.
+    Creates a new payment log.
     """
-    # data = request.get_json()
-    # try:
-    #     if not data.get('parent_user_id') or data.get('amount_paid') is None:
-    #         raise ValueError("parent_user_id and amount_paid are required.")
-        
-    #     new_payment_id = db.insert_payment_log(data)
-    #     return jsonify({"message": "Payment log created", "payment_id": new_payment_id}), 201
-    # except ValueError as e:
-    #     return jsonify({"error": str(e)}), 400
-    # except Exception as e:
-    #     log.error(f"ERROR in /payment-logs: {e}")
-        # return jsonify({"error": "An internal server error occurred"}), 500
-    return jsonify({"error": "Not implemented"}), 500
+    log_data = request.get_json()
+    if not log_data:
+        return jsonify({"error": "Request body must be a valid JSON."}), 400
+
+    try:
+        # The service method handles validation, creation, and formatting.
+        response_data = finance_service.create_payment_log(log_data)
+        return jsonify(response_data), 201 # 201 Created
+
+    except (ValidationError, ValueError) as e:
+        # Handles bad input from the client (e.g., missing fields, wrong types).
+        return jsonify({"error": "Validation Error", "details": str(e)}), 422 # Unprocessable Entity
+    except Exception as e:
+        log.error(f"ERROR in POST /payment-logs: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 @main_routes.route('/payment-logs/<log_id>/void', methods=['POST'])
 def void_payment_log(log_id):
     """
-    Voids a specific tuition log. This is a safe alternative to deleting.
+    'Deletes' a payment log by setting its status to VOID.
     """
-    return jsonify({"error": "Not implemented"}), 500
-    # try:
-    #     success = db.void_tuition_log(log_id)
-    #     if not success:
-    #         return jsonify({"error": "Log not found or already voided"}), 404
-    #     return jsonify({"message": f"Log {log_id} has been voided"}), 200
-    # except Exception as e:
-    #     log.error(f"ERROR in /tuition-logs/<log_id>/void: {e}")
-    #     return jsonify({"error": "An internal server error occurred"}), 500
+    try:
+        log_uuid = UUID(log_id)
+        success = finance_service.delete_payment_log(log_uuid)
+        
+        if success:
+            return jsonify({"message": f"Payment log {log_id} has been voided."}), 200
+        else:
+            # This can happen if the log_id does not exist.
+            return jsonify({"error": f"Payment log {log_id} not found or could not be voided."}), 404
+
+    except ValueError:
+        # Handles cases where log_id is not a valid UUID string.
+        return jsonify({"error": "Invalid log_id format."}), 400
+    except Exception as e:
+        log.error(f"ERROR in POST /payment-logs/{log_id}/void: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 @main_routes.route('/payment-logs/<log_id>/correction', methods=['POST'])
 def correct_payment_log(log_id):
     """
-    Corrects a log by voiding the original and creating a new one with
-    the data provided in the request body.
+    Edits a payment log by voiding the old one and creating a new one.
     """
-    return jsonify({"error": "Not implemented"}), 500
-    # correction_data = request.get_json()
-    # try:
-    #     new_log_id = logbook_service.perform_log_correction(log_id, correction_data)
-    #     return jsonify({
-    #         "message": "Log corrected successfully",
-    #         "original_log_id": log_id,
-    #         "new_log_id": new_log_id
-    #     }), 200
-    # except ValueError as e:
-    #     return jsonify({"error": str(e)}), 400 # Catches invalid IDs or bad data
-    # except Exception as e:
-    #     log.error(f"ERROR in /tuition-logs/<log_id>/correction: {e}")
-    #     return jsonify({"error": "An internal server error occurred"}), 500
+    new_log_data = request.get_json()
+    if not new_log_data:
+        return jsonify({"error": "Request body must be a valid JSON."}), 400
+
+    try:
+        old_log_uuid = UUID(log_id)
+        
+        # The service method handles the voiding, creation, and formatting.
+        response_data = finance_service.edit_payment_log(old_log_uuid, new_log_data)
+        return jsonify(response_data), 200
+
+    except (ValidationError, ValueError) as e:
+        # Catches validation errors for the *new* log data.
+        return jsonify({"error": "Validation Error for new log data", "details": str(e)}), 422
+    except Exception as e:
+        log.error(f"ERROR in POST /payment-logs/{log_id}/correction: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 # -- Financial Summaries for users --
 @main_routes.route('/financial-summary', methods=['GET'])

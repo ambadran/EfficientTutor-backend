@@ -670,28 +670,31 @@ class DatabaseHandler:
 
     def create_payment_log(
         self,
-        parent_user_id: UUID,
+        parent_id: UUID,
         teacher_id: UUID,
         amount_paid: Decimal,
+        payment_date: datetime,
         notes: Optional[str] = None,
         corrected_from_log_id: Optional[UUID] = None
     ) -> Optional[UUID]:
         """Creates a new payment log entry and returns its ID."""
-        log.info(f"Creating new payment log for parent {parent_user_id}.")
+        log.info(f"Creating new payment log for parent {parent_id}.")
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO payment_logs (parent_user_id, teacher_id, amount_paid, notes, corrected_from_log_id)
-                        VALUES (%s, %s, %s, %s, %s) RETURNING id;
+                        INSERT INTO payment_logs (parent_id, teacher_id, amount_paid, payment_date, notes, corrected_from_log_id)
+                        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
                         """,
-                        (parent_user_id, teacher_id, amount_paid, notes, corrected_from_log_id)
+                        (parent_id, teacher_id, amount_paid, payment_date, notes, corrected_from_log_id)
                     )
                     new_log_id = cur.fetchone()[0]
                 conn.commit()
                 log.info(f"Successfully created payment log {new_log_id}.")
+                # Because we registered the UUID adapter, this will be a proper UUID object, not a string.
                 return new_log_id
+
         except Exception as e:
             log.error(f"Failed to create payment log: {e}", exc_info=True)
             conn.rollback()
@@ -826,6 +829,33 @@ class DatabaseHandler:
             log.error(f"Database error fetching logs by parent {parent_id}: {e}", exc_info=True)
             raise
                 
+    def get_payment_log_by_id(self, log_id: UUID) -> Optional[dict]:
+        """
+        NEW: Fetches a single, fully hydrated payment log by its ID.
+        """
+        log.info(f"Fetching payment log for id {log_id}.")
+        # This query is the same as the get_..._by_parent/teacher, but filters by log ID.
+        query = """
+            SELECT
+                pl.*,
+                to_jsonb(p_user.*) || to_jsonb(p.*) as parent,
+                to_jsonb(t_user.*) as teacher
+            FROM payment_logs pl
+            JOIN users p_user ON pl.parent_id = p_user.id
+            JOIN parents p ON pl.parent_id = p.id
+            JOIN users t_user ON pl.teacher_id = t_user.id
+            WHERE pl.id = %s;
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, (log_id,))
+                    result = cur.fetchone()
+                    return dict(result) if result else None
+        except Exception as e:
+            log.error(f"Error fetching payment log by id {log_id}: {e}", exc_info=True)
+            raise
+
     def get_payment_logs_by_teacher(self, teacher_id: UUID) -> list[dict]:
         """Fetches all hydrated payment logs for a specific teacher."""
         log.info(f"Fetching payment logs for teacher {teacher_id}.")
@@ -836,8 +866,8 @@ class DatabaseHandler:
                 to_jsonb(p_user.*) || to_jsonb(p.*) as parent,
                 to_jsonb(t_user.*) as teacher
             FROM payment_logs pl
-            JOIN users p_user ON pl.parent_user_id = p_user.id
-            JOIN parents p ON pl.parent_user_id = p.id
+            JOIN users p_user ON pl.parent_id = p_user.id
+            JOIN parents p ON pl.parent_id = p.id
             JOIN users t_user ON pl.teacher_id = t_user.id
             WHERE pl.teacher_id = %s
             ORDER BY pl.payment_date DESC;
@@ -863,10 +893,10 @@ class DatabaseHandler:
                 to_jsonb(p_user.*) || to_jsonb(p.*) as parent,
                 to_jsonb(t_user.*) as teacher
             FROM payment_logs pl
-            JOIN users p_user ON pl.parent_user_id = p_user.id
-            JOIN parents p ON pl.parent_user_id = p.id
+            JOIN users p_user ON pl.parent_id = p_user.id
+            JOIN parents p ON pl.parent_id = p.id
             JOIN users t_user ON pl.teacher_id = t_user.id
-            WHERE pl.parent_user_id = %s
+            WHERE pl.parent_id = %s
             ORDER BY pl.payment_date DESC;
         """
         try:
@@ -925,7 +955,7 @@ class DatabaseHandler:
                 (
                     SELECT COALESCE(SUM(pl.amount_paid), 0)
                     FROM payment_logs pl
-                    WHERE pl.parent_user_id = %(user_id)s AND pl.status = 'ACTIVE'
+                    WHERE pl.parent_id = %(user_id)s AND pl.status = 'ACTIVE'
                 ) AS total_payments;
         """
         try:
@@ -954,10 +984,10 @@ class DatabaseHandler:
                 GROUP BY tlc.parent_id
             ),
             parent_payments AS (
-                SELECT pl.parent_user_id as parent_id, SUM(pl.amount_paid) as total_payments
+                SELECT pl.parent_id as parent_id, SUM(pl.amount_paid) as total_payments
                 FROM payment_logs pl
                 WHERE pl.teacher_id = %(teacher_id)s AND pl.status = 'ACTIVE'
-                GROUP BY pl.parent_user_id
+                GROUP BY pl.parent_id
             )
             SELECT
                 pc.parent_id,
@@ -1030,10 +1060,10 @@ class DatabaseHandler:
         log.info(f"Fetching total payments for {len(parent_ids)} parents.")
         # FIXED: Add ::uuid[] to explicitly cast the array parameter to a UUID array.
         query = """
-            SELECT parent_user_id, SUM(amount_paid)
+            SELECT parent_id, SUM(amount_paid)
             FROM payment_logs
-            WHERE parent_user_id = ANY(%s::uuid[]) AND status = 'ACTIVE'
-            GROUP BY parent_user_id;
+            WHERE parent_id = ANY(%s::uuid[]) AND status = 'ACTIVE'
+            GROUP BY parent_id;
         """
         try:
             # Convert UUID objects to strings for the driver, the DB will cast them back.
