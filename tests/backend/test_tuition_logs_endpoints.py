@@ -191,3 +191,44 @@ def test_correct_tuition_log(client, finance: Finance):
     
     new_db_charges = finance.db.get_charges_for_log(new_log_id)
     assert new_db_charges[0]['cost'] == 25
+
+
+def test_get_financial_report(client):
+
+    response = client.get('/financial-report/d4c17e60-08de-47c7-9ef0-33ae8aa442fb')
+
+    print(f"\n=== GET /financial-report/ RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON:")
+    pprint(response.get_json())
+    print("===================================\n")
+
+
+def test_get_custom_log_entry_data(client):
+
+    # Test 1: testing no viewer_id
+    response = client.get('/custom-log-entry-data')
+    print(f"\n=== GET /custom-log-entry-data no user RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print("===================================\n")
+    assert response.status_code == 400
+
+    # Test 2: testing parent user
+    response = client.get(f'/custom-log-entry-data?viewer_id={TEST_PARENT_ID}')
+    print(f"\n=== GET /custom-log-entry-data Parent user RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print("===================================\n")
+    assert response.status_code == 401
+ 
+    # Test 2: testing teacher user
+    response = client.get(f'/custom-log-entry-data?viewer_id={TEST_TEACHER_ID}')
+    print(f"\n=== GET /custom-log-entry-data Teacher User RESPONSE ===")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response JSON:")
+    pprint(response.get_json())
+    print("===================================\n")
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), dict)
+ 
+
+

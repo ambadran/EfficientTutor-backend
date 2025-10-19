@@ -841,8 +841,8 @@ class DatabaseHandler:
                 to_jsonb(p_user.*) || to_jsonb(p.*) as parent,
                 to_jsonb(t_user.*) as teacher
             FROM payment_logs pl
-            JOIN users p_user ON pl.parent_id = p_user.id
-            JOIN parents p ON pl.parent_id = p.id
+            JOIN users p_user ON pl.parent_user_id = p_user.id
+            JOIN parents p ON pl.parent_user_id = p.id
             JOIN users t_user ON pl.teacher_id = t_user.id
             WHERE pl.id = %s;
         """
@@ -866,8 +866,8 @@ class DatabaseHandler:
                 to_jsonb(p_user.*) || to_jsonb(p.*) as parent,
                 to_jsonb(t_user.*) as teacher
             FROM payment_logs pl
-            JOIN users p_user ON pl.parent_id = p_user.id
-            JOIN parents p ON pl.parent_id = p.id
+            JOIN users p_user ON pl.parent_user_id = p_user.id
+            JOIN parents p ON pl.parent_user_id = p.id
             JOIN users t_user ON pl.teacher_id = t_user.id
             WHERE pl.teacher_id = %s
             ORDER BY pl.payment_date DESC;
@@ -893,10 +893,10 @@ class DatabaseHandler:
                 to_jsonb(p_user.*) || to_jsonb(p.*) as parent,
                 to_jsonb(t_user.*) as teacher
             FROM payment_logs pl
-            JOIN users p_user ON pl.parent_id = p_user.id
-            JOIN parents p ON pl.parent_id = p.id
+            JOIN users p_user ON pl.parent_user_id = p_user.id
+            JOIN parents p ON pl.parent_user_id = p.id
             JOIN users t_user ON pl.teacher_id = t_user.id
-            WHERE pl.parent_id = %s
+            WHERE pl.parent_user_id = %s
             ORDER BY pl.payment_date DESC;
         """
         try:
@@ -955,7 +955,7 @@ class DatabaseHandler:
                 (
                     SELECT COALESCE(SUM(pl.amount_paid), 0)
                     FROM payment_logs pl
-                    WHERE pl.parent_id = %(user_id)s AND pl.status = 'ACTIVE'
+                    WHERE pl.parent_user_id = %(user_id)s AND pl.status = 'ACTIVE'
                 ) AS total_payments;
         """
         try:
@@ -984,10 +984,10 @@ class DatabaseHandler:
                 GROUP BY tlc.parent_id
             ),
             parent_payments AS (
-                SELECT pl.parent_id as parent_id, SUM(pl.amount_paid) as total_payments
+                SELECT pl.parent_user_id as parent_id, SUM(pl.amount_paid) as total_payments
                 FROM payment_logs pl
                 WHERE pl.teacher_id = %(teacher_id)s AND pl.status = 'ACTIVE'
-                GROUP BY pl.parent_id
+                GROUP BY pl.parent_user_id
             )
             SELECT
                 pc.parent_id,
@@ -1060,10 +1060,10 @@ class DatabaseHandler:
         log.info(f"Fetching total payments for {len(parent_ids)} parents.")
         # FIXED: Add ::uuid[] to explicitly cast the array parameter to a UUID array.
         query = """
-            SELECT parent_id, SUM(amount_paid)
+            SELECT parent_user_id, SUM(amount_paid)
             FROM payment_logs
-            WHERE parent_id = ANY(%s::uuid[]) AND status = 'ACTIVE'
-            GROUP BY parent_id;
+            WHERE parent_user_id = ANY(%s::uuid[]) AND status = 'ACTIVE'
+            GROUP BY parent_user_id;
         """
         try:
             # Convert UUID objects to strings for the driver, the DB will cast them back.
