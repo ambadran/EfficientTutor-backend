@@ -17,13 +17,13 @@ app = FastAPI(
 
 # --- NEW: Add CORS Middleware ---
 origins = [
-    # "http://localhost",         # Allow frontend running on localhost
-    # "http://localhost:8000",    # Allow frontend explicitly on port 8000
-    # "http://127.0.0.1",       # Allow frontend running on 127.0.0.1
-    # "http://127.0.0.1:8000",    # Allow frontend explicitly on port 8000
-    # "http://0.0.0.0",         # Allow frontend running on 0.0.0.0
-    # "http://0.0.0.0:8000",      # Allow frontend explicitly on port 8000
-    "http://0.0.0.0:8080",      # Allow frontend explicitly on port 8080
+    # "http://localhost",
+    # "http://localhost:8000",
+    # "http://127.0.0.1",
+    # "http://127.0.0.1:8000",
+    # "http://0.0.0.0",
+    # "http://0.0.0.0:8000",
+    "http://0.0.0.0:8080",
     # Add the URL of your deployed frontend if applicable
     "efficienttutor.tech"
 ]
