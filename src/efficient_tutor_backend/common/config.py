@@ -26,6 +26,11 @@ class Settings(BaseSettings):
             return self.DATABASE_URL_TEST
         return self.DATABASE_URL_PROD
 
+    # JWT Settings
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACESS_TOKEN_EXPIRE_MINUTES: int = 15
+
     # Other settings
     FIRST_DAY_OF_WEEK: int = 5  # 5 is Saturday
 

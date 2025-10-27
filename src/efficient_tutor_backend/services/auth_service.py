@@ -61,7 +61,7 @@ class AuthService:
         self,
         token: str = Depends(oauth2_scheme),
         db: AsyncSession = Depends(get_db_session)
-    ) -> db_models.User:
+        ) -> db_models.User:
         """
         Dependency function to get the current authenticated user from the token.
         """
