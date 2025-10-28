@@ -25,7 +25,7 @@ fi
 # Check if the first argument is --download-recent
 if [[ "$1" == "--download-recent" ]]; then
   echo "Downloading a fresh copy of the production database..."
-  pg_dump "$DATABASE_URL" --format=c --no-owner --no-privileges > prod_backup.dump
+  pg_dump "$DATABASE_URL_PROD_CLI" --format=c --no-owner --no-privileges > prod_backup.dump
   echo "Download complete."
 fi
 
