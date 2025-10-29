@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from sqlalchemy import ARRAY, BigInteger, Boolean, CheckConstraint, Column, DateTime, Double, Enum, ForeignKeyConstraint, Identity, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Table, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, Double, Enum, ForeignKeyConstraint, Identity, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Table, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB, OID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 import datetime
@@ -149,13 +149,12 @@ class Users(Base):
     password: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(Enum('admin', 'parent', 'student', 'teacher', name='user_role'), server_default=text("'parent'::user_role"))
     timezone: Mapped[str] = mapped_column(Text, server_default=text("'Africa/Cairo'::text"))
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text('true'))
     is_first_sign_in: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=text('true'))
     first_name: Mapped[Optional[str]] = mapped_column(Text)
     last_name: Mapped[Optional[str]] = mapped_column(Text)
 
-    payment_logs: Mapped[List['PaymentLogs']] = relationship('PaymentLogs', back_populates='parent_user')
-    students: Mapped[List['Students']] = relationship('Students', foreign_keys='[Students.user_id]', back_populates='user')
-    tuition_logs: Mapped[List['TuitionLogs']] = relationship('TuitionLogs', back_populates='parent_user')
+    payment_logs: Mapped[List['PaymentLogs']] = relationship('PaymentLogs', back_populates='parent')
 
 
 class CalendarEvents(Base):
@@ -209,14 +208,14 @@ class PaymentLogs(Base):
     __tablename__ = 'payment_logs'
     __table_args__ = (
         ForeignKeyConstraint(['corrected_from_log_id'], ['payment_logs.id'], name='payment_logs_corrected_from_log_id_fkey'),
-        ForeignKeyConstraint(['parent_user_id'], ['users.id'], ondelete='CASCADE', name='payment_logs_parent_user_id_fkey'),
+        ForeignKeyConstraint(['parent_id'], ['users.id'], ondelete='CASCADE', name='payment_logs_parent_user_id_fkey'),
         ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='SET NULL', name='payment_logs_teacher_id_fkey'),
         PrimaryKeyConstraint('id', name='payment_logs_pkey'),
-        Index('idx_payment_logs_parent', 'parent_user_id')
+        Index('idx_payment_logs_parent', 'parent_id')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    parent_user_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    parent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     payment_date: Mapped[datetime.datetime] = mapped_column(DateTime(True), server_default=text('now()'))
     amount_paid: Mapped[decimal.Decimal] = mapped_column(Numeric(10, 2))
     status: Mapped[str] = mapped_column(Enum('ACTIVE', 'VOID', name='log_status_enum'), server_default=text("'ACTIVE'::log_status_enum"))
@@ -226,7 +225,7 @@ class PaymentLogs(Base):
 
     corrected_from_log: Mapped[Optional['PaymentLogs']] = relationship('PaymentLogs', remote_side=[id], back_populates='corrected_from_log_reverse')
     corrected_from_log_reverse: Mapped[List['PaymentLogs']] = relationship('PaymentLogs', remote_side=[corrected_from_log_id], back_populates='corrected_from_log')
-    parent_user: Mapped['Users'] = relationship('Users', back_populates='payment_logs')
+    parent: Mapped['Users'] = relationship('Users', back_populates='payment_logs')
     teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='payment_logs')
 
 
@@ -236,26 +235,21 @@ class Students(Users):
         CheckConstraint('min_duration_mins >= 0 AND max_duration_mins >= 0', name='positive_durations'),
         ForeignKeyConstraint(['id'], ['users.id'], ondelete='CASCADE', name='students_id_fkey'),
         ForeignKeyConstraint(['parent_id'], ['parents.id'], ondelete='CASCADE', name='students_parent_id_fkey'),
-        ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE', name='students_user_id_fkey'),
         PrimaryKeyConstraint('id', name='students_pkey')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     student_data: Mapped[dict] = mapped_column(JSONB)
     cost: Mapped[decimal.Decimal] = mapped_column(Numeric(10, 2), server_default=text('6.00'))
     status: Mapped[str] = mapped_column(Enum('NONE', 'Alpha', 'Omega', 'Sigma', 'HIM', name='student_status_enum'), server_default=text("'NONE'::student_status_enum"))
     min_duration_mins: Mapped[int] = mapped_column(Integer, server_default=text('60'))
     max_duration_mins: Mapped[int] = mapped_column(Integer, server_default=text('90'))
     parent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
-    first_name: Mapped[Optional[str]] = mapped_column(String(255))
-    last_name: Mapped[Optional[str]] = mapped_column(String(255))
     grade: Mapped[Optional[int]] = mapped_column(Integer)
     generated_password: Mapped[Optional[str]] = mapped_column(Text)
     notes: Mapped[Optional[dict]] = mapped_column(JSONB)
 
     parent: Mapped['Parents'] = relationship('Parents', back_populates='students')
-    user: Mapped['Users'] = relationship('Users', foreign_keys=[user_id], back_populates='students')
     tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship('TuitionTemplateCharges', back_populates='student')
     tuition_log_charges: Mapped[List['TuitionLogCharges']] = relationship('TuitionLogCharges', back_populates='student')
 
@@ -264,15 +258,12 @@ class Tuitions(Base):
     __tablename__ = 'tuitions'
     __table_args__ = (
         ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='SET NULL', name='tuitions_teacher_id_fkey'),
-        PrimaryKeyConstraint('id', name='tuitions_pkey'),
-        UniqueConstraint('student_ids', 'subject', 'lesson_index', name='tuitions_student_ids_subject_lesson_index_key')
+        PrimaryKeyConstraint('id', name='tuitions_pkey')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    student_ids: Mapped[list] = mapped_column(ARRAY(Uuid()))
     subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
     lesson_index: Mapped[int] = mapped_column(Integer)
-    cost: Mapped[decimal.Decimal] = mapped_column(Numeric(10, 2))
     min_duration_minutes: Mapped[int] = mapped_column(Integer)
     max_duration_minutes: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True), server_default=text('now()'))
@@ -289,19 +280,14 @@ class TuitionLogs(Base):
     __tablename__ = 'tuition_logs'
     __table_args__ = (
         ForeignKeyConstraint(['corrected_from_log_id'], ['tuition_logs.id'], name='tuition_logs_corrected_from_log_id_fkey'),
-        ForeignKeyConstraint(['parent_user_id'], ['users.id'], ondelete='CASCADE', name='tuition_logs_parent_user_id_fkey'),
         ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='SET NULL', name='tuition_logs_teacher_id_fkey'),
         ForeignKeyConstraint(['tuition_id'], ['tuitions.id'], ondelete='SET NULL', name='tuition_logs_tuition_id_fkey'),
         PrimaryKeyConstraint('id', name='tuition_logs_pkey'),
-        Index('idx_tuition_logs_parent', 'parent_user_id'),
         Index('idx_tuition_logs_status', 'status')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    parent_user_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
-    attendee_names: Mapped[list] = mapped_column(ARRAY(Text()))
-    cost: Mapped[decimal.Decimal] = mapped_column(Numeric(10, 2))
     start_time: Mapped[datetime.datetime] = mapped_column(DateTime(True))
     end_time: Mapped[datetime.datetime] = mapped_column(DateTime(True))
     status: Mapped[str] = mapped_column(Enum('ACTIVE', 'VOID', name='log_status_enum'), server_default=text("'ACTIVE'::log_status_enum"))
@@ -309,12 +295,10 @@ class TuitionLogs(Base):
     tuition_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     lesson_index: Mapped[Optional[int]] = mapped_column(Integer)
     corrected_from_log_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
-    attendee_ids: Mapped[Optional[list]] = mapped_column(ARRAY(Uuid()))
     teacher_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     corrected_from_log: Mapped[Optional['TuitionLogs']] = relationship('TuitionLogs', remote_side=[id], back_populates='corrected_from_log_reverse')
     corrected_from_log_reverse: Mapped[List['TuitionLogs']] = relationship('TuitionLogs', remote_side=[corrected_from_log_id], back_populates='corrected_from_log')
-    parent_user: Mapped['Users'] = relationship('Users', back_populates='tuition_logs')
     teacher: Mapped[Optional['Teachers']] = relationship('Teachers', back_populates='tuition_logs')
     tuition: Mapped[Optional['Tuitions']] = relationship('Tuitions', back_populates='tuition_logs')
     tuition_log_charges: Mapped[List['TuitionLogCharges']] = relationship('TuitionLogCharges', back_populates='tuition_log')

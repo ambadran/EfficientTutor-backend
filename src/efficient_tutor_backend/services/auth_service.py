@@ -1,96 +1,53 @@
 '''
 
 '''
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-from passlib.context import CryptContext
-from jose import JWTError, jwt
+from datetime import timedelta
+from typing import Annotated
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 
-from ..common.config import settings
+# Use the refined HashedPassword and JWTHandler
+from .security import HashedPassword, JWTHandler
 from ..database import models as db_models
-from ..database.engine import get_db_session # Need this dependency later
-from ..database import models as db_models
-from ..models import user as user_models
+from ..database.engine import get_db_session
+from ..models import token as token_models
+# Removed settings import as it's no longer directly needed here
+from ..common.logger import log
 
-# This defines how FastAPI extracts the token (from 'Authorization: Bearer <token>')
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login") # Point to your login endpoint
+class LoginService:
+    def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)]):
+        self.db = db
 
-# Setup password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    async def login_user(self, form_data: OAuth2PasswordRequestForm) -> token_models.Token:
+        log.info(f"Attempting login for user: {form_data.username}")
+        user = await self._get_user_by_email_with_password(form_data.username)
 
-class AuthService:
-    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(plain_password, hashed_password)
+        if not user or not HashedPassword.verify(form_data.password, user.hashed_password):
+            log.warning(f"Login failed for user: {form_data.username} - Incorrect email or password")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
-    def get_password_hash(self, password: str) -> str:
-        return pwd_context.hash(password)
+        access_token = JWTHandler.create_access_token(subject=user.email)
+        log.info(f"Login successful for user: {form_data.username}")
 
-    def create_access_token(self, data: dict, expires_delta: Optional[timedelta] = None):
-        to_encode = data.copy()
-        if expires_delta:
-            expire = datetime.now(timezone.utc) + expires_delta
-        else:
-            expire = datetime.now(timezone.utc) + timedelta(minutes=15)
-        to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-        return encoded_jwt
+        return token_models.Token(access_token=access_token, token_type="bearer")
 
-    async def get_user_by_email(self, db: AsyncSession, email: str) -> Optional[db_models.User]:
-        result = await db.execute(select(db_models.User).filter(db_models.User.email == email))
+    async def _get_user_by_email_with_password(self, email: str) -> db_models.User | None:
+        """Fetches user including the password hash (internal use only)."""
+        result = await self.db.execute(
+            select(db_models.User).filter(db_models.User.email == email)
+        )
         return result.scalars().first()
 
-    async def create_user(self, db: AsyncSession, user: user_models.UserCreate) -> db_models.User:
-        db_user = db_models.User(
-            email=user.email,
-            hashed_password=self.get_password_hash(user.password),
-            first_name=user.first_name,
-            last_name=user.last_name,
-            role=user.role
+    # --- NEW: User lookup for dependency ---
+    async def get_active_user_by_email(self, email: str) -> db_models.User | None:
+        """Fetches an active user by email."""
+        result = await self.db.execute(
+            select(db_models.User).filter(db_models.User.email == email, db_models.User.is_active == True)
         )
-        db.add(db_user)
-        await db.commit()
-        await db.refresh(db_user)
-        # TODO: Add logic to also create a parent/teacher/student profile entry
-        return db_user
-
-    async def get_current_user(
-        self,
-        token: str = Depends(oauth2_scheme),
-        db: AsyncSession = Depends(get_db_session)
-        ) -> db_models.User:
-        """
-        Dependency function to get the current authenticated user from the token.
-        """
-        credentials_exception = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            email: str = payload.get("sub")
-            if email is None:
-                raise credentials_exception
-            token_data = token_models.TokenData(email=email)
-        except JWTError:
-            raise credentials_exception
-
-        user = await self.get_user_by_email(db, email=token_data.email)
-        if user is None:
-            raise credentials_exception
-        return user
-
-# Instantiate the service to be used by the dependency function
-auth_service_instance = AuthService()
-# Create the actual dependency function that FastAPI will use
-async def get_current_active_user(
-    current_user: db_models.User = Depends(auth_service_instance.get_current_user)
-) -> db_models.User:
-    # You could add checks here later, e.g., if the user is active/verified
-    # if not current_user.is_active:
-    #     raise HTTPException(status_code=400, detail="Inactive user")
-    return current_user
+        return result.scalars().first()

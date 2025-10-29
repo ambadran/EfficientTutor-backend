@@ -1,9 +1,13 @@
+'''
+
+'''
+from typing import Annotated
 from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import models as db_models
 from ..models import user as user_models
-from ..services.auth_service import get_current_active_user # Import the dependency
+# Import the actual dependency function
+from ..services.security import verify_token_and_get_user
 
 router = APIRouter(
     prefix="/users",
@@ -12,9 +16,11 @@ router = APIRouter(
 
 @router.get("/me", response_model=user_models.UserRead)
 async def read_users_me(
-    current_user: db_models.User = Depends(get_current_active_user)
+    # Use the correct dependency function
+    current_user: Annotated[db_models.User, Depends(verify_token_and_get_user)]
 ):
     """
     Returns the profile information for the currently authenticated user.
+    Requires a valid Bearer token in the Authorization header.
     """
     return current_user

@@ -7,6 +7,7 @@ set -e
 # Set the default database user
 DB_USER="mr_a_717"
 
+
 # On macOS, the user is different. 'Darwin' is the kernel name for macOS.
 if [[ "$(uname)" == "Darwin" ]]; then
   DB_USER="ambadran717"
