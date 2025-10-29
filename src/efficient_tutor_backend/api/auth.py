@@ -1,44 +1,43 @@
-from datetime import timedelta
+'''
+
+'''
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database.engine import get_db_session
-from ..services.auth_service import AuthService
-from ..models import user as user_models
+# Import the service and use it via dependency injection
+from ..services.auth_service import LoginService
 from ..models import token as token_models
-from ..common.config import settings
 
 router = APIRouter(
     prefix="/auth",
     tags=["Authentication"]
 )
-auth_service = AuthService()
 
-@router.post("/signup", response_model=user_models.UserRead, status_code=status.HTTP_201_CREATED)
-async def signup(
-    user: user_models.UserCreate,
-    db: AsyncSession = Depends(get_db_session)
-):
-    db_user = await auth_service.get_user_by_email(db, email=user.email)
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    return await auth_service.create_user(db=db, user=user)
+# /signup endpoint remains removed for now as per previous plan
+# We will add it back when we implement UserService
 
 @router.post("/login", response_model=token_models.Token)
 async def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db_session)
+    # Use Annotated for dependencies
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    login_service: Annotated[LoginService, Depends(LoginService)] # Inject LoginService
 ):
-    user = await auth_service.get_user_by_email(db, email=form_data.username)
-    if not user or not auth_service.verify_password(form_data.password, user.hashed_password):
+    """
+    Authenticates a user and returns an access token.
+    Uses OAuth2PasswordRequestForm (username & password fields).
+    """
+    try:
+        # Delegate directly to the service
+        token = await login_service.login_user(form_data)
+        return token
+    except HTTPException as e:
+        # Re-raise HTTPExceptions raised by the service
+        raise e
+    except Exception as e:
+        # Catch unexpected errors
+        # log.error(f"Unexpected error during login: {e}", exc_info=True) # Logging should be in service
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal server error occurred during login.",
         )
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = auth_service.create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}

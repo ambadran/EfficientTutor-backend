@@ -1,17 +1,18 @@
 '''
 
 '''
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+from datetime import datetime
 
 class Token(BaseModel):
     access_token: str
     token_type: str
 
-class TokenData(BaseModel):
-    email: str | None = None
+# REMOVED from original location
+# class TokenData(BaseModel):
+#     email: str | None = None
 
-# Data from the JWT payload
+# --- NEW: Add TokenPayload here ---
 class TokenPayload(BaseModel):
-    # 'sub' is the JWT Subject claim, typically the user's unique identifier
-    sub: EmailStr
-    id: int # Optionally include user ID for quick lookup
+    sub: EmailStr # 'sub' is standard JWT claim for subject (the user's email)
+    exp: datetime
