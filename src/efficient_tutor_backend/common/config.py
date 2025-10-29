@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "EfficientTutor Backend"
     APP_VERSION: str = "0.3.0"
     APP_DESCRIPTION: str = "The backend API for the EfficientTutor platform."
-    TEST_MODE: bool = False
+    TEST_MODE: bool = True # just to be extra safe
 
     # Database URL
     DATABASE_URL_PROD: str

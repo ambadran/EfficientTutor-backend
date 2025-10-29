@@ -8,12 +8,10 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-# Use the refined HashedPassword and JWTHandler
 from .security import HashedPassword, JWTHandler
 from ..database import models as db_models
 from ..database.engine import get_db_session
 from ..models import token as token_models
-# Removed settings import as it's no longer directly needed here
 from ..common.logger import log
 
 class LoginService:
@@ -37,17 +35,17 @@ class LoginService:
 
         return token_models.Token(access_token=access_token, token_type="bearer")
 
-    async def _get_user_by_email_with_password(self, email: str) -> db_models.User | None:
+    async def _get_user_by_email_with_password(self, email: str) -> db_models.Users | None:
         """Fetches user including the password hash (internal use only)."""
         result = await self.db.execute(
-            select(db_models.User).filter(db_models.User.email == email)
+            select(db_models.Users).filter(db_models.Users.email == email)
         )
         return result.scalars().first()
 
-    # --- NEW: User lookup for dependency ---
-    async def get_active_user_by_email(self, email: str) -> db_models.User | None:
+    # --- NEW: Users lookup for dependency ---
+    async def get_active_user_by_email(self, email: str) -> db_models.Users | None:
         """Fetches an active user by email."""
         result = await self.db.execute(
-            select(db_models.User).filter(db_models.User.email == email, db_models.User.is_active == True)
+            select(db_models.Users).filter(db_models.Users.email == email, db_models.Users.is_active == True)
         )
         return result.scalars().first()

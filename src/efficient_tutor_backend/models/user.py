@@ -3,7 +3,7 @@
 '''
 import uuid
 from pydantic import BaseModel, EmailStr
-from ..database.models import UserRole # Import the enum
+from ..database.db_enums import UserRole # Import the enum
 
 # Pydantic model for data received when creating a user
 class UserCreate(BaseModel):
