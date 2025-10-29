@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from .common.logger import log
 from .common.config import settings
 from .api import auth, users
-from .models.enums import load_dynamic_enums # Import the loader
 from .database.engine import get_db_session # Import the session dependency
 
 app = FastAPI(
@@ -43,10 +42,6 @@ async def startup_event():
     On startup, connect to the DB and load dynamic configurations like Enums.
     """
     log.info("FastAPI application startup...")
-    # We need a database session to load the enums
-    async for db in get_db_session():
-        await load_dynamic_enums(db)
-        break # We only need to do this once
 
 app.include_router(auth.router)
 app.include_router(users.router)

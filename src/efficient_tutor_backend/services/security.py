@@ -61,7 +61,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 async def verify_token_and_get_user(
     token: Annotated[str, Depends(oauth2_scheme)],
     db: Annotated[AsyncSession, Depends(get_db_session)]
-) -> db_models.User:
+) -> db_models.Users:
     """
     Dependency to verify JWT token and return the active user.
     Raises HTTPException 401 if token is invalid or user is inactive.
@@ -77,14 +77,14 @@ async def verify_token_and_get_user(
         raise credentials_exception
 
     result = await db.execute(
-        select(db_models.User).filter(
-            db_models.User.email == str(token_data.sub),
-            db_models.User.is_active == True
+        select(db_models.Users).filter(
+            db_models.Users.email == str(token_data.sub),
+            db_models.Users.is_active == True
         )
     )
     user = result.scalars().first()
     if user is None:
-        log.warning(f"User '{token_data.sub}' not found or not active during token verification.")
+        log.warning(f"Users '{token_data.sub}' not found or not active during token verification.")
         raise credentials_exception
     log.info(f"JWT verified successfully for user: {user.email}")
     return user
