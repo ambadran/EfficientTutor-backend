@@ -1,0 +1,171 @@
+'''
+
+'''
+from typing import Annotated, Optional
+from uuid import UUID
+from datetime import datetime
+from fastapi import Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from dataclasses import dataclass
+
+from ..database.engine import get_db_session
+from ..database import models as db_models
+from ..database.db_enums import UserRole
+from ..models import timetable as timetable_models
+from ..common.logger import log
+from .tuition_service import TuitionsService
+
+# --- Internal Dataclasses Model ---
+# This model is used only inside the service layer
+# to temporarily hold the merged data.
+@dataclass
+class ScheduledTuition:
+    """An internal dataclass representing a scheduled tuition."""
+    tuition: db_models.Tuitions
+    start_time: datetime
+    end_time: datetime
+
+# --- Service Class ---
+
+class TimeTableService:
+    """
+    Service for viewing the generated timetable.
+    It fetches the latest valid timetable run and filters it based on the user.
+    """
+    def __init__(
+        self, 
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+        tuitions_service: Annotated[TuitionsService, Depends(TuitionsService)]
+    ):
+        self.db = db
+        self.tuitions_service = tuitions_service
+
+    async def get_all(self, current_user: db_models.Users) -> list[ScheduledTuition]:
+        """
+        Fetches the latest successful timetable and returns a list of scheduled
+        tuitions relevant to the specific viewer.
+        """
+        log.info(f"Fetching latest scheduled tuitions for user {current_user.id}")
+        
+        # 1. Fetch only the tuition objects relevant to the viewer.
+        # We use our powerful, pre-built TuitionsService method for this.
+        user_tuitions = await self.tuitions_service.get_all_tuitions(current_user)
+        if not user_tuitions:
+            log.warning(f"No tuitions exist for user {current_user.id}. Cannot show timetable.")
+            return []
+        
+        # Create a lookup dictionary for efficient filtering
+        user_tuitions_dict = {t.id: t for t in user_tuitions}
+
+        # 2. Get the raw solution data from the latest timetable run
+        solution_data = await self._get_latest_solution_data()
+        if not solution_data:
+            return []
+
+        scheduled_tuitions = []
+        try:
+            # 3. Filter, validate, and hydrate the events against the user's tuitions
+            for event in solution_data:
+                if event.get('category') == 'Tuition' and 'id' in event:
+                    tuition_id = UUID(event['id'])
+                    
+                    # Look up the tuition object in our user-specific dictionary
+                    tuition_obj = user_tuitions_dict.get(tuition_id)
+
+                    if tuition_obj: # This check now also filters for the user
+                        scheduled_tuitions.append(
+                            ScheduledTuition(
+                                tuition=tuition_obj,
+                                start_time=event['start_time'],
+                                end_time=event['end_time']
+                            )
+                        )
+            
+            log.info(f"Successfully constructed {len(scheduled_tuitions)} scheduled tuition events for user {current_user.id}.")
+            return scheduled_tuitions
+        
+        except (TypeError, KeyError, ValueError) as e:
+            log.error(f"Failed to parse timetable solution_data: {e}", exc_info=True)
+            # Re-raise to be caught by the API layer
+            raise ValueError(f"Failed to parse timetable solution data.")
+
+    async def get_all_for_api(self, current_user: db_models.Users) -> list[timetable_models.ScheduledTuitionReadForTeacher | timetable_models.ScheduledTuitionReadForGuardian]:
+        """
+        Public dispatcher that returns a lean list of scheduled tuitions
+        formatted correctly for the viewer's role.
+        """
+        # 1. Get the rich, filtered ScheduledTuition objects
+        rich_scheduled_tuitions = await self.get_all(current_user)
+        
+        # 2. Dispatch to the correct formatter
+        if current_user.role == UserRole.TEACHER.value:
+            return [self._format_for_teacher_api(st) for st in rich_scheduled_tuitions]
+        else: # Parent or Student
+            return [self._format_for_guardian_api(st, current_user) for st in rich_scheduled_tuitions]
+
+    def _format_for_teacher_api(self, scheduled_tuition: ScheduledTuition) -> timetable_models.ScheduledTuitionReadForTeacher:
+        """Formats a single scheduled tuition for a teacher's view."""
+        return timetable_models.ScheduledTuitionReadForTeacher(
+            start_time=scheduled_tuition.start_time,
+            end_time=scheduled_tuition.end_time,
+            tuition=scheduled_tuition.tuition # FastAPI will auto-convert this
+        )
+
+    def _format_for_guardian_api(self, scheduled_tuition: ScheduledTuition, current_user: db_models.Users) -> timetable_models.ScheduledTuitionReadForGuardian:
+        """Formats a single scheduled tuition for a parent's or student's view."""
+        
+        # Manually create the filtered TuitionReadForGuardian model
+        tuition_data = scheduled_tuition.tuition
+        
+        # Find the specific charge relevant to this user
+        relevant_charge = None
+        for charge in tuition_data.tuition_template_charges:
+            if charge.parent_id == current_user.id or charge.student_id == current_user.id:
+                relevant_charge = charge
+                break
+        
+        # Get all attendee names for context
+        attendee_names = [
+            f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
+            for c in tuition_data.tuition_template_charges
+        ]
+        
+        guardian_tuition_model = timetable_models.TuitionReadForGuardian(
+            id=tuition_data.id,
+            subject=tuition_data.subject,
+            lesson_index=tuition_data.lesson_index,
+            min_duration_minutes=tuition_data.min_duration_minutes,
+            max_duration_minutes=tuition_data.max_duration_minutes,
+            meeting_link=tuition_data.meeting_link.get('meeting_link') if tuition_data.meeting_link else None,
+            charges=[relevant_charge] if relevant_charge else [],
+            attendee_names=attendee_names
+        )
+
+        return timetable_models.ScheduledTuitionReadForGuardian(
+            start_time=scheduled_tuition.start_time,
+            end_time=scheduled_tuition.end_time,
+            tuition=guardian_tuition_model
+        )
+
+    async def _get_latest_solution_data(self) -> Optional[list[dict]]:
+        """Fetches the 'solution_data' JSONB from the latest successful/manual run."""
+        log.info("Fetching latest timetable solution from database...")
+        try:
+            stmt = select(db_models.TimetableRuns.solution_data).filter(
+                db_models.TimetableRuns.status.in_([
+                    RunStatusEnum.SUCCESS.value, 
+                    RunStatusEnum.MANUAL.value
+                ])
+            ).order_by(db_models.TimetableRuns.id.desc()).limit(1)
+            
+            result = await self.db.execute(stmt)
+            solution_data = result.scalars().first()
+            
+            if not solution_data:
+                log.warning("No successful or manual timetable run found.")
+                return None
+            return solution_data
+        except Exception as e:
+            log.error(f"Database error fetching latest timetable: {e}", exc_info=True)
+            raise

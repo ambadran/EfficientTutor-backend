@@ -1,155 +1,211 @@
 '''
 
 '''
+from typing import Optional, Annotated
+from uuid import UUID
+from fastapi import Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, joinedload
 
-# --- Service/Manager Classes (Plural Classes) ---
-UserType = TypeVar("UserType", bound=User)
+from ..database.engine import get_db_session
+from ..database import models as db_models
+from ..database.db_enums import UserRole
+from ..common.logger import log
 
-class Users:
-    """Base service class that provides database access and common methods."""
-    # Subclasses MUST define these two attributes
-    _model: Type[UserType]
-    _role: UserRole
-    def __init__(self):
-        self.db = DatabaseHandler()
+class UserService:
+    """
+    Base service for user-related database operations, handling the 'Users' table
+    and providing methods to fetch full, polymorphic user objects.
+    """
+    def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)]):
+        self.db = db
 
-    def get_by_id(self, user_id: UUID) -> Optional[UserType]:
+    async def get_full_user_by_email(self, email: str) -> db_models.Users | None:
         """
-        A generic method to fetch any user by their ID, validating against
-        the specific subclass model and role.
-        """
-        user_data = self.db.get_user_by_id(user_id)
-        # Use the class attributes from the subclass (e.g., Parents._model, Parents._role)
-        if user_data and user_data.get('role') == self._role.name:
-            return self._model.model_validate(user_data)
-        log.warning(f"Could not find a {self._role.name} with ID {user_id}.")
-        return None
-
-    def get_all(self) -> list[UserType]:
-        """
-        A generic method to fetch all users of a specific role.
-        Includes detailed error logging for validation failures.
-        """
-        all_user_data = self.db.get_all_users_by_role(self._role.name)
-        validated_users = []
-        for data in all_user_data:
-            try:
-                # Use the subclass's specific model for validation
-                validated_users.append(self._model.model_validate(data))
-            except ValidationError as e:
-                log.error(f"Pydantic validation failed for {self._role.name} data: {data}")
-                log.error(f"Validation error details: {e}")
-                continue 
-        return validated_users
-
-    def get_all_for_api(self) -> list[dict[str, Any]]:
-        """
-        A generic method to fetch all users of a specific type and format them
-        into a lean list of dictionaries for API responses.
-        """
-        log.info(f"Fetching and preparing API list for {self.__class__.__name__}...")
-        all_users_of_type = self.get_all()
-        api_users = [ApiUser.model_validate(user) for user in all_users_of_type]
-        return [model.model_dump() for model in api_users]
-
-    def delete(self, user_id: UUID) -> bool:
-        """Deletes any user by their ID. Inherited by all service classes."""
-        return self.db.delete_user(user_id)
-
-class Parents(Users):
-    """Service class for managing Parent users."""
-    _model = Parent
-    _role = UserRole.parent
-    def create(self, email: str, password: str, first_name: str, last_name: str, currency: str = 'EGP') -> Optional[Parent]:
-        """Creates a new parent and returns the Parent model instance."""
-        new_id = self.db.create_parent(
-            email=email, password=password, first_name=first_name, 
-            last_name=last_name, currency=currency
-        )
-        return self.get_by_id(new_id) if new_id else None
-
-    def get_all_for_api(self, teacher_id: UUID) -> list[dict[str, Any]]:
-        """
-        OVERRIDDEN: Fetches a lean list of ONLY the parents associated with a
-        specific teacher for API responses.
-        """
-        log.info(f"Fetching and preparing API list of parents for teacher {teacher_id}...")
+        Fetches the complete user object (Parent, Student, or Teacher)
+        by their email.
         
-        # 1. Get the list of relevant parent IDs from the database.
-        parent_ids = self.db.get_parent_ids_for_teacher(teacher_id)
-        if not parent_ids:
-            return []
+        This uses SQLAlchemy's joinedload to fetch the base 'Users'
+        record and the data from the specific role table (e.g., 'parents')
+        in a single, efficient query.
+        """
+        log.info(f"Fetching full user profile for email: {email}")
+        try:
+            # 1. Fetch the base user. SQLAlchemy's polymorphic setup
+            # will automatically return the correct (Parent, Student, Teacher)
+            # subclass with its direct attributes (e.g., .currency, .cost).
+            stmt = select(db_models.Users).filter(db_models.Users.email == email)
             
-        # 2. Fetch all user details for those specific parents in one batch.
-        parents_data = self.db.get_users_by_ids(parent_ids)
-        
-        # 3. Hydrate the raw data into our rich Pydantic models.
-        validated_parents = [Parent.model_validate(data) for data in parents_data]
-        
-        # 4. Convert the rich models to the lean ApiUser models.
-        api_users = [ApiUser.model_validate(user) for user in validated_parents]
-        
-        # 5. Return the final list of dictionaries.
-        return [model.model_dump() for model in api_users]
-
-class Students(Users):
-    """Service class for managing Student users."""
-    _model = Student
-    _role = UserRole.student
-    def get_by_parent(self, parent_id: UUID) -> list[Student]:
-        """Fetches all students belonging to a specific parent."""
-        students_data = self.db.get_students_by_parent_id(parent_id)
-        return [Student.model_validate(data) for data in students_data]
-
-    def get_all(self, viewer_id: UUID) -> list[Student]:
-        """
-        NEW: A generic method to fetch all students relevant to a given viewer.
-        - If viewer is a Parent, returns their children.
-        - If viewer is a Teacher, returns all students they have taught.
-        """
-        log.info(f"Fetching all students relevant to viewer {viewer_id}")
-        role = self.db.identify_user_role(viewer_id)
-
-        students_data = []
-        if role == UserRole.parent.name:
-            # We already have a method for this, so we reuse it.
-            students_data = self.db.get_students_by_parent_id(viewer_id)
-        elif role == UserRole.teacher.name:
-            # Use our new database method for this case.
-            students_data = self.db.get_students_for_teacher(viewer_id)
-        else:
-            log.warning(f"User {viewer_id} with role '{role}' is not authorized to view student lists. Returning empty.")
-            return []
+            result = await self.db.execute(stmt)
+            user = result.scalars().first()
             
-        return [Student.model_validate(data) for data in students_data]
+            # 2. If the user is a student, we must also fetch their parent.
+            # This is a fast, targeted 1+1 query.
+            if user and user.role == UserRole.STUDENT.value:
+                # We use selectinload on the *relationship name* ('parent')
+                await self.db.refresh(user, ['parent'])
+                
+            return user
+        except Exception as e:
+            log.error(f"Database error fetching full user by email {email}: {e}", exc_info=True)
+            raise
 
-    def get_all_for_api(self, viewer_id: UUID) -> list[dict[str, Any]]:
+    async def get_user_by_id(self, user_id: UUID) -> db_models.Users | None:
         """
-        NEW & OVERRIDDEN: Fetches all students relevant to a viewer and formats
-        them into a lean list of dictionaries for API responses.
+        Fetches the complete user object (Parent, Student, or Teacher) by ID.
         """
-        log.info(f"Fetching and preparing student API list for viewer {viewer_id}...")
-        
-        # 1. Get the rich, filtered Student objects using our new get_all method.
-        all_students = self.get_all(viewer_id)
-        
-        # 2. Convert the full Student objects into the leaner ApiUser models.
-        api_users = [ApiUser.model_validate(user) for user in all_students]
-        
-        # 3. Convert the models to a list of dictionaries for the final JSON response.
-        return [model.model_dump() for model in api_users]
-   
-    # Note: A create method for students would be more complex, requiring details for
-    # both the 'users' and 'students' tables. It can be added here following the same pattern.
+        log.info(f"Fetching full user profile for ID: {user_id}")
+        try:
+            stmt = select(db_models.Users).options(
+                joinedload('*')
+            ).filter(db_models.Users.id == user_id)
+            
+            result = await self.db.execute(stmt)
+            user = result.scalars().first()
+            
+            if user:
+                if user.role == UserRole.STUDENT.value:
+                    await self.db.refresh(user, ['parent'])
+            
+            return user
+        except Exception as e:
+            log.error(f"Database error fetching full user by ID {user_id}: {e}", exc_info=True)
+            raise
 
-class Teachers(Users):
-    """Service class for managing Teacher users."""
-    _model = Teacher
-    _role = UserRole.teacher
+    async def get_users_by_ids(self, user_ids: list[UUID]) -> list[db_models.Users]:
+        """
+        Fetches a list of complete user objects (Parent, Student, or Teacher)
+        by a list of IDs.
+        """
+        if not user_ids:
+            return []
+        log.info(f"Fetching {len(user_ids)} full user profiles by ID list.")
+        try:
+            stmt = select(db_models.Users).options(
+                joinedload('*')
+            ).filter(db_models.Users.id.in_(user_ids))
+            
+            result = await self.db.execute(stmt)
+            users = result.scalars().all()
+            
+            # Eagerly load parents for all students in the list
+            for user in users:
+                if user.role == UserRole.STUDENT.value:
+                    await self.db.refresh(user, ['parent'])
+                    
+            return list(users)
+        except Exception as e:
+            log.error(f"Database error fetching full users by ID list: {e}", exc_info=True)
+            raise
 
-    def create(self, email: str, password: str, first_name: str, last_name: str) -> Optional[Teacher]:
-        """Creates a new teacher and returns the Teacher model instance."""
-        new_id = self.db.create_teacher(
-            email=email, password=password, first_name=first_name, last_name=last_name
-        )
-        return self.get_by_id(new_id) if new_id else None
+    async def _get_user_by_email_with_password(self, email: str) -> db_models.Users | None:
+        """
+        NEW: Fetches the base user object including the password hash.
+        This is for internal authentication use ONLY.
+        It does NOT fetch the full polymorphic object.
+        """
+        log.info(f"Fetching user with password for auth: {email}")
+        try:
+            # This is a simple query for the base Users table
+            stmt = select(db_models.Users).filter(db_models.Users.email == email)
+            result = await self.db.execute(stmt)
+            return result.scalars().first()
+        except Exception as e:
+            log.error(f"Database error fetching user with password for {email}: {e}", exc_info=True)
+            raise
+
+class ParentService(UserService):
+    """
+    Service for parent-specific logic.
+    Inherits common user methods from UserService.
+    """
+    
+    async def get_all(self, current_user: db_models.Users) -> list[db_models.Parents]:
+        """
+        Fetches a list of Parent objects.
+        This action is restricted to TEACHERS only.
+        
+        - If the viewer is a Teacher, returns all parents they are linked to.
+        - If the viewer is a Parent or Student, raises a 403 Forbidden error.
+        """
+        log.info(f"Attempting to get parent list for user {current_user.id} (Role: {current_user.role}).")
+        
+        # 1. Authorization Check: Enforce the business rule
+        if current_user.role != UserRole.TEACHER.value:
+            log.warning(f"Unauthorized attempt to list parents by user {current_user.id} (Role: {current_user.role}).")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to view this list. Only teachers can list parents."
+            )
+        
+        # 2. Existing Logic: Now executes only if the user is a teacher
+        teacher_id = current_user.id
+        log.info(f"Fetching parent list for teacher {teacher_id}.")
+        try:
+            # Use a subquery to find all parent IDs linked to the teacher
+            # via tuition logs.
+            subquery = select(db_models.TuitionLogCharges.parent_id).distinct().join(
+                db_models.TuitionLogs, 
+                db_models.TuitionLogs.id == db_models.TuitionLogCharges.tuition_log_id
+            ).filter(db_models.TuitionLogs.teacher_id == teacher_id)
+            
+            # Main query to fetch the full Parent objects
+            stmt = select(db_models.Parents).filter(
+                db_models.Parents.id.in_(subquery)
+            ).order_by(db_models.Parents.first_name)
+            
+            result = await self.db.execute(stmt)
+            return list(result.scalars().all())
+        
+        except Exception as e:
+            log.error(f"Database error fetching parents for teacher {teacher_id}: {e}", exc_info=True)
+            # Re-raise the exception to be handled by the main error handler
+            raise
+
+class StudentService(UserService):
+    """Service for student-specific logic."""
+
+    async def get_all(self, current_user: db_models.Users) -> list[db_models.Students]:
+        """
+        Fetches all students relevant to the current user:
+        - If user is a Parent, returns their children.
+        - If user is a Teacher, returns all students they have taught.
+        """
+        log.info(f"Fetching all students for user {current_user.id} (Role: {current_user.role}).")
+        
+        try:
+            if current_user.role == UserRole.PARENT.value:
+                # We can use the relationship on the Parent object
+                await self.db.refresh(current_user, ['students'])
+                return current_user.students
+            
+            elif current_user.role == UserRole.TEACHER.value:
+                # Find all student IDs linked to the teacher via logs
+                subquery = select(db_models.TuitionLogCharges.student_id).distinct().join(
+                    db_models.TuitionLogs, 
+                    db_models.TuitionLogs.id == db_models.TuitionLogCharges.tuition_log_id
+                ).filter(db_models.TuitionLogs.teacher_id == current_user.id)
+                
+                # Fetch the full Student objects
+                stmt = select(db_models.Students).options(
+                    joinedload(db_models.Students.parent) # Eager load the parent
+                ).filter(
+                    db_models.Students.id.in_(subquery)
+                ).order_by(db_models.Students.first_name)
+                
+                result = await self.db.execute(stmt)
+                return list(result.scalars().all())
+            
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You do not have permission to view this list. Only teachers can list parents."
+                )
+        except Exception as e:
+            log.error(f"Database error fetching all students for user {current_user.id}: {e}", exc_info=True)
+            raise
+
+class TeachersService(UserService):
+    """Service for teacher-specific logic."""
+    pass

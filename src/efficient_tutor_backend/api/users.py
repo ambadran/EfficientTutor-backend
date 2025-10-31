@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends
 
 from ..database import models as db_models
 from ..models import user as user_models
-# Import the actual dependency function
 from ..services.security import verify_token_and_get_user
+from ..common.logger import log
 
 router = APIRouter(
     prefix="/users",

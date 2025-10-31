@@ -1,6 +1,7 @@
 '''
 Holds all the configurations
 '''
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -35,8 +36,7 @@ class Settings(BaseSettings):
     # Other settings
     FIRST_DAY_OF_WEEK: int = 5  # 5 is Saturday
 
-    class Config:
-        env_file = ".env" # automatically loads the .env
+    model_config = ConfigDict(env_file=".env")
 
 # Create a single, importable instance of the settings
 settings = Settings()
