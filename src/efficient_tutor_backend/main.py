@@ -3,15 +3,33 @@
 '''
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+
 from .common.logger import log
 from .common.config import settings
 from .api import auth, users
-from .database.engine import get_db_session # Import the session dependency
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Handles application startup and shutdown events.
+    """
+    # --- Code to run ON STARTUP ---
+    log.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}...")
+    
+    # Enum loading logic is now removed as it's handled by static imports
+    
+    yield # --- Application is now running ---
+
+    # --- Code to run ON SHUTDOWN ---
+    log.info("FastAPI application shutting down...")
 
 app = FastAPI(
     title=settings.APP_NAME,
     description=settings.APP_DESCRIPTION,
-    version=settings.APP_VERSION
+    version=settings.APP_VERSION,
+    lifespan=lifespan
+
 )
 
 # --- NEW: Add CORS Middleware ---
@@ -36,12 +54,7 @@ app.add_middleware(
 )
 # --- End of CORS Middleware ---
 
-@app.on_event("startup")
-async def startup_event():
-    """
-    On startup, connect to the DB and load dynamic configurations like Enums.
-    """
-    log.info("FastAPI application startup...")
+
 
 app.include_router(auth.router)
 app.include_router(users.router)

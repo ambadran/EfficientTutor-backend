@@ -5,14 +5,12 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 from ..common.config import settings
 from ..models.token import TokenPayload
 from ..common.logger import log
 from ..database import models as db_models
-from ..database.engine import get_db_session
+from .user_service import UserService
 
 # --- Password Hashing ---
 class HashedPassword:
@@ -60,31 +58,33 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 async def verify_token_and_get_user(
     token: Annotated[str, Depends(oauth2_scheme)],
-    db: Annotated[AsyncSession, Depends(get_db_session)]
-) -> db_models.Users:
+    user_service: Annotated[UserService, Depends(UserService)]
+    ) -> db_models.Users:
     """
-    Dependency to verify JWT token and return the active user.
-    Raises HTTPException 401 if token is invalid or user is inactive.
+    REFACTORED: Dependency to verify JWT, fetch the full polymorphic
+    user (Parent, Student, or Teacher) via the UserService.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
     token_data = JWTHandler.decode_token(token)
-    if not token_data:
+    if not token_data or not token_data.sub:
         log.warning("JWT decode failed or invalid token structure.")
         raise credentials_exception
 
-    result = await db.execute(
-        select(db_models.Users).filter(
-            db_models.Users.email == str(token_data.sub),
-            db_models.Users.is_active == True
-        )
-    )
-    user = result.scalars().first()
+    user = await user_service.get_full_user_by_email(token_data.sub)
+    
     if user is None:
-        log.warning(f"Users '{token_data.sub}' not found or not active during token verification.")
+        log.warning(f"User '{token_data.sub}' not found during token verification.")
         raise credentials_exception
-    log.info(f"JWT verified successfully for user: {user.email}")
+    
+    if not user.is_active:
+        log.warning(f"User '{token_data.sub}' is not active.")
+        raise credentials_exception
+
+    log.info(f"JWT verified successfully for user: {user.email} (Role: {user.role})")
+    # This now returns the full Parent, Student, or Teacher object
     return user

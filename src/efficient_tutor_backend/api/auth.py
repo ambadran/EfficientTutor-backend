@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 # Import the service and use it via dependency injection
 from ..services.auth_service import LoginService
 from ..models import token as token_models
+from ..common.logger import log
 
 router = APIRouter(
     prefix="/auth",
@@ -36,7 +37,7 @@ async def login_for_access_token(
         raise e
     except Exception as e:
         # Catch unexpected errors
-        # log.error(f"Unexpected error during login: {e}", exc_info=True) # Logging should be in service
+        log.error(f"Unexpected error during login: {e}", exc_info=True) # Logging should be in service
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An internal server error occurred during login.",

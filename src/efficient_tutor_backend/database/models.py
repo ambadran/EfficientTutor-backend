@@ -154,7 +154,11 @@ class Users(Base):
     first_name: Mapped[Optional[str]] = mapped_column(Text)
     last_name: Mapped[Optional[str]] = mapped_column(Text)
 
-    payment_logs: Mapped[List['PaymentLogs']] = relationship('PaymentLogs', back_populates='parent')
+    payment_logs: Mapped[List['PaymentLogs']] = relationship(
+            'PaymentLogs', 
+            back_populates='parent',
+            foreign_keys='[PaymentLogs.parent_id]'  # MANUAL: Added this
+        )
 
 
 class CalendarEvents(Base):
@@ -185,10 +189,21 @@ class Parents(Users):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     currency: Mapped[str] = mapped_column(Text, server_default=text("'EGP'::text"))
 
-    students: Mapped[List['Students']] = relationship('Students', back_populates='parent')
-    tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship('TuitionTemplateCharges', back_populates='parent')
-    tuition_log_charges: Mapped[List['TuitionLogCharges']] = relationship('TuitionLogCharges', back_populates='parent')
-
+    students: Mapped[List['Students']] = relationship(
+        'Students', 
+        back_populates='parent',
+        foreign_keys='[Students.parent_id]'  # MANUAL: Add this
+    )
+    tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship(
+        'TuitionTemplateCharges', 
+        back_populates='parent',
+        foreign_keys='[TuitionTemplateCharges.parent_id]'  # MANUAL: Add this
+    )
+    tuition_log_charges: Mapped[List['TuitionLogCharges']] = relationship(
+        'TuitionLogCharges', 
+        back_populates='parent',
+        foreign_keys='[TuitionLogCharges.parent_id]'  # MANUAL: Add this
+    )
 
 class Teachers(Users):
     __tablename__ = 'teachers'
@@ -199,9 +214,17 @@ class Teachers(Users):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
 
-    payment_logs: Mapped[List['PaymentLogs']] = relationship('PaymentLogs', back_populates='teacher')
+    payment_logs: Mapped[List['PaymentLogs']] = relationship(
+        'PaymentLogs', 
+        back_populates='teacher',
+        foreign_keys='[PaymentLogs.teacher_id]'  # MANUAL: Add this
+    )
     tuitions: Mapped[List['Tuitions']] = relationship('Tuitions', back_populates='teacher')
-    tuition_logs: Mapped[List['TuitionLogs']] = relationship('TuitionLogs', back_populates='teacher')
+    tuition_logs: Mapped[List['TuitionLogs']] = relationship(
+        'TuitionLogs', 
+        back_populates='teacher',
+        foreign_keys='[TuitionLogs.teacher_id]'  # MANUAL: Add this
+    )
 
 
 class PaymentLogs(Base):
@@ -225,9 +248,16 @@ class PaymentLogs(Base):
 
     corrected_from_log: Mapped[Optional['PaymentLogs']] = relationship('PaymentLogs', remote_side=[id], back_populates='corrected_from_log_reverse')
     corrected_from_log_reverse: Mapped[List['PaymentLogs']] = relationship('PaymentLogs', remote_side=[corrected_from_log_id], back_populates='corrected_from_log')
-    parent: Mapped['Users'] = relationship('Users', back_populates='payment_logs')
-    teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='payment_logs')
-
+    parent: Mapped['Users'] = relationship(
+        'Users', 
+        back_populates='payment_logs',
+        foreign_keys='[PaymentLogs.parent_id]'  # MANUAL: Add this
+    )
+    teacher: Mapped['Teachers'] = relationship(
+        'Teachers', 
+        back_populates='payment_logs',
+        foreign_keys='[PaymentLogs.teacher_id]'  # MANUAL: Add this
+    )
 
 class Students(Users):
     __tablename__ = 'students'
@@ -249,10 +279,21 @@ class Students(Users):
     generated_password: Mapped[Optional[str]] = mapped_column(Text)
     notes: Mapped[Optional[dict]] = mapped_column(JSONB)
 
-    parent: Mapped['Parents'] = relationship('Parents', back_populates='students')
-    tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship('TuitionTemplateCharges', back_populates='student')
-    tuition_log_charges: Mapped[List['TuitionLogCharges']] = relationship('TuitionLogCharges', back_populates='student')
-
+    parent: Mapped['Parents'] = relationship(
+        'Parents', 
+        back_populates='students',
+        foreign_keys='[Students.parent_id]'  # MANUAL: Add this
+    )
+    tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship(
+        'TuitionTemplateCharges', 
+        back_populates='student',
+        foreign_keys='[TuitionTemplateCharges.student_id]'  # MANUAL: Add this
+    )
+    tuition_log_charges: Mapped[List['TuitionLogCharges']] = relationship(
+        'TuitionLogCharges', 
+        back_populates='student',
+        foreign_keys='[TuitionLogCharges.student_id]'  # MANUAL: Add this
+    )
 
 class Tuitions(Base):
     __tablename__ = 'tuitions'
@@ -299,7 +340,13 @@ class TuitionLogs(Base):
 
     corrected_from_log: Mapped[Optional['TuitionLogs']] = relationship('TuitionLogs', remote_side=[id], back_populates='corrected_from_log_reverse')
     corrected_from_log_reverse: Mapped[List['TuitionLogs']] = relationship('TuitionLogs', remote_side=[corrected_from_log_id], back_populates='corrected_from_log')
-    teacher: Mapped[Optional['Teachers']] = relationship('Teachers', back_populates='tuition_logs')
+
+    teacher: Mapped[Optional['Teachers']] = relationship(
+        'Teachers', 
+        back_populates='tuition_logs',
+        foreign_keys='[TuitionLogs.teacher_id]'  # MANUAL: Add this
+    )
+
     tuition: Mapped[Optional['Tuitions']] = relationship('Tuitions', back_populates='tuition_logs')
     tuition_log_charges: Mapped[List['TuitionLogCharges']] = relationship('TuitionLogCharges', back_populates='tuition_log')
 
@@ -318,9 +365,16 @@ class TuitionTemplateCharges(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     parent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     cost: Mapped[decimal.Decimal] = mapped_column(Numeric(10, 2))
-
-    parent: Mapped['Parents'] = relationship('Parents', back_populates='tuition_template_charges')
-    student: Mapped['Students'] = relationship('Students', back_populates='tuition_template_charges')
+    parent: Mapped['Parents'] = relationship(
+        'Parents', 
+        back_populates='tuition_template_charges',
+        foreign_keys='[TuitionTemplateCharges.parent_id]'  # MANUAL: Add this
+    )
+    student: Mapped['Students'] = relationship(
+        'Students', 
+        back_populates='tuition_template_charges',
+        foreign_keys='[TuitionTemplateCharges.student_id]'  # MANUAL: Add this
+    )
     tuition: Mapped['Tuitions'] = relationship('Tuitions', back_populates='tuition_template_charges')
 
 
@@ -338,7 +392,14 @@ class TuitionLogCharges(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     parent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     cost: Mapped[decimal.Decimal] = mapped_column(Numeric(10, 2))
-
-    parent: Mapped['Parents'] = relationship('Parents', back_populates='tuition_log_charges')
-    student: Mapped['Students'] = relationship('Students', back_populates='tuition_log_charges')
+    parent: Mapped['Parents'] = relationship(
+        'Parents', 
+        back_populates='tuition_log_charges',
+        foreign_keys='[TuitionLogCharges.parent_id]'  # MANUAL: Add this
+    )
+    student: Mapped['Students'] = relationship(
+        'Students', 
+        back_populates='tuition_log_charges',
+        foreign_keys='[TuitionLogCharges.student_id]'  # MANUAL: Add this
+    )
     tuition_log: Mapped['TuitionLogs'] = relationship('TuitionLogs', back_populates='tuition_log_charges')
