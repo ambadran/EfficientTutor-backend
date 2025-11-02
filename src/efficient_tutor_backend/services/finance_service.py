@@ -17,7 +17,7 @@ from ..models import finance as finance_models
 from ..common.logger import log
 from ..common.config import settings
 from .user_service import UserService
-from .tuition_service import TuitionsService
+from .tuition_service import TuitionService
 
 # --- Service 1: Tuition Log Management ---
 
@@ -28,7 +28,7 @@ class TuitionLogService:
         self, 
         db: Annotated[AsyncSession, Depends(get_db_session)],
         user_service: Annotated[UserService, Depends(UserService)],
-        tuitions_service: Annotated[TuitionsService, Depends(TuitionsService)]
+        tuitions_service: Annotated[TuitionService, Depends(TuitionService)]
     ):
         self.db = db
         self.user_service = user_service

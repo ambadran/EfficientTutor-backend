@@ -11,10 +11,10 @@ from dataclasses import dataclass
 
 from ..database.engine import get_db_session
 from ..database import models as db_models
-from ..database.db_enums import UserRole
+from ..database.db_enums import UserRole, RunStatusEnum
 from ..models import timetable as timetable_models
 from ..common.logger import log
-from .tuition_service import TuitionsService
+from .tuition_service import TuitionService
 
 # --- Internal Dataclasses Model ---
 # This model is used only inside the service layer
@@ -36,10 +36,10 @@ class TimeTableService:
     def __init__(
         self, 
         db: Annotated[AsyncSession, Depends(get_db_session)],
-        tuitions_service: Annotated[TuitionsService, Depends(TuitionsService)]
+        tuition_service: Annotated[TuitionService, Depends(TuitionService)]
     ):
         self.db = db
-        self.tuitions_service = tuitions_service
+        self.tuition_service = tuition_service
 
     async def get_all(self, current_user: db_models.Users) -> list[ScheduledTuition]:
         """
@@ -49,8 +49,8 @@ class TimeTableService:
         log.info(f"Fetching latest scheduled tuitions for user {current_user.id}")
         
         # 1. Fetch only the tuition objects relevant to the viewer.
-        # We use our powerful, pre-built TuitionsService method for this.
-        user_tuitions = await self.tuitions_service.get_all_tuitions(current_user)
+        # We use our powerful, pre-built TuitionService method for this.
+        user_tuitions = await self.tuition_service.get_all_tuitions(current_user)
         if not user_tuitions:
             log.warning(f"No tuitions exist for user {current_user.id}. Cannot show timetable.")
             return []
