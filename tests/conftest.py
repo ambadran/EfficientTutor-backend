@@ -175,22 +175,47 @@ def financial_summary_service(db_session: AsyncSession) -> FinancialSummaryServi
 # Note: They are now `async` and must depend on `db_session`.
 
 @pytest.fixture(scope="function")
-async def test_teacher_orm(db_session: AsyncSession) -> db_models.Users:
-    teacher = await db_session.get(db_models.Users, TEST_TEACHER_ID)
-    assert teacher is not None, f"Test teacher with ID {TEST_TEACHER_ID} not found."
+async def test_teacher_orm(db_session: AsyncSession) -> db_models.Teachers: # <-- Changed type
+    """Fetches the main test teacher ORM object from the test DB."""
+    # --- CHANGED ---
+    # Get the specific 'Teachers' class, not the base 'Users' class
+    teacher = await db_session.get(db_models.Teachers, TEST_TEACHER_ID)
+    # ---------------
+    
+    assert teacher is not None, f"Test teacher with ID {TEST_TEACHER_ID} not found in DB."
     return teacher
 
 @pytest.fixture(scope="function")
-async def test_parent_orm(db_session: AsyncSession) -> db_models.Users:
-    parent = await db_session.get(db_models.Users, TEST_PARENT_ID)
-    assert parent is not None, f"Test parent with ID {TEST_PARENT_ID} not found."
+async def test_parent_orm(db_session: AsyncSession) -> db_models.Parents: # <-- Changed type
+    """Fetches the main test parent ORM object from the test DB."""
+    # --- CHANGED ---
+    parent = await db_session.get(db_models.Parents, TEST_PARENT_ID)
+    # ---------------
+
+    assert parent is not None, f"Test parent with ID {TEST_PARENT_ID} not found in DB."
     return parent
 
 @pytest.fixture(scope="function")
-async def test_student_orm(db_session: AsyncSession) -> db_models.Users:
-    student = await db_session.get(db_models.Users, TEST_STUDENT_ID)
-    assert student is not None, f"Test student with ID {TEST_STUDENT_ID} not found."
+async def test_student_orm(db_session: AsyncSession) -> db_models.Students: # <-- Changed type
+    """Fetches the main test student ORM object from the test DB."""
+    # --- CHANGED ---
+    student = await db_session.get(db_models.Students, TEST_STUDENT_ID)
+    # ---------------
+    
+    assert student is not None, f"Test student with ID {TEST_STUDENT_ID} not found in DB."
     return student
+
+@pytest.fixture(scope="function")
+async def test_parents_orm_list(db_session: AsyncSession) -> list[db_models.Parents]: # <-- Changed type
+    """Fetches a list of test parent ORM objects from the test DB."""
+    # --- CHANGED ---
+    # Select from 'Parents' directly
+    stmt = select(db_models.Parents).where(db_models.Parents.id.in_(TEST_PARENT_IDS))
+    # ---------------
+    
+    parents = (await db_session.scalars(stmt)).all()
+    assert len(parents) == len(TEST_PARENT_IDS), "Not all test parents were found in DB."
+    return parents
 
 @pytest.fixture(scope="function")
 async def test_tuition_orm(db_session: AsyncSession) -> db_models.Tuitions:
