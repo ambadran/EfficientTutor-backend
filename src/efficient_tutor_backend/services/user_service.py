@@ -21,7 +21,7 @@ class UserService:
     def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)]):
         self.db = db
 
-    async def get_full_user_by_email(self, email: str) -> db_models.Users | None:
+    async def get_user_by_email(self, email: str) -> db_models.Users | None:
         """
         Fetches the complete polymorphic user object
         (Parent, Student, or Teacher) by their email using an explicit two-step query.

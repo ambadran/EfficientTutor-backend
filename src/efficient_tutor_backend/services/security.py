@@ -75,7 +75,7 @@ async def verify_token_and_get_user(
         log.warning("JWT decode failed or invalid token structure.")
         raise credentials_exception
 
-    user = await user_service.get_full_user_by_email(token_data.sub)
+    user = await user_service.get_user_by_email(token_data.sub)
     
     if user is None:
         log.warning(f"User '{token_data.sub}' not found during token verification.")

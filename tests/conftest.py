@@ -35,7 +35,7 @@ from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import (
     UserService, ParentService, StudentService
 )
-from src.efficient_tutor_backend.services.tuition_service import TuitionsService
+from src.efficient_tutor_backend.services.tuition_service import TuitionService
 from src.efficient_tutor_backend.services.timetable_service import TimeTableService
 from src.efficient_tutor_backend.services.finance_service import (
     TuitionLogService,
@@ -139,20 +139,36 @@ def student_service(db_session: AsyncSession) -> StudentService:
     return StudentService(db=db_session)
 
 @pytest.fixture(scope="function")
-def tuitions_service(db_session: AsyncSession, user_service: UserService) -> TuitionsService:
-    return TuitionsService(db=db_session, user_service=user_service)
+def tuition_service_sync() -> TuitionService:
+    """
+    allow me to test synchronous methods without the stupid warning
+    """
+    return TuitionService(db=None, user_service=None)
+
+@pytest.fixture(scope="function")
+def tuition_service(db_session: AsyncSession, user_service: UserService) -> TuitionService:
+    return TuitionService(db=db_session, user_service=user_service)
 
 @pytest.fixture(scope="function")
 def timetable_service(
-    db_session: AsyncSession, tuitions_service: TuitionsService
+    db_session: AsyncSession, tuition_service: TuitionService
 ) -> TimeTableService:
-    return TimeTableService(db=db_session, tuitions_service=tuitions_service)
+    return TimeTableService(db=db_session, tuition_service=tuition_service)
+
+@pytest.fixture(scope="function")
+def timetable_service_sync() -> TimeTableService:
+    """
+    Provides a lightweight, *synchronous* instance of TimeTableService
+    for testing utility methods that don't need a real db or other services.
+    """
+    # Pass None for dependencies, as the formatting methods don't use them.
+    return TimeTableService(db=None, tuition_service=None)
 
 @pytest.fixture(scope="function")
 def tuition_log_service(
     db_session: AsyncSession, 
     user_service: UserService, 
-    tuitions_service: TuitionsService
+    tuition_service: TuitionService
 ) -> TuitionLogService:
     return TuitionLogService(
         db=db_session, 

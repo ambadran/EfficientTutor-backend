@@ -15,7 +15,7 @@ from ..database.db_enums import UserRole
 from ..common.logger import log
 from .user_service import UserService
 
-class TuitionsService:
+class TuitionService:
     """
     Service for managing tuition templates (the "schedulable" tuitions).
     """
@@ -87,9 +87,11 @@ class TuitionsService:
         except Exception as e:
             log.error(f"Database error fetching all tuitions for user {current_user.id}: {e}", exc_info=True)
             raise
-    
+
     async def regenerate_all_tuitions(self) -> bool:
         """
+        THIS METHOD SHOULD NOT BE USED UNLESS NECESSARY,
+        #TODO: it deletes meeting_link data for now, but after we implemented same tuition_id methodology and after we put the meeting data in its own table, we shouldn't face this issue anymore
         Regenerates all tuition templates based on the current student data.
         This is a full TRUNCATE and-RELOAD operation.
         """

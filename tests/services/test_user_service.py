@@ -24,11 +24,12 @@ class TestUserService:
     async def test_get_teacher_user_by_id(
         self, 
         user_service: UserService, 
-        test_teacher_orm: db_models.Users  # <-- Use the new fixture
+        test_teacher_orm: db_models.Teachers  # <-- Use the new fixture
     ):
         """Tests fetching a user by their ID."""
         user = await user_service.get_user_by_id(test_teacher_orm.id)
 
+        print(type(user))
         pprint(user.__dict__)
         
         assert user is not None
@@ -43,21 +44,19 @@ class TestUserService:
         """Tests fetching a user by their ID."""
         user = await user_service.get_user_by_id(test_parent_orm.id)
 
+        print(type(user))
         pprint(user.__dict__)
-        pprint(user.students)
         
         assert user is not None
         assert user.id == test_parent_orm.id
         assert user.email == test_parent_orm.email
-
-
 
     async def test_get_user_by_id_not_found(self, user_service: UserService):
         """Tests that None is returned for a non-existent ID."""
         user = await user_service.get_user_by_id(UUID(int=0)) # Random UUID
         assert user is None
 
-    async def test_get_full_user_by_email(
+    async def test_get_teacher_user_by_email(
         self, 
         user_service: UserService, 
         test_teacher_orm: db_models.Users # <-- Use the new fixture
@@ -65,10 +64,26 @@ class TestUserService:
         """Tests fetching a user by their email."""
         user = await user_service.get_full_user_by_email(test_teacher_orm.email)
 
+        print(type(user))
         pprint(user.__dict__)
         
         assert user is not None
         assert user.id == test_teacher_orm.id
+
+    async def test_get_parent_user_by_email(
+        self, 
+        user_service: UserService, 
+        test_parent_orm: db_models.Users # <-- Use the new fixture
+    ):
+        """Tests fetching a user by their email."""
+        user = await user_service.get_full_user_by_email(test_parent_orm.email)
+
+        print(type(user))
+        pprint(user.__dict__)
+        
+        assert user is not None
+        assert user.id == test_parent_orm.id
+
 
     async def test_get_users_by_ids(
         self, 
@@ -100,6 +115,8 @@ class TestParentService:
     ):
         """Tests that a TEACHER can get all parents."""
         parents = await parents_service.get_all(current_user=test_teacher_orm)
+
+        print(f"Found {len(parents)} parents for teacher '{test_teacher_orm.first_name} {test_teacher_orm.last_name}':\n{[parent.first_name for parent in parents]}")
         
         assert len(parents) >= 1
         assert any(p.id == test_parent_orm.id for p in parents)
@@ -139,7 +156,9 @@ class TestStudentService:
     ):
         """Tests that a TEACHER can get all students."""
         students = await student_service.get_all(current_user=test_teacher_orm)
-        
+       
+        print(f"Found {len(students)} students for teacher '{test_teacher_orm.first_name} {test_teacher_orm.last_name}':\n{[student.first_name for student in students]}")
+
         assert len(students) >= 1
         assert any(s.id == test_student_orm.id for s in students)
 
@@ -151,6 +170,8 @@ class TestStudentService:
     ):
         """Tests that a PARENT can get all students."""
         students = await student_service.get_all(current_user=test_parent_orm)
+
+        print(f"Found {len(students)} students for Parent '{test_parent_orm.first_name} {test_parent_orm.last_name}':\n{[student.first_name for student in students]}")
         
         assert len(students) >= 1
         assert any(s.id == test_student_orm.id for s in students)
