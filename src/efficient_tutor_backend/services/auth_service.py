@@ -8,7 +8,6 @@ from fastapi.security import OAuth2PasswordRequestForm
 from .security import HashedPassword, JWTHandler
 from .user_service import UserService  # CHANGED: Import UserService
 from ..database import models as db_models
-# REMOVED: from ..database.engine import get_db_session
 from ..models import token as token_models
 from ..common.logger import log
 

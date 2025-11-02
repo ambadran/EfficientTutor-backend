@@ -21,8 +21,7 @@ from pprint import pp as pprint
 @pytest.mark.anyio
 class TestUserService:
     
-    # We now request 'test_teacher_orm' instead of 'test_teacher'
-    async def test_get_user_by_id(
+    async def test_get_teacher_user_by_id(
         self, 
         user_service: UserService, 
         test_teacher_orm: db_models.Users  # <-- Use the new fixture
@@ -35,6 +34,23 @@ class TestUserService:
         assert user is not None
         assert user.id == test_teacher_orm.id
         assert user.email == test_teacher_orm.email
+
+    async def test_get_parent_user_by_id(
+        self, 
+        user_service: UserService, 
+        test_parent_orm: db_models.Parents  # <-- Use the new fixture
+    ):
+        """Tests fetching a user by their ID."""
+        user = await user_service.get_user_by_id(test_parent_orm.id)
+
+        pprint(user.__dict__)
+        pprint(user.students)
+        
+        assert user is not None
+        assert user.id == test_parent_orm.id
+        assert user.email == test_parent_orm.email
+
+
 
     async def test_get_user_by_id_not_found(self, user_service: UserService):
         """Tests that None is returned for a non-existent ID."""
@@ -98,6 +114,18 @@ class TestParentService:
             await parents_service.get_all(current_user=test_parent_orm)
         
         assert e.value.status_code == 403
+
+    async def test_get_all_as_student_forbidden(
+        self, 
+        parents_service: ParentService, 
+        test_student_orm: db_models.Users # <-- Use the new fixture
+    ):
+        """Tests that a PARENT cannot get all parents (HTTP 403)."""
+        with pytest.raises(HTTPException) as e:
+            await parents_service.get_all(current_user=test_student_orm)
+        
+        assert e.value.status_code == 403
+
 
 
 @pytest.mark.anyio
