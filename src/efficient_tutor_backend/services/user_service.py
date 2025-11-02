@@ -3,7 +3,7 @@
 '''
 from typing import Optional, Annotated
 from uuid import UUID
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
@@ -75,26 +75,32 @@ class UserService:
 
     async def get_users_by_ids(self, user_ids: list[UUID]) -> list[db_models.Users]:
         """
-        Fetches a list of complete user objects (Parent, Student, or Teacher)
-        by a list of IDs.
+        REFACTORED: Fetches a list of complete polymorphic user objects
+        by a list of IDs in a highly efficient way.
         """
         if not user_ids:
             return []
         log.info(f"Fetching {len(user_ids)} full user profiles by ID list.")
         try:
-            stmt = select(db_models.Users).options(
-                joinedload('*')
-            ).filter(db_models.Users.id.in_(user_ids))
+            # 1. Start by selecting the base Users. SQLAlchemy will
+            #    automatically fetch the role-specific tables (Parent, Student, etc.)
+            stmt = select(db_models.Users).filter(db_models.Users.id.in_(user_ids))
+            
+            # 2. Add a TARGETED eager load. This tells SQLAlchemy:
+            #    "When you load these users, if any of them are
+            #    Students, please ALSO run a query to load their 'parent' relationship."
+            #    This is fast and efficient.
+            stmt = stmt.options(
+                selectinload(db_models.Students.parent)
+            )
             
             result = await self.db.execute(stmt)
-            users = result.scalars().all()
+            users = list(result.scalars().all())
             
-            # Eagerly load parents for all students in the list
-            for user in users:
-                if user.role == UserRole.STUDENT.value:
-                    await self.db.refresh(user, ['parent'])
-                    
-            return list(users)
+            # 3. No more N+1 refresh loop is needed.
+            #    SQLAlchemy has handled it.
+            return users
+            
         except Exception as e:
             log.error(f"Database error fetching full users by ID list: {e}", exc_info=True)
             raise

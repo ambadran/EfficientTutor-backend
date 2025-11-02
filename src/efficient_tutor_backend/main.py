@@ -5,6 +5,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+from .database.engine import create_db_engine_and_session_factory, dispose_db_engine
 from .common.logger import log
 from .common.config import settings
 from .api import auth, users
@@ -14,15 +15,18 @@ async def lifespan(app: FastAPI):
     """
     Handles application startup and shutdown events.
     """
-    # --- Code to run ON STARTUP ---
+    # --- On App Startup ---
     log.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}...")
-    
-    # Enum loading logic is now removed as it's handled by static imports
+    create_db_engine_and_session_factory()
     
     yield # --- Application is now running ---
 
-    # --- Code to run ON SHUTDOWN ---
-    log.info("FastAPI application shutting down...")
+    # --- On App Shutdown ---
+    if not settings.TEST_MODE:
+        log.info("Application lifespan shutdown...")
+        await dispose_db_engine()
+    else:
+        log.info("Skipping database engine disposal in TEST_MODE.")
 
 app = FastAPI(
     title=settings.APP_NAME,

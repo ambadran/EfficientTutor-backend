@@ -9,30 +9,31 @@ This file sets up fixtures for:
 '''
 
 import pytest
-import pytest_asyncio
 import os
 from typing import AsyncGenerator
 
 # --- FastAPI & Testing Imports ---
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
 
-# --- Application Imports ---
-# Import the main app object
-from src.efficient_tutor_backend.main import app
-
-# Import the engine and session factory
-from src.efficient_tutor_backend.database.engine import (
-    engine, 
-    AsyncSessionLocal, 
-    get_db_session
+# --- Constant Imports ----
+from tests.constants import (
+    TEST_PARENT_ID,
+    TEST_TEACHER_ID,
+    TEST_STUDENT_ID,
+    TEST_PARENT_IDS,
+    TEST_TUITION_ID
 )
 
-# Import all service classes
+# --- Application Imports ---
+from src.efficient_tutor_backend.main import app
+from src.efficient_tutor_backend.common.config import settings
+from src.efficient_tutor_backend.database.engine import get_db_session
+from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import (
-    UserService, 
-    ParentService, 
-    StudentService
+    UserService, ParentService, StudentService
 )
 from src.efficient_tutor_backend.services.tuition_service import TuitionsService
 from src.efficient_tutor_backend.services.timetable_service import TimeTableService
@@ -43,156 +44,156 @@ from src.efficient_tutor_backend.services.finance_service import (
 )
 
 
-# --- 1. Core Configuration Fixture (The most important part) ---
+@pytest.fixture(scope="session")
+def anyio_backend():
+    """
+    Override the default 'anyio_backend' fixture.
+    1. Forces the backend to 'asyncio' (solves 'trio' error).
+    2. Promotes the scope to 'session' (solves 'ScopeMismatch').
+    """
+    return "asyncio"
 
-@pytest.fixture(scope="session", autouse=True)
-def set_test_mode():
+
+@pytest.fixture(scope="function")
+def client() -> TestClient:
     """
-    Forces the TEST_MODE environment variable to "True" at the very start
-    of the test session. This ensures that when the app code is imported,
-    the Pydantic settings load the test database URL, and the
-    SQLAlchemy engine is created with the correct (test) database.
+    The core fixture for all tests.
+    
+    1. Sets TEST_MODE=True to be 100% safe.
+    2. Runs the app's lifespan, which creates the *real* database engine.
+    3. Overrides the `get_db_session` dependency to use a transaction
+       that gets rolled back after every test for isolation.
     """
+    # Force test mode, just in case.
+    # Note: Your config uses TEST_MODE, not TESTING_MODE.
     os.environ["TEST_MODE"] = "True"
     
-    # We must also clear the singleton engine if it was already created
-    # This is a safeguard against import-order issues.
-    if engine._async_engine:
-        # This is a bit of a hack, but necessary if the engine was created
-        # before this fixture ran (e.g., by another import).
-        # In a typical run, this might not be needed, but it's safer.
-        from src.efficient_tutor_backend.database import engine as engine_module
-        engine_module.engine = None 
-        # Ideally, we would re-create it, but setting TEST_MODE=True 
-        # and re-importing the app (which TestClient does) is often enough.
-        # Let's simplify: just setting the env var is the key.
-    
-    # After this fixture runs, any subsequent import of `config.settings`
-    # or `database.engine` will use the test database.
-    
+    # Verify the settings loaded correctly
+    assert settings.TEST_MODE is True, \
+        "TEST_MODE was not set to True! Check your .env file or environment."
 
-# --- 2. Database Session Fixtures (For Service-Level Tests) ---
+    # This is our new test-specific dependency override
+    async def override_get_db_session() -> AsyncGenerator[AsyncSession, None]:
+        # The app's lifespan (triggered by TestClient) has already
+        # run and created the global AsyncSessionLocal factory.
+        from src.efficient_tutor_backend.database.engine import AsyncSessionLocal
+        
+        if AsyncSessionLocal is None:
+             raise RuntimeError("TestClient failed to initialize the app's lifespan.")
 
-@pytest_asyncio.fixture(scope="function")
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Provides a clean, isolated database session for each test function.
+        session = AsyncSessionLocal()
+        try:
+            yield session
+        finally:
+            await session.rollback() # This is the key to test isolation
+            await session.close()
+
+    # Apply the override to the main app
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    # This 'with' block runs the app's startup lifespan,
+    # which creates the engine and session factory.
+    with TestClient(app) as test_client:
+        yield test_client
     
-    This creates a new session from our factory, yields it to the test,
-    and then guarantees a rollback and close, so tests can't affect each other.
+    # The app's shutdown lifespan runs here, and we clear the override.
+    app.dependency_overrides.clear()
+
+
+# --- 2. Function-Scoped Session Fixture (For Service Tests) ---
+
+@pytest.fixture(scope="function")
+async def db_session(client: TestClient) -> AsyncGenerator[AsyncSession, None]:
     """
+    Provides a single, isolated, rolled-back database session for
+    service-level tests.
+    
+    It depends on the 'client' fixture to ensure the engine is
+    already created by the app's lifespan.
+    """
+    from src.efficient_tutor_backend.database.engine import AsyncSessionLocal
+    
+    if AsyncSessionLocal is None:
+        raise RuntimeError("Session factory not initialized by client fixture.")
+
     session = AsyncSessionLocal()
     try:
         yield session
     finally:
-        await session.rollback()  # Roll back any changes made during the test
-        await session.close()     # Close the session
+        await session.rollback()
+        await session.close()
 
+# --- 5. SERVICE FIXTURES ---
+# These now just depend on the clean `db_session` fixture.
 
-# --- 3. Service-Level Fixtures (For testing business logic directly) ---
-
-@pytest_asyncio.fixture(scope="function")
-async def user_service(db_session: AsyncSession) -> UserService:
-    """Provides a UserService instance with a test session."""
+@pytest.fixture(scope="function")
+def user_service(db_session: AsyncSession) -> UserService:
     return UserService(db=db_session)
 
-@pytest_asyncio.fixture(scope="function")
-async def parents_service(
-    db_session: AsyncSession, 
-    user_service: UserService
-) -> ParentService:
-    """Provides a ParentsService instance with test dependencies."""
-    # Assuming ParentService takes db and user_service.
-    # Adjust if your __init__ is different.
-    return ParentService(db=db_session, user_service=user_service)
+@pytest.fixture(scope="function")
+def parents_service(db_session: AsyncSession) -> ParentService:
+    return ParentService(db=db_session)
 
-@pytest_asyncio.fixture(scope="function")
-async def student_service(
-    db_session: AsyncSession, 
-    user_service: UserService
-) -> StudentService:
-    """Provides a StudentService instance with test dependencies."""
-    # Assuming StudentService takes db and user_service.
-    # Adjust if your __init__ is different.
-    return StudentService(db=db_session, user_service=user_service)
+@pytest.fixture(scope="function")
+def student_service(db_session: AsyncSession) -> StudentService:
+    return StudentService(db=db_session)
 
-@pytest_asyncio.fixture(scope="function")
-async def tuitions_service(
-    db_session: AsyncSession, 
-    user_service: UserService
-) -> TuitionsService:
-    """Provides a TuitionsService instance with test dependencies."""
+@pytest.fixture(scope="function")
+def tuitions_service(db_session: AsyncSession, user_service: UserService) -> TuitionsService:
     return TuitionsService(db=db_session, user_service=user_service)
 
-
-@pytest_asyncio.fixture(scope="function")
-async def timetable_service(
-    db_session: AsyncSession, 
-    tuitions_service: TuitionsService
+@pytest.fixture(scope="function")
+def timetable_service(
+    db_session: AsyncSession, tuitions_service: TuitionsService
 ) -> TimeTableService:
-    """Provides a TimeTableService instance with test dependencies."""
     return TimeTableService(db=db_session, tuitions_service=tuitions_service)
 
-
-@pytest_asyncio.fixture(scope="function")
-async def tuition_log_service(
+@pytest.fixture(scope="function")
+def tuition_log_service(
     db_session: AsyncSession, 
     user_service: UserService, 
     tuitions_service: TuitionsService
 ) -> TuitionLogService:
-    """Provides a TuitionLogService instance with test dependencies."""
     return TuitionLogService(
         db=db_session, 
         user_service=user_service, 
         tuitions_service=tuitions_service
     )
 
-
-@pytest_asyncio.fixture(scope="function")
-async def payment_log_service(
-    db_session: AsyncSession, 
-    user_service: UserService
+@pytest.fixture(scope="function")
+def payment_log_service(
+    db_session: AsyncSession, user_service: UserService
 ) -> PaymentLogService:
-    """Provides a PaymentLogService instance with test dependencies."""
     return PaymentLogService(db=db_session, user_service=user_service)
 
-
-@pytest_asyncio.fixture(scope="function")
-async def financial_summary_service(db_session: AsyncSession) -> FinancialSummaryService:
-    """Provides a FinancialSummaryService instance with a test session."""
+@pytest.fixture(scope="function")
+def financial_summary_service(db_session: AsyncSession) -> FinancialSummaryService:
     return FinancialSummaryService(db=db_session)
 
-
-# --- 4. API-Level Fixtures (For Endpoint Testing) ---
+# --- 6. DATA FIXTURES ---
+# Your fixtures to fetch data are perfect.
+# Note: They are now `async` and must depend on `db_session`.
 
 @pytest.fixture(scope="function")
-def client() -> TestClient:
-    """
-    Provides a FastAPI TestClient that overrides the database dependency.
-    
-    This fixture ensures that any API endpoint call made through this client
-    will use an isolated, rolled-back test session.
-    """
-    
-    # This is our test-specific dependency that will be injected
-    async def override_get_db_session() -> AsyncGenerator[AsyncSession, None]:
-        """
-        Overrides the `get_db_session` dependency to provide a test session
-        that is automatically rolled back.
-        """
-        session = AsyncSessionLocal()
-        try:
-            yield session
-        finally:
-            await session.rollback()
-            await session.close()
+async def test_teacher_orm(db_session: AsyncSession) -> db_models.Users:
+    teacher = await db_session.get(db_models.Users, TEST_TEACHER_ID)
+    assert teacher is not None, f"Test teacher with ID {TEST_TEACHER_ID} not found."
+    return teacher
 
-    # Apply the override to the main app
-    app.dependency_overrides[get_db_session] = override_get_db_session
+@pytest.fixture(scope="function")
+async def test_parent_orm(db_session: AsyncSession) -> db_models.Users:
+    parent = await db_session.get(db_models.Users, TEST_PARENT_ID)
+    assert parent is not None, f"Test parent with ID {TEST_PARENT_ID} not found."
+    return parent
 
-    # Yield the test client
-    with TestClient(app) as test_client:
-        yield test_client
-    
-    # Clean up the override after the test
-    app.dependency_overrides.clear()
+@pytest.fixture(scope="function")
+async def test_student_orm(db_session: AsyncSession) -> db_models.Users:
+    student = await db_session.get(db_models.Users, TEST_STUDENT_ID)
+    assert student is not None, f"Test student with ID {TEST_STUDENT_ID} not found."
+    return student
+
+@pytest.fixture(scope="function")
+async def test_tuition_orm(db_session: AsyncSession) -> db_models.Tuitions:
+    tuition = await db_session.get(db_models.Tuitions, TEST_TUITION_ID)
+    assert tuition is not None, f"Test tuition with ID {TEST_TUITION_ID} not found."
+    return tuition
