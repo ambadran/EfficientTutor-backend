@@ -1,9 +1,10 @@
 '''
 
 '''
-from typing import Annotated, Optional
+from typing import List, Annotated, Optional
 from uuid import UUID
 from datetime import datetime
+from decimal import Decimal
 from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,12 +14,12 @@ from ..database.engine import get_db_session
 from ..database import models as db_models
 from ..database.db_enums import UserRole, RunStatusEnum
 from ..models import timetable as timetable_models
+from ..models import tuition as tuition_models
+from ..models import user as user_models
 from ..common.logger import log
 from .tuition_service import TuitionService
 
-# --- Internal Dataclasses Model ---
-# This model is used only inside the service layer
-# to temporarily hold the merged data.
+# --- Internal Data Structure ---
 @dataclass
 class ScheduledTuition:
     """An internal dataclass representing a scheduled tuition."""
@@ -41,21 +42,19 @@ class TimeTableService:
         self.db = db
         self.tuition_service = tuition_service
 
-    async def get_all(self, current_user: db_models.Users) -> list[ScheduledTuition]:
+    async def get_all(self, current_user: db_models.Users) -> List[ScheduledTuition]:
         """
-        Fetches the latest successful timetable and returns a list of scheduled
-        tuitions relevant to the specific viewer.
+        RENAMED: Fetches the latest successful timetable and returns a list of
+        scheduled tuitions relevant to the specific viewer.
         """
         log.info(f"Fetching latest scheduled tuitions for user {current_user.id}")
         
         # 1. Fetch only the tuition objects relevant to the viewer.
-        # We use our powerful, pre-built TuitionService method for this.
         user_tuitions = await self.tuition_service.get_all_tuitions(current_user)
         if not user_tuitions:
             log.warning(f"No tuitions exist for user {current_user.id}. Cannot show timetable.")
             return []
         
-        # Create a lookup dictionary for efficient filtering
         user_tuitions_dict = {t.id: t for t in user_tuitions}
 
         # 2. Get the raw solution data from the latest timetable run
@@ -65,12 +64,10 @@ class TimeTableService:
 
         scheduled_tuitions = []
         try:
-            # 3. Filter, validate, and hydrate the events against the user's tuitions
+            # 3. Filter and hydrate events against the user's tuitions
             for event in solution_data:
                 if event.get('category') == 'Tuition' and 'id' in event:
                     tuition_id = UUID(event['id'])
-                    
-                    # Look up the tuition object in our user-specific dictionary
                     tuition_obj = user_tuitions_dict.get(tuition_id)
 
                     if tuition_obj: # This check now also filters for the user
@@ -87,68 +84,132 @@ class TimeTableService:
         
         except (TypeError, KeyError, ValueError) as e:
             log.error(f"Failed to parse timetable solution_data: {e}", exc_info=True)
-            # Re-raise to be caught by the API layer
             raise ValueError(f"Failed to parse timetable solution data.")
 
-    async def get_all_for_api(self, current_user: db_models.Users) -> list[timetable_models.ScheduledTuitionReadForTeacher | timetable_models.ScheduledTuitionReadForGuardian]:
+    async def get_all_for_api(self, current_user: db_models.Users) -> List:
         """
-        Public dispatcher that returns a lean list of scheduled tuitions
-        formatted correctly for the viewer's role.
+        REFACTORED: Public dispatcher that returns a lean list of scheduled
+        tuitions formatted correctly for the viewer's role.
         """
-        # 1. Get the rich, filtered ScheduledTuition objects
+        # 1. Get the rich, filtered ScheduledTuition dataclass objects
         rich_scheduled_tuitions = await self.get_all(current_user)
         
-        # 2. Dispatch to the correct formatter
+        # 2. Dispatch to the correct formatter based on the user's role
         if current_user.role == UserRole.TEACHER.value:
             return [self._format_for_teacher_api(st) for st in rich_scheduled_tuitions]
-        else: # Parent or Student
-            return [self._format_for_guardian_api(st, current_user) for st in rich_scheduled_tuitions]
+        elif current_user.role == UserRole.PARENT.value:
+            return [self._format_for_parent_api(st, current_user) for st in rich_scheduled_tuitions]
+        elif current_user.role == UserRole.STUDENT.value:
+            return [self._format_for_student_api(st) for st in rich_scheduled_tuitions]
+        else:
+            return [] # Or raise 403 Forbidden
 
-    def _format_for_teacher_api(self, scheduled_tuition: ScheduledTuition) -> timetable_models.ScheduledTuitionReadForTeacher:
-        """Formats a single scheduled tuition for a teacher's view."""
-        return timetable_models.ScheduledTuitionReadForTeacher(
-            start_time=scheduled_tuition.start_time,
-            end_time=scheduled_tuition.end_time,
-            tuition=scheduled_tuition.tuition # FastAPI will auto-convert this
-        )
+    # --- Private Formatters (Fix the ValidationError) ---
 
-    def _format_for_guardian_api(self, scheduled_tuition: ScheduledTuition, current_user: db_models.Users) -> timetable_models.ScheduledTuitionReadForGuardian:
-        """Formats a single scheduled tuition for a parent's or student's view."""
-        
-        # Manually create the filtered TuitionReadForGuardian model
-        tuition_data = scheduled_tuition.tuition
-        
-        # Find the specific charge relevant to this user
-        relevant_charge = None
-        for charge in tuition_data.tuition_template_charges:
-            if charge.parent_id == current_user.id or charge.student_id == current_user.id:
-                relevant_charge = charge
-                break
-        
+    def _get_common_names_and_link(self, tuition_data: db_models.Tuitions) -> (list[str], Optional[str]):
+        """Helper to extract attendee names and the meeting link string."""
+        # Extract meeting_link string correctly
+        meeting_link_str = None
+        if tuition_data.meeting_link and isinstance(tuition_data.meeting_link, dict):
+            meeting_link_str = tuition_data.meeting_link.get('meeting_link')
+            
         # Get all attendee names for context
         attendee_names = [
             f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
             for c in tuition_data.tuition_template_charges
         ]
-        
-        guardian_tuition_model = timetable_models.TuitionReadForGuardian(
+        return attendee_names, meeting_link_str
+
+    def _format_for_teacher_api(self, scheduled_tuition: ScheduledTuition) -> timetable_models.ScheduledTuitionReadForTeacher:
+        """
+        Manually formats a single scheduled tuition for a TEACHER's view.
+        This fixes the ValidationError.
+        """
+        tuition_data = scheduled_tuition.tuition
+        attendee_names, meeting_link_str = self._get_common_names_and_link(tuition_data)
+
+        # Manually create the detailed charge list for the teacher
+        charges_list = [
+            tuition_models.TuitionChargeDetailRead(
+                cost=c.cost,
+                student=user_models.UserRead.model_validate(c.student),
+                parent=user_models.ParentRead.model_validate(c.parent)
+            ) for c in tuition_data.tuition_template_charges
+        ]
+
+        # 1. Create the inner Pydantic model
+        teacher_tuition_model = tuition_models.TuitionReadForTeacher(
             id=tuition_data.id,
             subject=tuition_data.subject,
             lesson_index=tuition_data.lesson_index,
             min_duration_minutes=tuition_data.min_duration_minutes,
             max_duration_minutes=tuition_data.max_duration_minutes,
-            meeting_link=tuition_data.meeting_link.get('meeting_link') if tuition_data.meeting_link else None,
-            charges=[relevant_charge] if relevant_charge else [],
+            meeting_link=meeting_link_str,
+            charges=charges_list
+        )
+
+        # 2. Create the outer (timetable) Pydantic model
+        return timetable_models.ScheduledTuitionReadForTeacher(
+            start_time=scheduled_tuition.start_time,
+            end_time=scheduled_tuition.end_time,
+            tuition=teacher_tuition_model
+        )
+
+    def _format_for_parent_api(self, scheduled_tuition: ScheduledTuition, current_user: db_models.Users) -> timetable_models.ScheduledTuitionReadForParent:
+        """Manually formats a single scheduled tuition for a PARENT's view."""
+        tuition_data = scheduled_tuition.tuition
+        attendee_names, meeting_link_str = self._get_common_names_and_link(tuition_data)
+
+        # Find the specific charge for this parent
+        parent_charge = Decimal("0.00")
+        for charge_orm in tuition_data.tuition_template_charges:
+            if charge_orm.parent_id == current_user.id:
+                parent_charge = charge_orm.cost
+                break
+
+        # 1. Create the inner Pydantic model
+        parent_tuition_model = tuition_models.TuitionReadForParent(
+            id=tuition_data.id,
+            subject=tuition_data.subject,
+            lesson_index=tuition_data.lesson_index,
+            min_duration_minutes=tuition_data.min_duration_minutes,
+            max_duration_minutes=tuition_data.max_duration_minutes,
+            meeting_link=meeting_link_str,
+            charge=parent_charge,
             attendee_names=attendee_names
         )
 
-        return timetable_models.ScheduledTuitionReadForGuardian(
+        # 2. Create the outer (timetable) Pydantic model
+        return timetable_models.ScheduledTuitionReadForParent(
             start_time=scheduled_tuition.start_time,
             end_time=scheduled_tuition.end_time,
-            tuition=guardian_tuition_model
+            tuition=parent_tuition_model
         )
 
-    async def _get_latest_solution_data(self) -> Optional[list[dict]]:
+    def _format_for_student_api(self, scheduled_tuition: ScheduledTuition) -> timetable_models.ScheduledTuitionReadForStudent:
+        """Manually formats a single scheduled tuition for a STUDENT's view."""
+        tuition_data = scheduled_tuition.tuition
+        attendee_names, meeting_link_str = self._get_common_names_and_link(tuition_data)
+
+        # 1. Create the inner Pydantic model
+        student_tuition_model = tuition_models.TuitionReadForStudent(
+            id=tuition_data.id,
+            subject=tuition_data.subject,
+            lesson_index=tuition_data.lesson_index,
+            min_duration_minutes=tuition_data.min_duration_minutes,
+            max_duration_minutes=tuition_data.max_duration_minutes,
+            meeting_link=meeting_link_str,
+            attendee_names=attendee_names
+        )
+
+        # 2. Create the outer (timetable) Pydantic model
+        return timetable_models.ScheduledTuitionReadForStudent(
+            start_time=scheduled_tuition.start_time,
+            end_time=scheduled_tuition.end_time,
+            tuition=student_tuition_model
+        )
+
+    async def _get_latest_solution_data(self) -> Optional[List[dict]]:
         """Fetches the 'solution_data' JSONB from the latest successful/manual run."""
         log.info("Fetching latest timetable solution from database...")
         try:

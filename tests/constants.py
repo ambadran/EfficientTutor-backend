@@ -9,3 +9,5 @@ TEST_PARENT_IDS = [UUID('e850ce9b-d934-47b9-a029-b510f39d5bbc'),
                          UUID('eca287cc-2774-43d6-bef8-8f2d75ad11cf')]
 
 TEST_TUITION_ID = UUID('ce8bf93b-e3ed-4cdb-9362-d8532819f513')
+TEST_TUITION_LOG_ID_SCHEDULED = UUID('e0b99f76-8ccc-45c1-ba36-b532bd9f3a0c')
+TEST_TUITION_LOG_ID_CUSTOM = UUID('da2f7a5b-d603-4ff6-bd2a-63ba60a77b5f')

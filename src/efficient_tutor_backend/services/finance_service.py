@@ -1,10 +1,11 @@
 '''
 
 '''
-from typing import Optional, Annotated, Dict
+from typing import Optional, Annotated, Dict, Any
 from uuid import UUID
 from decimal import Decimal
 from datetime import datetime
+from pydantic import ValidationError
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,11 +29,11 @@ class TuitionLogService:
         self, 
         db: Annotated[AsyncSession, Depends(get_db_session)],
         user_service: Annotated[UserService, Depends(UserService)],
-        tuitions_service: Annotated[TuitionService, Depends(TuitionService)]
+        tuition_service: Annotated[TuitionService, Depends(TuitionService)]
     ):
         self.db = db
         self.user_service = user_service
-        self.tuitions_service = tuitions_service
+        self.tuition_service = tuition_service
 
     async def get_tuition_log_by_id(self, log_id: UUID) -> db_models.TuitionLogs:
         """Fetches a single, fully-loaded tuition log by its ID."""
@@ -90,68 +91,128 @@ class TuitionLogService:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def create_tuition_log(self, log_data: finance_models.TuitionLogCreate, current_user: db_models.Users, corrected_from_log_id: Optional[UUID] = None) -> db_models.TuitionLogs:
-        """Dispatcher method to create a new tuition log."""
-        if log_data.log_type == TuitionLogCreateTypeEnum.SCHEDULED:
-            return await self._create_from_scheduled(log_data, current_user, corrected_from_log_id)
-        elif log_data.log_type == TuitionLogCreateTypeEnum.CUSTOM:
-            return await self._create_from_custom(log_data, current_user, corrected_from_log_id)
-        else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid log_type.")
+    async def create_tuition_log(
+        self, 
+        log_data: dict, 
+        current_user: db_models.Users,
+        corrected_from_log_id: Optional[UUID] = None
+    ) -> dict[str, Any]:
+        """
+        REFACTORED: Creates a new tuition log and returns the final,
+        JSON-serializable dictionary formatted for the *current user's role*.
+        """
+        try:
+            input_model = finance_models.TuitionLogCreateValidator.validate_python(log_data)
+            
+            new_log_object: Optional[db_models.TuitionLogs] = None
 
-    async def _create_from_scheduled(self, data: finance_models.TuitionLogCreate, current_user: db_models.Users, corrected_from: Optional[UUID]) -> db_models.TuitionLogs:
-        log.info(f"Creating SCHEDULED log from tuition ID {data.tuition_id}")
-        tuition = await self.tuitions_service.get_tuition_by_id(data.tuition_id)
+            if isinstance(input_model, finance_models.ScheduledLogInput):
+                new_log_object = await self._create_from_scheduled(
+                    input_model, current_user, corrected_from_log_id
+                )
+            elif isinstance(input_model, finance_models.CustomLogInput):
+                new_log_object = await self._create_from_custom(
+                    input_model, current_user, corrected_from_log_id
+                )
+        
+            if not new_log_object:
+                 raise Exception("Tuition log creation did not return a valid object.")
+
+            # --- START OF FIX ---
+            
+            # 3. Format for API response using the new helper method.
+            earliest_date = await self._get_earliest_log_date()
+            
+            # For a brand new log, the paid_status is always UNPAID.
+            return self._build_teacher_api_log(
+                log=new_log_object,
+                earliest_date=earliest_date,
+                paid_status=PaidStatus.UNPAID
+            )
+            # --- END OF FIX ---
+
+        except (ValidationError, ValueError) as e:
+            log.error(f"Validation failed for creating tuition log. Data: {log_data}, Error: {e}")
+            raise
+        except Exception as e:
+            log.error(f"Error in create_tuition_log: {e}", exc_info=True)
+            raise
+
+    async def _create_from_scheduled(
+        self, 
+        data: finance_models.ScheduledLogInput, 
+        current_user: db_models.Users, 
+        corrected_from_log_id: Optional[UUID]
+    ) -> db_models.TuitionLogs:
+        """
+        Private helper to create a log from a scheduled tuition.
+        """
+        log.info(f"Creating SCHEDULED log from tuition ID {data.tuition_id} by user {current_user.id}")
+        
+        tuition = await self.tuition_service.get_tuition_by_id(data.tuition_id)
         if not tuition:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tuition template not found.")
         
-        # Create the new log object
+        # 2. SECURITY FIX: Verify ownership
+        if tuition.teacher_id != current_user.id:
+            log.warning(f"SECURITY: User {current_user.id} tried to log tuition {tuition.id} owned by {tuition.teacher_id}.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to log this tuition.")
+
+        charges_to_create = [
+            {'student_id': c.student_id, 'parent_id': c.parent_id, 'cost': c.cost} 
+            for c in tuition.tuition_template_charges
+        ]
+        
         new_log = db_models.TuitionLogs(
-            teacher_id=tuition.teacher_id,
+            teacher_id=current_user.id, # Set from authenticated user
             subject=tuition.subject,
             start_time=data.start_time,
             end_time=data.end_time,
             create_type=TuitionLogCreateTypeEnum.SCHEDULED.value,
             tuition_id=tuition.id,
             lesson_index=tuition.lesson_index,
-            corrected_from_log_id=corrected_from
+            corrected_from_log_id=corrected_from_log_id,
+            status=LogStatusEnum.ACTIVE.value
         )
         self.db.add(new_log)
         
-        # Copy charges from the template
         new_charges = [
-            db_models.TuitionLogCharges(
-                tuition_log=new_log,
-                student_id=charge.student_id,
-                parent_id=charge.parent_id,
-                cost=charge.cost
-            ) for charge in tuition.tuition_template_charges
+            db_models.TuitionLogCharges(tuition_log=new_log, **charge)
+            for charge in charges_to_create
         ]
         self.db.add_all(new_charges)
         
-        await self.db.flush() # Flush to get the new_log.id before returning
-        await self.db.refresh(new_log, ['teacher', 'tuition', 'tuition_log_charges'])
+        await self.db.flush()
+        await self.db.refresh(new_log, ['teacher', 'tuition_log_charges'])
         return new_log
 
-    async def _create_from_custom(self, data: finance_models.TuitionLogCreate, current_user: db_models.Users, corrected_from: Optional[UUID]) -> db_models.TuitionLogs:
-        log.info(f"Creating CUSTOM log from user {current_user.id}")
+    async def _create_from_custom(
+        self, 
+        data: finance_models.CustomLogInput, 
+        current_user: db_models.Users, 
+        corrected_from_log_id: Optional[UUID]
+    ) -> db_models.TuitionLogs:
+        """
+        Private helper to create a log from custom data.
+        """
+        log.info(f"Creating CUSTOM log for teacher {current_user.id}.")
         
-        # Get all required student objects in one query
         student_ids = [charge.student_id for charge in data.charges]
-        students = await self.user_service.get_users_by_ids(student_ids)
-        students_dict = {user.id: user for user in students if user.role == UserRole.STUDENT.value}
+        students_orm = await self.user_service.get_users_by_ids(student_ids)
+        students_dict = {user.id: user for user in students_orm if user.role == UserRole.STUDENT.value}
 
         if len(students_dict) != len(student_ids):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more students not found.")
             
         new_log = db_models.TuitionLogs(
-            teacher_id=data.teacher_id,
-            subject=data.subject,
+            teacher_id=current_user.id, # 2. SECURITY FIX: Set from authenticated user
+            subject=data.subject.value,
             start_time=data.start_time,
             end_time=data.end_time,
             create_type=TuitionLogCreateTypeEnum.CUSTOM.value,
             lesson_index=data.lesson_index,
-            corrected_from_log_id=corrected_from
+            corrected_from_log_id=corrected_from_log_id,
+            status=LogStatusEnum.ACTIVE.value
         )
         self.db.add(new_log)
         
@@ -161,7 +222,7 @@ class TuitionLogService:
             new_charges.append(db_models.TuitionLogCharges(
                 tuition_log=new_log,
                 student_id=student.id,
-                parent_id=student.parent_id, # Fetched via the student object
+                parent_id=student.parent_id,
                 cost=charge_input.cost
             ))
         self.db.add_all(new_charges)
@@ -170,78 +231,157 @@ class TuitionLogService:
         await self.db.refresh(new_log, ['teacher', 'tuition_log_charges'])
         return new_log
 
-    async def void_tuition_log(self, log_id: UUID, current_user: db_models.Users) -> bool:
-        """'Deletes' a tuition log by setting its status to VOID."""
+    async def _get_earliest_log_date(self) -> datetime:
+        """Fetches the earliest log start time for week number calculations."""
+        log.info("Fetching earliest log start time for week calculation.")
+        try:
+            result = await self.db.execute(
+                select(func.min(db_models.TuitionLogs.start_time)).filter(
+                    db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
+                )
+            )
+            earliest = result.scalars().first()
+            return earliest if earliest else datetime.now()
+        except Exception as e:
+            log.error(f"Database error fetching earliest log date: {e}", exc_info=True)
+            raise
+
+    async def correct_tuition_log(
+        self, 
+        old_log_id: UUID, 
+        new_log_data: dict[str, Any], 
+        current_user: db_models.Users
+        ) -> dict[str, Any]:
+        """
+        REFACTORED: Edits a tuition log by voiding the old one and creating a
+        new, corrected one. Returns the new log formatted for the teacher.
+        """
+        log.info(f"Editing tuition log {old_log_id} by user {current_user.id}")
+        
+        # We must fetch the old log to verify ownership
+        old_log = await self.get_tuition_log_by_id(old_log_id)
+        if old_log.teacher_id != current_user.id:
+            log.warning(f"SECURITY: User {current_user.id} tried to edit log {old_log_id} owned by {old_log.teacher_id}.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to edit this log.")
+
+        if not await self.void_tuition_log(old_log_id, current_user, skip_auth=True): # Skip auth since we just did it
+            raise Exception(f"Failed to void old tuition log {old_log_id}. Aborting edit.")
+        
+        # create_tuition_log now returns the correct dict
+        return await self.create_tuition_log(new_log_data, current_user, corrected_from_log_id=old_log_id)
+
+    async def void_tuition_log(self, log_id: UUID, current_user: db_models.Users, skip_auth: bool = False) -> bool:
+        """'Deletes' a tuition log by setting its status to VOID after checking ownership."""
         log.info(f"Voiding tuition log {log_id} by user {current_user.id}")
+        
         log_obj = await self.get_tuition_log_by_id(log_id)
-        # TODO: Add ownership check (e.g., if user is the teacher of the log)
+        
+        if not skip_auth and log_obj.teacher_id != current_user.id:
+            log.warning(f"SECURITY: User {current_user.id} tried to void log {log_id} owned by {log_obj.teacher_id}.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to void this log.")
+            
         log_obj.status = LogStatusEnum.VOID.value
         self.db.add(log_obj)
         return True
 
-    async def correct_tuition_log(self, old_log_id: UUID, log_data: finance_models.TuitionLogCreate, current_user: db_models.Users) -> db_models.TuitionLogs:
-        """Edits a log by voiding the old one and creating a new one."""
-        log.info(f"Correcting tuition log {old_log_id} by user {current_user.id}")
-        await self.void_tuition_log(old_log_id, current_user)
-        new_log = await self.create_tuition_log(log_data, current_user, corrected_from_log_id=old_log_id)
-        return new_log
+    async def get_all_tuition_logs_for_api(self, current_user: db_models.Users) -> list[dict[str, Any]]:
+        """
+        REFACTORED: Dispatcher to fetch and format tuition logs for the API
+        using the correct, role-specific Pydantic models.
 
-    async def _get_earliest_log_date(self) -> datetime:
-        """Fetches the earliest log start time for week number calculations."""
-        result = await self.db.execute(
-            select(func.min(db_models.TuitionLogs.start_time)).filter(
-                db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
-            )
-        )
-        return result.scalars().first() or datetime.now()
 
-    async def get_all_tuition_logs_for_api(self, current_user: db_models.Users) -> list[finance_models.TuitionLogReadForTeacher | finance_models.TuitionLogReadForGuardian]:
-        """Dispatcher to fetch and format tuition logs for the API."""
+        #TODO: return the .value of the enums I use
+        """
         rich_logs = await self.get_all_tuition_logs(current_user)
         if not rich_logs:
             return []
             
         earliest_date = await self._get_earliest_log_date()
         
+        # Get paid statuses for all relevant parents
         if current_user.role == UserRole.TEACHER.value:
             parent_ids = {charge.parent_id for log in rich_logs for charge in log.tuition_log_charges}
             paid_statuses = await self._get_paid_statuses_for_parents(list(parent_ids))
-            return [self._format_for_teacher_api(log, earliest_date, paid_statuses) for log in rich_logs]
         else: # Parent or Student
             parent_id = current_user.id if current_user.role == UserRole.PARENT.value else current_user.parent_id
             paid_statuses = await self._get_paid_statuses_for_parents([parent_id])
-            return [self._format_for_guardian_api(log, earliest_date, paid_statuses, current_user.id) for log in rich_logs]
 
-    def _format_for_teacher_api(self, log: db_models.TuitionLogs, earliest_date: datetime, statuses: Dict) -> finance_models.TuitionLogReadForTeacher:
-        """Formats a single log for a teacher's view."""
-        return finance_models.TuitionLogReadForTeacher(
-            id=log.id,
-            subject=log.subject,
-            start_time=log.start_time,
-            end_time=log.end_time,
-            status=log.status,
-            create_type=log.create_type,
-            tuition_id=log.tuition_id,
-            lesson_index=log.lesson_index,
-            corrected_from_log_id=log.corrected_from_log_id,
-            paid_status=statuses.get(log.tuition_log_charges[0].parent_id, PaidStatus.UNPAID),
-            charges=[finance_models.LogChargeRead(
+        # Dispatch to the correct formatter
+        api_logs = []
+        if current_user.role == UserRole.TEACHER.value:
+            for log in rich_logs:
+                # FIXED: Use the new helper method here as well
+                parent_id = log.tuition_log_charges[0].parent_id
+                status = paid_statuses.get(parent_id, PaidStatus.UNPAID)
+                api_logs.append(self._build_teacher_api_log(log, earliest_date, status))
+        
+        elif current_user.role == UserRole.PARENT.value:
+            for log in rich_logs:
+                parent_id = current_user.id
+                status = paid_statuses.get(parent_id, PaidStatus.UNPAID)
+                api_logs.append(self._build_parent_api_log(log, earliest_date, status, parent_id))
+        
+        elif current_user.role == UserRole.STUDENT.value:
+            for log in rich_logs:
+                api_logs.append(self._build_student_api_log(log, earliest_date, current_user.id))
+        
+        return api_logs
+
+    # --- NEW HELPER METHOD ---
+    def _build_teacher_api_log(
+        self, 
+        log: db_models.TuitionLogs, 
+        earliest_date: datetime, 
+        paid_status: PaidStatus
+    ) -> dict[str, Any]:
+        """
+        Private helper to build the ApiTuitionLogForTeacher model
+        from a raw ORM object.
+        """
+        # Manually build the charges list
+        charges_list = [
+            finance_models.LogChargeRead(
                 student_id=c.student.id,
                 student_name=f"{c.student.first_name or ''} {c.student.last_name or ''}".strip(),
                 cost=c.cost
-            ) for c in log.tuition_log_charges],
-            _earliest_log_date=earliest_date
+            ) for c in log.tuition_log_charges
+        ]
+        
+        # Manually construct the Pydantic model by passing all fields
+        api_model = finance_models.TuitionLogReadForTeacher(
+            id=log.id,
+            teacher=log.teacher,
+            subject=log.subject,
+            start_time=log.start_time,
+            end_time=log.end_time,
+            status=log.status,
+            create_type=log.create_type,
+            tuition_id=log.tuition_id,
+            lesson_index=log.lesson_index,
+            corrected_from_log_id=log.corrected_from_log_id,
+            paid_status=paid_status,
+            charges=charges_list,
+            earliest_log_date=earliest_date  # Pass the internal field
         )
-    
-    def _format_for_guardian_api(self, log: db_models.TuitionLogs, earliest_date: datetime, statuses: Dict, viewer_id: UUID) -> finance_models.TuitionLogReadForGuardian:
-        """Formats a single log for a guardian's view."""
+        # Dump to dict, excluding the internal field
+        return api_model.model_dump(exclude={'earliest_log_date'})
+
+    # --- NEW HELPER METHODS (for consistency) ---
+    def _build_parent_api_log(
+        self,
+        log: db_models.TuitionLogs,
+        earliest_date: datetime,
+        paid_status: PaidStatus,
+        parent_id: UUID
+    ) -> dict[str, Any]:
+        """Private helper to build the ApiTuitionLogForParent model."""
         my_charge = Decimal(0)
         for c in log.tuition_log_charges:
-            if c.parent_id == viewer_id or c.student_id == viewer_id:
+            if c.parent_id == parent_id:
                 my_charge = c.cost
                 break
                 
-        return finance_models.TuitionLogReadForGuardian(
+        api_model = finance_models.TuitionLogReadForParent(
             id=log.id,
             subject=log.subject,
             start_time=log.start_time,
@@ -251,14 +391,40 @@ class TuitionLogService:
             tuition_id=log.tuition_id,
             lesson_index=log.lesson_index,
             corrected_from_log_id=log.corrected_from_log_id,
-            paid_status=statuses.get(log.tuition_log_charges[0].parent_id, PaidStatus.UNPAID),
+            paid_status=paid_status,
             cost=my_charge,
             attendee_names=[
                 f"{c.student.first_name or ''} {c.student.last_name or ''}".strip()
                 for c in log.tuition_log_charges
             ],
-            _earliest_log_date=earliest_date
+            earliest_log_date=earliest_date
         )
+        return api_model.model_dump(exclude={'earliest_log_date'})
+
+    def _build_student_api_log(
+        self,
+        log: db_models.TuitionLogs,
+        earliest_date: datetime,
+        student_id: UUID
+    ) -> dict[str, Any]:
+        """Private helper to build the ApiTuitionLogForStudent model."""
+        api_model = finance_models.TuitionLogReadForStudent(
+            id=log.id,
+            subject=log.subject,
+            start_time=log.start_time,
+            end_time=log.end_time,
+            status=log.status,
+            create_type=log.create_type,
+            tuition_id=log.tuition_id,
+            lesson_index=log.lesson_index,
+            corrected_from_log_id=log.corrected_from_log_id,
+            attendee_names=[
+                f"{c.student.first_name or ''} {c.student.last_name or ''}".strip()
+                for c in log.tuition_log_charges
+            ],
+            earliest_log_date=earliest_date
+        )
+        return api_model.model_dump(exclude={'earliest_log_date'})
 
     async def _get_paid_statuses_for_parents(self, parent_ids: list[UUID]) -> Dict[UUID, PaidStatus]:
         """Performs the FIFO paid status calculation for a list of parents."""

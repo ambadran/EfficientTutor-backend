@@ -9,7 +9,6 @@ from typing import AsyncGenerator
 from ..common.config import settings
 from ..common.logger import log
 
-# --- NEW SETUP ---
 # We define them as None. They will be created by the app's lifespan.
 engine: AsyncEngine | None = None
 AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
