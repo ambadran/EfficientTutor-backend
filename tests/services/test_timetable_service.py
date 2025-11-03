@@ -54,13 +54,18 @@ class TestTimeTableService:
         scheduled_tuitions = await timetable_service.get_all(current_user=test_teacher_orm)
         
         assert isinstance(scheduled_tuitions, list)
-        print(f"--- Found {len(scheduled_tuitions)} relevant scheduled tuitions for Teacher ---")
+        print(f"\n--- Found {len(scheduled_tuitions)} relevant scheduled tuitions for Teacher ---")
         
         if len(scheduled_tuitions) > 0:
             assert isinstance(scheduled_tuitions[0], ScheduledTuition)
             # --- Logging ---
-            print("--- Example ScheduledTuition dataclass (raw) ---")
+            print(f"\nHere is the raw {type(scheduled_tuitions[0])}:")
             pprint(scheduled_tuitions[0])
+            print("\nHere is the scheduled_tuitions[0].tuition:")
+            pprint(scheduled_tuitions[0].tuition.__dict__)
+            print("\nHere is the scheduled_tuitions[0].tuition.tuition_template_charges[0]:")
+            pprint(scheduled_tuitions[0].tuition.tuition_template_charges[0].__dict__)
+
             # --- End Logging ---
 
     async def test_get_all_as_parent(
@@ -79,8 +84,12 @@ class TestTimeTableService:
         if len(scheduled_tuitions) > 0:
             assert isinstance(scheduled_tuitions[0], ScheduledTuition)
             # --- Logging ---
-            print("--- Example ScheduledTuition dataclass (raw) ---")
+            print(f"\nHere is the raw {type(scheduled_tuitions[0])}:")
             pprint(scheduled_tuitions[0])
+            print("\nHere is the scheduled_tuitions[0].tuition:")
+            pprint(scheduled_tuitions[0].tuition.__dict__)
+            print("\nHere is the scheduled_tuitions[0].tuition.tuition_template_charges[0]:")
+            pprint(scheduled_tuitions[0].tuition.tuition_template_charges[0].__dict__)
             # --- End Logging ---
 
     async def test_get_all_as_student(
@@ -99,8 +108,12 @@ class TestTimeTableService:
         if len(scheduled_tuitions) > 0:
             assert isinstance(scheduled_tuitions[0], ScheduledTuition)
             # --- Logging ---
-            print("--- Example ScheduledTuition dataclass (raw) ---")
+            print(f"\nHere is the raw {type(scheduled_tuitions[0])}:")
             pprint(scheduled_tuitions[0])
+            print("\nHere is the scheduled_tuitions[0].tuition:")
+            pprint(scheduled_tuitions[0].tuition.__dict__)
+            print("\nHere is the scheduled_tuitions[0].tuition.tuition_template_charges[0]:")
+            pprint(scheduled_tuitions[0].tuition.tuition_template_charges[0].__dict__)
             # --- End Logging ---
 
 
@@ -131,7 +144,7 @@ class TestTimeTableService:
         timetable_service: TimeTableService,
         test_parent_orm: db_models.Users
     ):
-        """Tests the public API formatter for a Guardian (Parent)."""
+        """Tests the public API formatter for a Parent."""
         print(f"\n--- Testing get_all_for_api for PARENT ({test_parent_orm.first_name}) ---")
         
         api_data = await timetable_service.get_all_for_api(current_user=test_parent_orm)
@@ -140,7 +153,7 @@ class TestTimeTableService:
         print(f"--- Found {len(api_data)} API-formatted tuitions for Parent ---")
         
         if len(api_data) > 0:
-            assert isinstance(api_data[0], timetable_models.ScheduledTuitionReadForGuardian)
+            assert isinstance(api_data[0], timetable_models.ScheduledTuitionReadForParent)
             # --- Logging ---
             print("--- Example Pydantic model (raw) ---")
             pprint(api_data[0].model_dump())
@@ -151,7 +164,7 @@ class TestTimeTableService:
         timetable_service: TimeTableService,
         test_student_orm: db_models.Users
     ):
-        """Tests the public API formatter for a Guardian (Student)."""
+        """Tests the public API formatter for a Student."""
         print(f"\n--- Testing get_all_for_api for STUDENT ({test_student_orm.first_name}) ---")
         
         api_data = await timetable_service.get_all_for_api(current_user=test_student_orm)
@@ -160,71 +173,11 @@ class TestTimeTableService:
         print(f"--- Found {len(api_data)} API-formatted tuitions for Student ---")
         
         if len(api_data) > 0:
-            assert isinstance(api_data[0], timetable_models.ScheduledTuitionReadForGuardian)
+            assert isinstance(api_data[0], timetable_models.ScheduledTuitionReadForStudent)
             # --- Logging ---
             print("--- Example Pydantic model (raw) ---")
             pprint(api_data[0].model_dump())
             # --- End Logging ---
 
 
-    ### Tests for _format_for_teacher_api (sync utility) ###
-    
-    def test_format_for_teacher_api(
-        self,
-        timetable_service_sync: TimeTableService, # Use the sync fixture
-        test_tuition_orm: db_models.Tuitions      # Get a real tuition
-    ):
-        """Tests the synchronous teacher-formatting utility."""
-        print("\n--- Testing _format_for_teacher_api (sync) ---")
-        
-        # 1. Create a dummy ScheduledTuition dataclass
-        dummy_schedule = ScheduledTuition(
-            tuition=test_tuition_orm,
-            start_time=datetime.now(),
-            end_time=datetime.now()
-        )
-        
-        # 2. Call the sync method
-        formatted = timetable_service_sync._format_for_teacher_api(dummy_schedule)
-        
-        # 3. Assert
-        assert isinstance(formatted, timetable_models.ScheduledTuitionReadForTeacher)
-        assert formatted.tuition_id == test_tuition_orm.id
-        
-        # --- Logging ---
-        print("--- Successfully formatted data for Teacher view (raw) ---")
-        pprint(formatted.model_dump())
-        # --- End Logging ---
 
-    ### Tests for _format_for_guardian_api (sync utility) ###
-
-    def test_format_for_guardian_api(
-        self,
-        timetable_service_sync: TimeTableService, # Use the sync fixture
-        test_tuition_orm: db_models.Tuitions,     # Get a real tuition
-        test_parent_orm: db_models.Users          # Get a real parent
-    ):
-        """Tests the synchronous guardian-formatting utility."""
-        print(f"\n--- Testing _format_for_guardian_api (sync) for Parent {test_parent_orm.first_name} ---")
-        
-        # 1. Create a dummy ScheduledTuition dataclass
-        dummy_schedule = ScheduledTuition(
-            tuition=test_tuition_orm,
-            start_time=datetime.now(),
-            end_time=datetime.now()
-        )
-        
-        # 2. Call the sync method
-        formatted = timetable_service_sync._format_for_guardian_api(
-            dummy_schedule, 
-            current_user=test_parent_orm
-        )
-        
-        # 3. Assert
-        assert isinstance(formatted, timetable_models.ScheduledTuitionReadForGuardian)
-        assert formatted.tuition_id == test_tuition_orm.id
-        
-        # --- Logging ---
-        print("--- Successfully formatted data for Guardian view (raw) ---")
-        pprint(formatted.model_dump())
-        # --- End Logging ---

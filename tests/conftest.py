@@ -15,7 +15,7 @@ from typing import AsyncGenerator
 # --- FastAPI & Testing Imports ---
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, selectinload
 from sqlalchemy import select
 
 # --- Constant Imports ----
@@ -24,7 +24,9 @@ from tests.constants import (
     TEST_TEACHER_ID,
     TEST_STUDENT_ID,
     TEST_PARENT_IDS,
-    TEST_TUITION_ID
+    TEST_TUITION_ID,
+    TEST_TUITION_LOG_ID_SCHEDULED,
+    TEST_TUITION_LOG_ID_CUSTOM
 )
 
 # --- Application Imports ---
@@ -173,7 +175,7 @@ def tuition_log_service(
     return TuitionLogService(
         db=db_session, 
         user_service=user_service, 
-        tuitions_service=tuitions_service
+        tuition_service=tuition_service
     )
 
 @pytest.fixture(scope="function")
@@ -238,3 +240,40 @@ async def test_tuition_orm(db_session: AsyncSession) -> db_models.Tuitions:
     tuition = await db_session.get(db_models.Tuitions, TEST_TUITION_ID)
     assert tuition is not None, f"Test tuition with ID {TEST_TUITION_ID} not found."
     return tuition
+
+@pytest.fixture(scope="function")
+async def tuition_log_scheduled(db_session: AsyncSession) -> db_models.TuitionLogs:
+    """Fetches a known scheduled tuition log from the test DB."""
+    
+    # --- THE FIX ---
+    # We must eagerly load the charges relationship to prevent
+    # a lazy-load (MissingGreenlet) error in the test.
+    stmt = select(db_models.TuitionLogs).options(
+        selectinload(db_models.TuitionLogs.tuition_log_charges)
+    ).filter(db_models.TuitionLogs.id == TEST_TUITION_LOG_ID_SCHEDULED)
+    
+    result = await db_session.execute(stmt)
+    log = result.scalars().first()
+    # ---------------
+
+    assert log is not None, f"Scheduled test log {TEST_TUITION_LOG_ID_SCHEDULED} not found in DB."
+    assert log.create_type == "SCHEDULED"
+    return log
+
+@pytest.fixture(scope="function")
+async def tuition_log_custom(db_session: AsyncSession) -> db_models.TuitionLogs:
+    """Fetches a known custom tuition log from the test DB."""
+    
+    # --- THE FIX ---
+    # We apply the same fix here for consistency.
+    stmt = select(db_models.TuitionLogs).options(
+        selectinload(db_models.TuitionLogs.tuition_log_charges)
+    ).filter(db_models.TuitionLogs.id == TEST_TUITION_LOG_ID_CUSTOM)
+    
+    result = await db_session.execute(stmt)
+    log = result.scalars().first()
+    # ---------------
+
+    assert log is not None, f"Custom test log {TEST_TUITION_LOG_ID_CUSTOM} not found in DB."
+    assert log.create_type == "CUSTOM"
+    return log

@@ -58,8 +58,6 @@ app.add_middleware(
 )
 # --- End of CORS Middleware ---
 
-
-
 app.include_router(auth.router)
 app.include_router(users.router)
 

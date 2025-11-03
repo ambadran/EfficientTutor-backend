@@ -1,31 +1,38 @@
-# In models/timetable.py
+'''
 
+'''
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 # Import the new, role-specific tuition models
-from .tuition import TuitionReadForTeacher, TuitionReadForGuardian
+from .tuition import (
+    TuitionReadForTeacher,
+    TuitionReadForParent,
+    TuitionReadForStudent
+)
 
 # --- API Read Models (Output) ---
 
 class ScheduledTuitionReadForTeacher(BaseModel):
-    """
-    The API model for a scheduled tuition as seen by a teacher.
-    It nests the detailed TuitionReadForTeacher model.
-    """
+    """API model for a scheduled tuition (Teacher view)."""
     start_time: datetime
     end_time: datetime
-    tuition: TuitionReadForTeacher
+    tuition: TuitionReadForTeacher # Nests the teacher-specific model
 
     model_config = ConfigDict(from_attributes=True)
 
-class ScheduledTuitionReadForGuardian(BaseModel):
-    """
-    The API model for a scheduled tuition as seen by a parent or student.
-    It nests the filtered TuitionReadForGuardian model.
-    """
+class ScheduledTuitionReadForParent(BaseModel):
+    """API model for a scheduled tuition (Parent view)."""
     start_time: datetime
     end_time: datetime
-    tuition: TuitionReadForGuardian
+    tuition: TuitionReadForParent # Nests the parent-specific model
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ScheduledTuitionReadForStudent(BaseModel):
+    """API model for a scheduled tuition (Student view)."""
+    start_time: datetime
+    end_time: datetime
+    tuition: TuitionReadForStudent # Nests the student-specific model
 
     model_config = ConfigDict(from_attributes=True)

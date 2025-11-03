@@ -6,79 +6,73 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict
 
-from .user import UserRead  # Import the base user read model
+# Import the new, simple read models
+from .user import UserRead, ParentRead
 from ..database.db_enums import SubjectEnum
 
 # --- API Read Models (Output) ---
 
-class TuitionChargeRead(BaseModel):
+class TuitionChargeDetailRead(BaseModel):
     """
-    A lean Pydantic model for a tuition charge (for a teacher's view).
+    A detailed charge model for the Teacher's view.
+    Includes Student and Parent info.
     """
     cost: Decimal
-    student: UserRead  # Nested model for student details
+    student: UserRead
+    parent: ParentRead # As requested, show the parent for each student
 
     model_config = ConfigDict(from_attributes=True)
 
 class TuitionReadForTeacher(BaseModel):
     """
-    The API model for a tuition as seen by a teacher.
+    The API model for a tuition as seen by a TEACHER.
+    Shows full financial details.
     """
     id: UUID
     subject: SubjectEnum
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
-    meeting_link: Optional[str] = None
+    meeting_link: Optional[str] = None # The service will populate this string
     
-    # We will eager-load the full charges and compute the total cost
-    charges: list[TuitionChargeRead]
-
-    @computed_field
-    @property
-    def total_cost(self) -> Decimal:
-        """Calculates the total value of the tuition."""
-        return sum(charge.cost for charge in self.charges)
+    # As requested: full details
+    charges: list[TuitionChargeDetailRead]
 
     model_config = ConfigDict(from_attributes=True)
 
-class TuitionReadForGuardian(BaseModel):
+class TuitionReadForParent(BaseModel):
     """
-    The API model for a tuition as seen by a parent or student.
-    
-    IMPORTANT: This model is designed to be populated by the *service layer*,
-    which will pre-filter the charges.
+    The API model for a tuition as seen by a PARENT.
+    Shows only their specific cost.
     """
     id: UUID
     subject: SubjectEnum
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
-    meeting_link: Optional[str] = None
-    
-    # The service will ensure this list only contains the charge
-    # relevant to the viewing parent/student.
-    charges: list[TuitionChargeRead] 
-    
-    @computed_field
-    @property
-    def charge_amount(self) -> Decimal:
-        """Returns the cost for the specific guardian."""
-        if self.charges:
-            return self.charges[0].cost
-        return Decimal("0.00")
+    meeting_link: Optional[str] = None # The service will populate this string
 
-    @computed_field
-    @property
-    def attendee_names(self) -> list[str]:
-        """
-        Shows all attendees.
-        NOTE: This logic will need to be handled by the service layer,
-        as this model only receives its *own* charge.
-        """
-        # This will be populated by the service.
-        return [] 
+    # As requested: only the parent's cost
+    charge: Decimal 
+    attendee_names: list[str] # All student names for context
+
+    model_config = ConfigDict(from_attributes=True)
+
+class TuitionReadForStudent(BaseModel):
+    """
+    The API model for a tuition as seen by a STUDENT.
+    Shows NO financial details.
+    """
+    id: UUID
+    subject: SubjectEnum
+    lesson_index: int
+    min_duration_minutes: int
+    max_duration_minutes: int
+    meeting_link: Optional[str] = None # The service will populate this string
+    
+    # As requested: no cost/charge
+    attendee_names: list[str] # All student names for context
 
     model_config = ConfigDict(from_attributes=True)
