@@ -7,7 +7,7 @@ from decimal import Decimal
 from datetime import datetime
 from pydantic import ValidationError
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -364,7 +364,7 @@ class TuitionLogService:
             earliest_log_date=earliest_date  # Pass the internal field
         )
         # Dump to dict, excluding the internal field
-        return api_model.model_dump(exclude={'earliest_log_date'})
+        return api_model.model_dump(mode='json', exclude={'earliest_log_date'})
 
     # --- NEW HELPER METHODS (for consistency) ---
     def _build_parent_api_log(
@@ -399,7 +399,7 @@ class TuitionLogService:
             ],
             earliest_log_date=earliest_date
         )
-        return api_model.model_dump(exclude={'earliest_log_date'})
+        return api_model.model_dump(mode='json', exclude={'earliest_log_date'})
 
     def _build_student_api_log(
         self,
@@ -424,7 +424,7 @@ class TuitionLogService:
             ],
             earliest_log_date=earliest_date
         )
-        return api_model.model_dump(exclude={'earliest_log_date'})
+        return api_model.model_dump(mode='json', exclude={'earliest_log_date'})
 
     async def _get_paid_statuses_for_parents(self, parent_ids: list[UUID]) -> Dict[UUID, PaidStatus]:
         """Performs the FIFO paid status calculation for a list of parents."""
@@ -483,83 +483,251 @@ class PaymentLogService:
         self.db = db
         self.user_service = user_service
 
-    async def get_payment_log_by_id(self, log_id: UUID) -> db_models.PaymentLogs:
-        """Fetches a single, fully-loaded payment log by its ID."""
-        log.info(f"Fetching payment log by ID: {log_id}")
-        stmt = select(db_models.PaymentLogs).options(
-            selectinload(db_models.PaymentLogs.parent).joinedload('*'),
-            selectinload(db_models.PaymentLogs.teacher)
-        ).filter(db_models.PaymentLogs.id == log_id)
+    # --- Private Authorization Helper ---
+    
+    def _authorize(self, current_user: db_models.Users, allowed_roles: list[UserRole]):
+        """
+        A simple, private helper to check roles.
+        Raises a 403 HTTPException if the user's role is not in the list.
+        """
+        allowed_role_values = [role.value for role in allowed_roles]
         
-        result = await self.db.execute(stmt)
-        log_obj = result.scalars().first()
-        if not log_obj:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment log not found.")
-        return log_obj
+        if current_user.role not in allowed_role_values:
+            log.warning(f"Unauthorized action by user {current_user.id} (Role: {current_user.role}). Required one of: {allowed_role_values}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to perform this action."
+            )
+
+    def _authorize_log_viewership(self, log_obj: db_models.PaymentLogs, current_user: db_models.Users):
+        """
+        Private helper to authorize if a user can *view* a specific log.
+        Raises 403 HTTPException if they are not the associated parent or teacher.
+        """
+        is_teacher_owner = (
+            current_user.role == UserRole.TEACHER.value and
+            log_obj.teacher_id == current_user.id
+        )
+        is_parent_owner = (
+            current_user.role == UserRole.PARENT.value and
+            log_obj.parent_id == current_user.id
+        )
+        
+        # If the user is neither the teacher nor the parent on the log, deny access.
+        if not (is_teacher_owner or is_parent_owner):
+             log.warning(f"SECURITY: User {current_user.id} tried to access payment log {log_obj.id} they do not own.")
+             raise HTTPException(
+                 status_code=status.HTTP_403_FORBIDDEN,
+                 detail="You do not have permission to view this log."
+             )
+
+    # --- Private Data-Fetching Helpers (No Auth) ---
+    
+    async def _get_log_by_id_internal(self, log_id: UUID) -> db_models.PaymentLogs:
+        """
+        Internal helper to fetch a log by ID *without* authorization.
+        Raises 404 if not found.
+        """
+        log.info(f"Internal fetch for payment log by ID: {log_id}")
+        try:
+            stmt = select(db_models.PaymentLogs).options(
+                selectinload(db_models.PaymentLogs.parent).joinedload('*'),
+                selectinload(db_models.PaymentLogs.teacher)
+            ).filter(db_models.PaymentLogs.id == log_id)
+            
+            result = await self.db.execute(stmt)
+            log_obj = result.scalars().first()
+            if not log_obj:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment log not found.")
+            return log_obj
+        except Exception as e:
+            log.error(f"Database error fetching payment log by ID {log_id}: {e}", exc_info=True)
+            raise
 
     async def get_all_payment_logs(self, current_user: db_models.Users) -> list[db_models.PaymentLogs]:
-        """Fetches all payment logs relevant to the current user, fully loaded."""
-        log.info(f"Fetching all payment logs for user {current_user.id}")
+        """
+        Internal data-fetching method.
+        Fetches all payment logs relevant to the current user's role.
+        NOW RAISES an error for unauthorized roles.
+        """
+        log.info(f"Internal fetch for all payment logs for user {current_user.id}")
         
-        stmt = select(db_models.PaymentLogs).options(
-            selectinload(db_models.PaymentLogs.parent).joinedload('*'),
-            selectinload(db_models.PaymentLogs.teacher)
-        )
-        
-        if current_user.role == UserRole.TEACHER.value:
-            stmt = stmt.filter(db_models.PaymentLogs.teacher_id == current_user.id)
-        elif current_user.role == UserRole.PARENT.value:
-            stmt = stmt.filter(db_models.PaymentLogs.parent_id == current_user.id)
-        else:
-            return [] # Students cannot see payment logs
+        try:
+            stmt = select(db_models.PaymentLogs).options(
+                selectinload(db_models.PaymentLogs.parent).joinedload('*'),
+                selectinload(db_models.PaymentLogs.teacher)
+            )
             
-        stmt = stmt.order_by(db_models.PaymentLogs.payment_date.desc())
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+            if current_user.role == UserRole.TEACHER.value:
+                stmt = stmt.filter(db_models.PaymentLogs.teacher_id == current_user.id)
+            elif current_user.role == UserRole.PARENT.value:
+                stmt = stmt.filter(db_models.PaymentLogs.parent_id == current_user.id)
+            else:
+                # CHANGED: Raise an error instead of returning []
+                log.warning(f"User {current_user.id} (Role: {current_user.role}) is not authorized to get payment logs.")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"User with role '{current_user.role}' is not authorized to view payment logs."
+                )
+                
+            stmt = stmt.order_by(db_models.PaymentLogs.payment_date.desc())
+            result = await self.db.execute(stmt)
+            return list(result.scalars().all())
+            
+        except HTTPException as http_exc:
+            raise http_exc # Re-raise the auth error
+        except Exception as e:
+            log.error(f"Database error fetching all payment logs for user {current_user.id}: {e}", exc_info=True)
+            raise
 
-    async def create_payment_log(self, log_data: finance_models.PaymentLogCreate, current_user: db_models.Users, corrected_from_log_id: Optional[UUID] = None) -> db_models.PaymentLogs:
-        """Creates a new payment log."""
-        log.info(f"Creating payment log by user {current_user.id}")
+    # --- Public API-Facing Read Methods (With Auth) ---
+
+    async def get_payment_log_by_id_for_api(self, log_id: UUID, current_user: db_models.Users) -> dict[str, Any]:
+        """
+        API-facing method to get a single log.
+        Uses the new _authorize_log_viewership helper.
+        """
+        try:
+            # 1. Fetch the log
+            log_obj = await self._get_log_by_id_internal(log_id)
+            
+            # 2. Authorize the user (checks if they are the parent OR teacher)
+            self._authorize_log_viewership(log_obj, current_user)
+            
+            # 3. Format and return
+            return self._format_payment_log_for_api(log_obj)
+            
+        except HTTPException as http_exc:
+            raise http_exc # Re-raise 404s and 403s
+        except Exception as e:
+            log.error(f"Error in get_payment_log_by_id_for_api for log {log_id}: {e}", exc_info=True)
+            raise
+
+    async def get_all_payment_logs_for_api(self, current_user: db_models.Users) -> list[dict[str, Any]]:
+        """
+        REFACTORED: API-facing method to get all logs.
+        The authorization logic is now handled by the get_all_payment_logs method.
+        """
+        try:
+            # 1. Fetch data (this will raise 403 for Students)
+            rich_logs = await self.get_all_payment_logs(current_user)
+            
+            # 2. Format and return
+            return [self._format_payment_log_for_api(log) for log in rich_logs]
+            
+        except HTTPException as http_exc:
+            raise http_exc # Re-raise auth errors
+        except Exception as e:
+            log.error(f"Error in get_all_payment_logs_for_api for user {current_user.id}: {e}", exc_info=True)
+            raise
+
+    # --- Public Write Methods (With Auth) ---
+
+    async def create_payment_log(self, log_data: dict, current_user: db_models.Users, corrected_from_log_id: Optional[UUID] = None) -> dict[str, Any]:
+        """
+        REVISED: Creates a new payment log. Restricted to Teachers only.
+        Returns it in the API format.
+        """
+        log.info(f"Attempting to create payment log by user {current_user.id}")
         
-        new_log = db_models.PaymentLogs(
-            parent_id=log_data.parent_id,
-            teacher_id=log_data.teacher_id,
-            amount_paid=log_data.amount_paid,
-            payment_date=log_data.payment_date,
-            notes=log_data.notes,
-            corrected_from_log_id=corrected_from_log_id
-        )
-        self.db.add(new_log)
-        await self.db.flush()
-        await self.db.refresh(new_log, ['parent', 'teacher'])
-        return new_log
+        # 1. Authorize: Only teachers can create payment logs
+        self._authorize(current_user, [UserRole.TEACHER])
+        
+        try:
+            # 2. Validate the raw dictionary
+            input_model = finance_models.PaymentLogCreate.model_validate(log_data)
+            
+            # 3. IDOR Security Check
+            if input_model.teacher_id != current_user.id:
+                 log.warning(f"SECURITY: Teacher {current_user.id} tried to create a payment log for {input_model.teacher_id}.")
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only create payment logs for yourself.")
+
+            # --- START OF FIX ---
+            # 4. Create the ORM object directly, don't call a non-existent db method
+            new_log_object = db_models.PaymentLogs(
+                parent_id=input_model.parent_id,
+                teacher_id=input_model.teacher_id,
+                amount_paid=input_model.amount_paid,
+                payment_date=input_model.payment_date,
+                notes=input_model.notes,
+                corrected_from_log_id=corrected_from_log_id,
+                status=LogStatusEnum.ACTIVE.value  # Explicitly set status
+            )
+            
+            # 5. Add to session and flush to get the new ID and other DB defaults
+            self.db.add(new_log_object)
+            await self.db.flush()
+            
+            # 6. Refresh to load the relationships (parent, teacher)
+            #    that the formatter needs.
+            await self.db.refresh(new_log_object, ['parent', 'teacher'])
+            # --- END OF FIX ---
+            
+            # 7. Format for the API and return
+            return self._format_payment_log_for_api(new_log_object)
+
+        except (ValidationError, ValueError) as e:
+            log.error(f"Pydantic validation failed for creating payment log. Data: {log_data}, Error: {e}")
+            raise
+        except HTTPException as http_exc:
+            raise http_exc # Re-raise auth errors
+        except Exception as e:
+            log.error(f"Error in create_payment_log: {e}", exc_info=True)
+            raise
 
     async def void_payment_log(self, log_id: UUID, current_user: db_models.Users) -> bool:
-        """'Deletes' a payment log by setting its status to VOID."""
-        log.info(f"Voiding payment log {log_id} by user {current_user.id}")
-        log_obj = await self.get_payment_log_by_id(log_id)
-        # TODO: Add ownership check
-        log_obj.status = LogStatusEnum.VOID.value
-        self.db.add(log_obj)
-        return True
-
-    async def correct_payment_log(self, old_log_id: UUID, log_data: finance_models.PaymentLogCreate, current_user: db_models.Users) -> db_models.PaymentLogs:
-        """Edits a log by voiding the old one and creating a new one."""
-        log.info(f"Correcting payment log {old_log_id} by user {current_user.id}")
-        await self.void_payment_log(old_log_id, current_user)
-        new_log = await self.create_payment_log(log_data, current_user, corrected_from_log_id=old_log_id)
-        return new_log
-
-    async def get_all_payment_logs_for_api(self, current_user: db_models.Users) -> list[finance_models.PaymentLogRead]:
-        """Fetches and formats all payment logs for the API."""
-        rich_logs = await self.get_all_payment_logs(current_user)
-        return [self._format_payment_log_for_api(log) for log in rich_logs]
+        """'Deletes' a payment log by setting its status to VOID. Restricted to Teachers."""
+        log.info(f"Attempting to void payment log {log_id} by user {current_user.id}")
         
-    def _format_payment_log_for_api(self, log: db_models.PaymentLogs) -> finance_models.PaymentLogRead:
+        # 1. Authorize: Only teachers can void logs
+        self._authorize(current_user, [UserRole.TEACHER])
+        
+        try:
+            # 2. FIXED: Call the internal, non-auth helper
+            log_obj = await self._get_log_by_id_internal(log_id)
+            
+            # 3. Authorization Check (Ownership)
+            if log_obj.teacher_id != current_user.id:
+                 log.warning(f"SECURITY: User {current_user.id} tried to void payment log {log_id} they do not own.")
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to void this log.")
+            
+            log_obj.status = LogStatusEnum.VOID.value
+            self.db.add(log_obj)
+            return True
+        except HTTPException as http_exc:
+            raise http_exc # Re-raise 404s
+        except Exception as e:
+            log.error(f"Database error voiding payment log {log_id}: {e}", exc_info=True)
+            raise
+
+    async def correct_payment_log(self, old_log_id: UUID, new_log_data: dict, current_user: db_models.Users) -> dict[str, Any]:
+        """
+        Edits a log by voiding the old one and creating a new one. Restricted to Teachers.
+        Returns the new, API-formatted log.
+        """
+        log.info(f"Attempting to correct payment log {old_log_id} by user {current_user.id}")
+        
+        # 1. Authorize: Only teachers can correct logs (this is redundant,
+        #    as the methods it calls are already authorized, but good for clarity).
+        self._authorize(current_user, [UserRole.TEACHER])
+        
+        # 2. Void the old log (this includes the ownership check)
+        await self.void_payment_log(old_log_id, current_user)
+        
+        # 3. Create the new log, which returns the API-formatted dict
+        return await self.create_payment_log(new_log_data, current_user, corrected_from_log_id=old_log_id)
+
+    # --- API Formatting Method ---
+        
+    def _format_payment_log_for_api(self, log: db_models.PaymentLogs) -> dict[str, Any]:
         """Formats a single payment log for the API."""
+        if type(log) != db_models.PaymentLogs:
+            raise TypeError(f"log must be type {db_models.PaymentLogs}, instead got {type(log)}")
+
         parent = log.parent
         teacher = log.teacher
-        return finance_models.PaymentLogRead(
+        
+        api_model = finance_models.PaymentLogRead(
             id=log.id,
             payment_date=log.payment_date,
             amount_paid=log.amount_paid,
@@ -570,6 +738,8 @@ class PaymentLogService:
             teacher_name=f"{teacher.first_name or ''} {teacher.last_name or ''}".strip(),
             currency=parent.currency
         )
+        
+        return api_model.model_dump(mode='json')
 
 # --- Service 3: Financial Summary ---
 
@@ -579,20 +749,39 @@ class FinancialSummaryService:
     def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)]):
         self.db = db
 
-    async def get_financial_summary(self, current_user: db_models.Users) -> finance_models.FinancialSummaryForParent | finance_models.FinancialSummaryForTeacher:
-        """Public dispatcher for financial summaries."""
+    async def get_financial_summary_for_api(self, current_user: db_models.Users) -> dict[str, Any]:
+        """
+        Public API-facing dispatcher for financial summaries.
+        Returns a JSON-serializable dictionary.
+        """
         log.info(f"Generating financial summary for user {current_user.id}")
-        if current_user.role == UserRole.PARENT.value:
-            return await self._get_summary_for_parent(current_user.id)
-        elif current_user.role == UserRole.TEACHER.value:
-            return await self._get_summary_for_teacher(current_user.id)
-        else:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User role not authorized for financial summaries.")
+        
+        try:
+            summary_model: Optional[finance_models.FinancialSummaryForParent | finance_models.FinancialSummaryForTeacher] = None
+            
+            if current_user.role == UserRole.PARENT.value:
+                summary_model = await self._get_summary_for_parent(current_user.id)
+            elif current_user.role == UserRole.TEACHER.value:
+                summary_model = await self._get_summary_for_teacher(current_user.id)
+            else:
+                log.warning(f"SECURITY: User {current_user.id} tried to get financial summary. ")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User role not authorized for financial summaries.")
+            
+            return summary_model.model_dump(mode='json')
+            
+        except HTTPException as http_exc:
+            raise http_exc # Re-raise auth errors
+        except Exception as e:
+            log.error(f"Error in get_financial_summary_for_api for user {current_user.id}: {e}", exc_info=True)
+            raise
 
     async def _get_summary_for_parent(self, parent_id: UUID) -> finance_models.FinancialSummaryForParent:
-        """Calculates and returns the financial summary for a parent."""
+        """
+        REFACTORED: Calculates and returns the summary Pydantic model for a parent.
+        Runs queries sequentially.
+        """
         
-        # 1. Get total charges and total payments in parallel
+        # 1. Define all the queries we need
         charges_stmt = select(func.coalesce(func.sum(db_models.TuitionLogCharges.cost), Decimal(0))).join(
             db_models.TuitionLogs, 
             db_models.TuitionLogs.id == db_models.TuitionLogCharges.tuition_log_id
@@ -606,7 +795,18 @@ class FinancialSummaryService:
             db_models.PaymentLogs.status == LogStatusEnum.ACTIVE.value
         )
         
-        total_charges_res, total_payments_res = await self.db.execute(charges_stmt), await self.db.execute(payments_stmt)
+        count_stmt = select(func.count(db_models.TuitionLogs.id.distinct())).join(
+            db_models.TuitionLogCharges, 
+            db_models.TuitionLogs.id == db_models.TuitionLogCharges.tuition_log_id
+        ).filter(
+            db_models.TuitionLogCharges.parent_id == parent_id,
+            db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
+        )
+        
+        # 2. FIXED: Run the charge and payment queries SEQUENTIALLY
+        total_charges_res = await self.db.execute(charges_stmt)
+        total_payments_res = await self.db.execute(payments_stmt)
+        
         total_charges = total_charges_res.scalar()
         total_payments = total_payments_res.scalar()
         
@@ -614,16 +814,9 @@ class FinancialSummaryService:
         total_due = max(Decimal(0), -balance)
         credit_balance = max(Decimal(0), balance)
         
-        # 3. Get unpaid count
+        # 3. Only run the count query if the parent actually owes money
         unpaid_count = 0
         if total_due > 0:
-            count_stmt = select(func.count(db_models.TuitionLogs.id.distinct())).join(
-                db_models.TuitionLogCharges, 
-                db_models.TuitionLogs.id == db_models.TuitionLogCharges.tuition_log_id
-            ).filter(
-                db_models.TuitionLogCharges.parent_id == parent_id,
-                db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
-            )
             unpaid_count_res = await self.db.execute(count_stmt)
             unpaid_count = unpaid_count_res.scalar()
             
@@ -634,9 +827,11 @@ class FinancialSummaryService:
         )
 
     async def _get_summary_for_teacher(self, teacher_id: UUID) -> finance_models.FinancialSummaryForTeacher:
-        """Calculates and returns the financial summary for a teacher."""
-        
-        # 1. Get per-parent balances
+        """
+        REFACTORED: Calculates and returns the summary Pydantic model for a teacher.
+        Fixes the interval syntax.
+        """
+        # 1. Get per-parent balances (this query is correct)
         charges_subq = select(
             db_models.TuitionLogCharges.parent_id,
             func.sum(db_models.TuitionLogCharges.cost).label("total_charges")
@@ -660,8 +855,25 @@ class FinancialSummaryService:
             payments_subq, charges_subq.c.parent_id == payments_subq.c.parent_id, isouter=True
         )
         
-        parent_balances = (await self.db.execute(balance_stmt)).all()
+        # 2. Get lessons this month (FIXED QUERY)
+        month_count_stmt = select(func.count(db_models.TuitionLogs.id)).filter(
+            db_models.TuitionLogs.teacher_id == teacher_id,
+            db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value,
+            db_models.TuitionLogs.start_time >= func.date_trunc('month', func.now()),
+            # --- THIS IS THE FIX ---
+            # We use text() to prevent SQLAlchemy from parameterizing '1 month'
+            db_models.TuitionLogs.start_time < (func.date_trunc('month', func.now()) + text("interval '1 month'"))
+            # --- END OF FIX ---
+        )
         
+        # 3. Run queries sequentially (as we fixed before)
+        parent_balances_res = await self.db.execute(balance_stmt)
+        lessons_this_month_res = await self.db.execute(month_count_stmt)
+        
+        parent_balances = parent_balances_res.all()
+        lessons_this_month = lessons_this_month_res.scalar()
+
+        # 4. Calculate final values
         total_owed_to_teacher = Decimal(0)
         total_credit_held = Decimal(0)
         for row in parent_balances:
@@ -670,15 +882,6 @@ class FinancialSummaryService:
             elif row.balance > 0:
                 total_credit_held += row.balance
         
-        # 2. Get lessons this month
-        month_count_stmt = select(func.count(db_models.TuitionLogs.id)).filter(
-            db_models.TuitionLogs.teacher_id == teacher_id,
-            db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value,
-            db_models.TuitionLogs.start_time >= func.date_trunc('month', func.now()),
-            db_models.TuitionLogs.start_time < (func.date_trunc('month', func.now()) + func.interval('1 month'))
-        )
-        lessons_this_month = (await self.db.execute(month_count_stmt)).scalar()
-
         return finance_models.FinancialSummaryForTeacher(
             total_owed_to_teacher=total_owed_to_teacher,
             total_credit_held=total_credit_held,

@@ -62,7 +62,7 @@ class TestUserService:
         test_teacher_orm: db_models.Users # <-- Use the new fixture
     ):
         """Tests fetching a user by their email."""
-        user = await user_service.get_full_user_by_email(test_teacher_orm.email)
+        user = await user_service.get_user_by_email(test_teacher_orm.email)
 
         print(type(user))
         pprint(user.__dict__)
@@ -76,7 +76,7 @@ class TestUserService:
         test_parent_orm: db_models.Users # <-- Use the new fixture
     ):
         """Tests fetching a user by their email."""
-        user = await user_service.get_full_user_by_email(test_parent_orm.email)
+        user = await user_service.get_user_by_email(test_parent_orm.email)
 
         print(type(user))
         pprint(user.__dict__)

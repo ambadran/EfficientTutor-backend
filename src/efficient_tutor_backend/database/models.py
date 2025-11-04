@@ -154,12 +154,6 @@ class Users(Base):
     first_name: Mapped[Optional[str]] = mapped_column(Text)
     last_name: Mapped[Optional[str]] = mapped_column(Text)
 
-    payment_logs: Mapped[List['PaymentLogs']] = relationship(
-            'PaymentLogs', 
-            back_populates='parent',
-            foreign_keys='[PaymentLogs.parent_id]'  # MANUAL: Added this
-        )
-
 
 class CalendarEvents(Base):
     __tablename__ = 'calendar_events'
@@ -194,6 +188,13 @@ class Parents(Users):
         back_populates='parent',
         foreign_keys='[Students.parent_id]'  # MANUAL: Add this
     )
+
+    payment_logs: Mapped[list['PaymentLogs']] = relationship(
+        'PaymentLogs',
+        back_populates='parent',
+        foreign_keys='[PaymentLogs.parent_id]'
+    )
+
     tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship(
         'TuitionTemplateCharges', 
         back_populates='parent',
@@ -248,8 +249,8 @@ class PaymentLogs(Base):
 
     corrected_from_log: Mapped[Optional['PaymentLogs']] = relationship('PaymentLogs', remote_side=[id], back_populates='corrected_from_log_reverse')
     corrected_from_log_reverse: Mapped[List['PaymentLogs']] = relationship('PaymentLogs', remote_side=[corrected_from_log_id], back_populates='corrected_from_log')
-    parent: Mapped['Users'] = relationship(
-        'Users', 
+    parent: Mapped['Parents'] = relationship(
+        'Parents', 
         back_populates='payment_logs',
         foreign_keys='[PaymentLogs.parent_id]'  # MANUAL: Add this
     )

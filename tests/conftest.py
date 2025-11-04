@@ -26,7 +26,8 @@ from tests.constants import (
     TEST_PARENT_IDS,
     TEST_TUITION_ID,
     TEST_TUITION_LOG_ID_SCHEDULED,
-    TEST_TUITION_LOG_ID_CUSTOM
+    TEST_TUITION_LOG_ID_CUSTOM,
+    TEST_PAYMENT_LOG_ID
 )
 
 # --- Application Imports ---
@@ -179,10 +180,25 @@ def tuition_log_service(
     )
 
 @pytest.fixture(scope="function")
-def payment_log_service(
-    db_session: AsyncSession, user_service: UserService
+async def payment_log_service(
+    db_session: AsyncSession, 
+    user_service: UserService
 ) -> PaymentLogService:
-    return PaymentLogService(db=db_session, user_service=user_service)
+    """Provides a PaymentLogService instance with test dependencies."""
+    return PaymentLogService(
+        db=db_session, 
+        user_service=user_service
+    )
+
+@pytest.fixture(scope="function")
+def payment_log_service_sync() -> PaymentLogService:
+    """
+    Provides a lightweight, *synchronous* instance of PaymentLogService
+    for testing utility methods that don't need a real db or other services.
+    """
+    # We pass None for dependencies because the _format_payment_log_for_api
+    # method doesn't use them.
+    return PaymentLogService(db=None, user_service=None)
 
 @pytest.fixture(scope="function")
 def financial_summary_service(db_session: AsyncSession) -> FinancialSummaryService:
@@ -276,4 +292,20 @@ async def tuition_log_custom(db_session: AsyncSession) -> db_models.TuitionLogs:
 
     assert log is not None, f"Custom test log {TEST_TUITION_LOG_ID_CUSTOM} not found in DB."
     assert log.create_type == "CUSTOM"
+    return log
+
+@pytest.fixture(scope="function")
+async def payment_log_orm(db_session: AsyncSession) -> db_models.PaymentLogs:
+    """Fetches a known payment log from the test DB."""
+    # We must eagerly load the relationships to prevent
+    # lazy-load (MissingGreenlet) errors in the service methods.
+    stmt = select(db_models.PaymentLogs).options(
+        selectinload(db_models.PaymentLogs.parent),
+        selectinload(db_models.PaymentLogs.teacher)
+    ).filter(db_models.PaymentLogs.id == TEST_PAYMENT_LOG_ID)
+    
+    result = await db_session.execute(stmt)
+    log = result.scalars().first()
+    
+    assert log is not None, f"Test payment log {TEST_PAYMENT_LOG_ID} not found in DB."
     return log
