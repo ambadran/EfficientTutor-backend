@@ -160,8 +160,8 @@ class TestTuitionLogService:
         
         assert new_log is not None
         assert new_log["id"] is not None
-        assert new_log["create_type"] == TuitionLogCreateTypeEnum.SCHEDULED
-        assert new_log["tuition_id"] == test_tuition_orm.id
+        assert new_log["create_type"] == TuitionLogCreateTypeEnum.SCHEDULED.value
+        assert new_log["tuition_id"] == str(test_tuition_orm.id)
         
         print(f"--- Successfully created SCHEDULED log ID: {new_log['id']} ---")
         pprint(new_log)
@@ -200,12 +200,12 @@ class TestTuitionLogService:
 
         assert new_log is not None
         assert new_log["id"] is not None
-        assert new_log["create_type"] == TuitionLogCreateTypeEnum.CUSTOM
-        assert new_log["subject"] == SubjectEnum.PHYSICS
+        assert new_log["create_type"] == TuitionLogCreateTypeEnum.CUSTOM.value
+        assert new_log["subject"] == SubjectEnum.PHYSICS.value
         # Check that the teacher_id was correctly assigned from current_user
-        assert new_log["teacher"]["id"] == test_teacher_orm.id
+        assert new_log["teacher"]["id"] == str(test_teacher_orm.id)
         assert len(new_log["charges"]) == 1
-        assert new_log["charges"][0]["student_id"] == test_student_orm.id
+        assert new_log["charges"][0]["student_id"] == str(test_student_orm.id)
 
     ### Tests for void_tuition_log ###
 
@@ -294,10 +294,10 @@ class TestTuitionLogService:
         # --- Verify new log ---
         # We refresh the new log to make sure it was committed correctly
         assert new_log is not None
-        assert new_log["id"] != old_log_id
-        assert new_log["subject"] == SubjectEnum.CHEMISTRY
+        assert new_log["id"] != str(old_log_id)
+        assert new_log["subject"] == SubjectEnum.CHEMISTRY.value
         assert new_log["lesson_index"] == 99
-        assert new_log["corrected_from_log_id"] == old_log_id
+        assert new_log["corrected_from_log_id"] == str(old_log_id)
         
         # --- Verify old log ---
         await db_session.refresh(old_log) # Refresh from DB

@@ -478,3 +478,5 @@ ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE;
 -- fix the tuition log of abdullah & yassin on oct 6th
 -- fix the tuition log for abdullah, jacob, yassin on oct 28th
 /* ********************************************************************* */
+/* ********************************************************************* */
+/* ********************************************************************* */
