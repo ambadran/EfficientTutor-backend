@@ -58,9 +58,11 @@ app.add_middleware(
 )
 # --- End of CORS Middleware ---
 
-app.include_router(auth.router)
-app.include_router(users.router)
-
 @app.get("/")
 async def health_check():
     return {"status": "ok", "message": f"{settings.APP_NAME} is running"}
+
+app.include_router(auth.router)
+app.include_router(users.router)
+
+

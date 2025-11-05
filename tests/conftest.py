@@ -27,7 +27,9 @@ from tests.constants import (
     TEST_TUITION_ID,
     TEST_TUITION_LOG_ID_SCHEDULED,
     TEST_TUITION_LOG_ID_CUSTOM,
-    TEST_PAYMENT_LOG_ID
+    TEST_PAYMENT_LOG_ID,
+    TEST_NOTE_ID,
+    TEST_UNRELATED_TEACHER_ID
 )
 
 # --- Application Imports ---
@@ -45,6 +47,7 @@ from src.efficient_tutor_backend.services.finance_service import (
     PaymentLogService,
     FinancialSummaryService
 )
+from src.efficient_tutor_backend.services.notes_service import NotesService
 
 
 @pytest.fixture(scope="session")
@@ -204,6 +207,11 @@ def payment_log_service_sync() -> PaymentLogService:
 def financial_summary_service(db_session: AsyncSession) -> FinancialSummaryService:
     return FinancialSummaryService(db=db_session)
 
+@pytest.fixture(scope="function")
+async def notes_service(db_session: AsyncSession) -> NotesService:
+    """Provides a NotesService instance with a test session."""
+    return NotesService(db=db_session)
+
 # --- 6. DATA FIXTURES ---
 # Your fixtures to fetch data are perfect.
 # Note: They are now `async` and must depend on `db_session`.
@@ -240,16 +248,21 @@ async def test_student_orm(db_session: AsyncSession) -> db_models.Students: # <-
     return student
 
 @pytest.fixture(scope="function")
-async def test_parents_orm_list(db_session: AsyncSession) -> list[db_models.Parents]: # <-- Changed type
-    """Fetches a list of test parent ORM objects from the test DB."""
-    # --- CHANGED ---
-    # Select from 'Parents' directly
-    stmt = select(db_models.Parents).where(db_models.Parents.id.in_(TEST_PARENT_IDS))
-    # ---------------
+async def test_parent_orm(db_session: AsyncSession) -> db_models.Parents:
+    """Fetches the main test parent ORM object, EAGERLY LOADING students."""
     
-    parents = (await db_session.scalars(stmt)).all()
-    assert len(parents) == len(TEST_PARENT_IDS), "Not all test parents were found in DB."
-    return parents
+    # --- THE FIX ---
+    # Eagerly load the 'students' relationship to prevent lazy-load errors
+    stmt = select(db_models.Parents).options(
+        selectinload(db_models.Parents.students)
+    ).filter(db_models.Parents.id == TEST_PARENT_ID)
+    
+    result = await db_session.execute(stmt)
+    parent = result.scalars().first()
+    # ---------------
+
+    assert parent is not None, f"Test parent with ID {TEST_PARENT_ID} not found in DB."
+    return parent
 
 @pytest.fixture(scope="function")
 async def test_tuition_orm(db_session: AsyncSession) -> db_models.Tuitions:
@@ -309,3 +322,31 @@ async def payment_log_orm(db_session: AsyncSession) -> db_models.PaymentLogs:
     
     assert log is not None, f"Test payment log {TEST_PAYMENT_LOG_ID} not found in DB."
     return log
+
+@pytest.fixture(scope="function")
+async def test_note_orm(db_session: AsyncSession) -> db_models.Notes:
+    """
+    Fetches the main test note, eager-loading its relationships
+    to prevent lazy-load errors and for use in API formatting.
+    """
+    stmt = select(db_models.Notes).options(
+        selectinload(db_models.Notes.teacher),
+        selectinload(db_models.Notes.student)
+    ).filter(db_models.Notes.id == TEST_NOTE_ID)
+    
+    result = await db_session.execute(stmt)
+    note = result.scalars().first()
+    
+    # Assertions to ensure your test data is correct
+    assert note is not None, f"Test note {TEST_NOTE_ID} not found in DB."
+    assert note.teacher_id == TEST_TEACHER_ID, "Test note is not owned by TEST_TEACHER_ID"
+    assert note.student_id == TEST_STUDENT_ID, "Test note is not for TEST_STUDENT_ID"
+    return note
+
+@pytest.fixture(scope="function")
+async def test_unrelated_teacher_orm(db_session: AsyncSession) -> db_models.Teachers:
+    """Fetches a teacher who is NOT the owner of the test note."""
+    teacher = await db_session.get(db_models.Teachers, TEST_UNRELATED_TEACHER_ID)
+    assert teacher is not None, f"Test unrelated teacher {TEST_UNRELATED_TEACHER_ID} not found in DB."
+    assert teacher.id != TEST_TEACHER_ID, "TEST_UNRELATED_TEACHER_ID is the same as TEST_TEACHER_ID"
+    return teacher

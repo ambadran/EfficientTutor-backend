@@ -33,5 +33,12 @@ fi
 # --- Restore Database ---
 # This command will always run, either after the download or on its own.
 echo "Restoring database 'efficient_tutor_test_db' for user '$DB_USER'..."
-pg_restore --clean --if-exists -h localhost -U "$DB_USER" -d efficient_tutor_test_db --no-owner prod_backup.dump
+# 1. This is your "cascade destroy" — it drops the DB and all dependencies.
+dropdb --if-exists --force -h localhost -U "$DB_USER" efficient_tutor_test_db
+
+# 2. This re-creates the empty database.
+createdb -h localhost -U "$DB_USER" -O "$DB_USER" efficient_tutor_test_db
+
+# 3. This restores your backup onto the clean slate.
+pg_restore -h localhost -U "$DB_USER" -d efficient_tutor_test_db --no-owner prod_backup.dump
 echo "✅ Database reset complete!"

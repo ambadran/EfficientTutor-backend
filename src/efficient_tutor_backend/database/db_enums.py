@@ -152,4 +152,13 @@ class WorkTypeEnum(Enum):
         return [e.value for e in cls]
 
 
+class NoteTypeEnum(Enum):
+    STUDY_NOTES = 'STUDY_NOTES'
+    HOMEWORK = 'HOMEWORK'
+    PAST_PAPERS = 'PAST_PAPERS'
+
+    @classmethod
+    def get_values(cls) -> list[str]:
+        """Returns all string values of the enum."""
+        return [e.value for e in cls]
 
