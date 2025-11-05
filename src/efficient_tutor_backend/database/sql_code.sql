@@ -1,3 +1,28 @@
+/******* unrelated teacher for testing ******/
+-- First, insert the user record
+INSERT INTO users (
+    id, 
+    email, 
+    password, 
+    first_name, 
+    last_name, 
+    role, 
+    timezone
+) 
+VALUES (
+    gen_random_uuid(), 
+    'teacher@example.com', 
+    'hashed_password_here', 
+    'John', 
+    'Doe', 
+    'teacher', 
+    'Africa/Cairo'
+);
+
+-- Then, insert the teacher record using the same ID
+INSERT INTO teachers (id)
+SELECT id FROM users WHERE email = 'teacher@example.com';
+
 -- Step 1: Create a custom ENUM type for subjects.
 -- This enforces data integrity at the database level.
 -- The names match your Python Enum for easy mapping.
@@ -480,3 +505,92 @@ ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE;
 /* ********************************************************************* */
 /* ********************************************************************* */
 /* ********************************************************************* */
+
+
+
+/* ********************************************************************* */
+/* ********************************************************************* */
+/* **************** Creating the new 'notes' Table ********************* */
+-- Step 1: Create the new 'NoteTypeEnum'
+CREATE TYPE NoteTypeEnum AS ENUM (
+    'STUDY_NOTES',
+    'HOMEWORK',
+    'PAST_PAPERS'
+);
+
+-- Step 2: Create the 'notes' table
+CREATE TABLE notes (
+    -- The Primary Key for the note
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    -- The Foreign Key linking to the student (the "one-to-many" link)
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    
+    -- Columns you requested
+    name TEXT NOT NULL,
+    subject subject_enum NOT NULL,
+    description TEXT,
+    note_type NoteTypeEnum NOT NULL,
+    
+    -- Suggested new columns
+    url TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Step 3: Add an index for the foreign key to speed up queries
+CREATE INDEX idx_notes_student_id ON notes(student_id);
+ALTER TABLE notes
+ADD COLUMN teacher_id UUID REFERENCES teachers(id) ON DELETE SET NULL;
+/* ************************* Migrating Data **************************** */
+INSERT INTO notes (
+    student_id,
+    name,
+    description,
+    url,
+    subject,
+    note_type
+)
+SELECT
+    -- 1. Get the students ID from the `students` table
+    s.id AS student_id,
+
+    -- 2. Extract the text fields directly from the JSON
+    note_element->>'name' AS name,
+    note_element->>'description' AS description,
+    note_element->>'url' AS url,
+
+    -- 3. Infer the `subject` from the name or description
+    (CASE
+        WHEN note_element->>'name' ILIKE '%math%' OR note_element->>'description' ILIKE '%math%' OR note_element->>'name' ILIKE '%numbers%' THEN 'Math'
+        WHEN note_element->>'name' ILIKE '%physics%' OR note_element->>'description' ILIKE '%physics%' OR note_element->>'name' ILIKE '%hooke%' THEN 'Physics'
+        WHEN note_element->>'name' ILIKE '%chemistry%' OR note_element->>'description' ILIKE '%chemistry%' THEN 'Chemistry'
+        WHEN note_element->>'name' ILIKE '%biology%' OR note_element->>'description' ILIKE '%biology%' THEN 'Biology'
+        WHEN note_element->>'name' ILIKE '%it%' OR note_element->>'description' ILIKE '%it%' THEN 'IT'
+        WHEN note_element->>'name' ILIKE '%geography%' OR note_element->>'description' ILIKE '%geography%' THEN 'Geography'
+        ELSE 'Math' -- Default fallback, see warning below
+    END)::subject_enum AS subject,
+
+    -- 4. Infer the `note_type` from the name or description
+    (CASE
+        WHEN note_element->>'name' ILIKE '%past paper%' OR note_element->>'description' ILIKE '%past paper%' THEN 'PAST_PAPERS'
+        WHEN note_element->>'name' ILIKE '%homework%' OR note_element->>'description' ILIKE '%homework%' OR note_element->>'name' ILIKE '%hw%' THEN 'HOMEWORK'
+        ELSE 'STUDY_NOTES' -- Default fallback
+    END)::NoteTypeEnum AS note_type
+FROM
+    students s,
+    -- This function expands the JSON array into individual rows
+    jsonb_array_elements(s.notes) AS note_element
+WHERE
+    -- Only run on students who have notes to migrate
+    s.notes IS NOT NULL AND jsonb_array_length(s.notes) > 0;
+UPDATE notes
+SET teacher_id = 'dcef54de-bc89-4388-a7a8-dba5d8327447';
+ALTER TABLE notes
+ALTER COLUMN teacher_id SET NOT NULL;
+/* ******************* Delete student notes column ********************* */
+ALTER TABLE students
+DROP COLUMN notes;
+/* ********************************************************************* */
+/* ********************************************************************* */
+/* ********************************************************************* */
+

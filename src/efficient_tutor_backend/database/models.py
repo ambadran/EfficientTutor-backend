@@ -226,6 +226,11 @@ class Teachers(Users):
         back_populates='teacher',
         foreign_keys='[TuitionLogs.teacher_id]'  # MANUAL: Add this
     )
+    notes: Mapped[list['Notes']] = relationship(
+        'Notes',
+        back_populates='teacher',
+        foreign_keys='[Notes.teacher_id]'
+    )
 
 
 class PaymentLogs(Base):
@@ -278,13 +283,19 @@ class Students(Users):
     parent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     grade: Mapped[Optional[int]] = mapped_column(Integer)
     generated_password: Mapped[Optional[str]] = mapped_column(Text)
-    notes: Mapped[Optional[dict]] = mapped_column(JSONB)
 
     parent: Mapped['Parents'] = relationship(
         'Parents', 
         back_populates='students',
         foreign_keys='[Students.parent_id]'  # MANUAL: Add this
     )
+
+    notes: Mapped[list['Notes']] = relationship(
+        'Notes', 
+        back_populates='student',
+        cascade='all, delete-orphan' # Added cascade
+    )
+
     tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship(
         'TuitionTemplateCharges', 
         back_populates='student',
@@ -404,3 +415,26 @@ class TuitionLogCharges(Base):
         foreign_keys='[TuitionLogCharges.student_id]'  # MANUAL: Add this
     )
     tuition_log: Mapped['TuitionLogs'] = relationship('TuitionLogs', back_populates='tuition_log_charges')
+
+
+class Notes(Base):
+    __tablename__ = 'notes'
+    __table_args__ = (
+        ForeignKeyConstraint(['student_id'], ['students.id'], ondelete='CASCADE', name='notes_student_id_fkey'),
+        ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='SET NULL', name='notes_teacher_id_fkey'),
+        PrimaryKeyConstraint('id', name='notes_pkey'),
+        Index('idx_notes_student_id', 'student_id')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    teacher_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    student_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    name: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
+    note_type: Mapped[str] = mapped_column(Enum('STUDY_NOTES', 'HOMEWORK', 'PAST_PAPERS', name='notetypeenum'))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), server_default=text('now()'))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    url: Mapped[Optional[str]] = mapped_column(Text)
+    student: Mapped['Students'] = relationship('Students', back_populates='notes')
+    teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='notes')
+
