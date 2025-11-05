@@ -56,12 +56,13 @@ class TuitionService:
         # Base query with all relationships eager-loaded
         stmt = select(db_models.Tuitions).options(
             selectinload(db_models.Tuitions.teacher),
+            selectinload(db_models.Tuitions.meeting_link),  # <-- EAGER LOAD THE MEETING LINK
             selectinload(db_models.Tuitions.tuition_template_charges).options(
-                selectinload(db_models.TuitionTemplateCharges.student).joinedload('*'),
-                selectinload(db_models.TuitionTemplateCharges.parent).joinedload('*')
+                selectinload(db_models.TuitionTemplateCharges.student), # Load the student (base User)
+                selectinload(db_models.TuitionTemplateCharges.parent)  # Load the parent (base User)
             )
-        )
-        
+        )       
+
         # Add role-based filtering
         try:
             if current_user.role == UserRole.TEACHER.value:

@@ -594,3 +594,64 @@ DROP COLUMN notes;
 /* ********************************************************************* */
 /* ********************************************************************* */
 
+
+/* ********************************************************************* */
+/* ********************************************************************* */
+/* ************ Creating the new 'meeting_link' Table ****************** */
+-- Step 1: Create the new 'MeetingLinkType' enum
+CREATE TYPE MeetingLinkType AS ENUM (
+    'GOOGLE_MEET',
+    'ZOOM'
+);
+
+-- Step 2: Create the 'meeting_links' table
+CREATE TABLE meeting_links (
+    -- This is the 1-to-1 relationship enforcement.
+    -- It is both the Primary Key and the Foreign Key.
+    tuition_id UUID PRIMARY KEY NOT NULL REFERENCES tuitions(id) ON DELETE CASCADE,
+    
+    -- The type of meeting (Zoom, Google Meet, etc.)
+    meeting_link_type MeetingLinkType NOT NULL,
+
+    -- The full URL for joining the meeting (e.g., https://zoom.us/j/...)
+    meeting_link TEXT NOT NULL,
+    
+    -- The numeric/string ID of the meeting (optional, but good for API use)
+    meeting_id TEXT,
+    
+    -- The meeting password (optional)
+    meeting_password TEXT
+);
+/* ************************* Migrating Data **************************** */
+INSERT INTO meeting_links (
+    tuition_id,
+    meeting_link_type,
+    meeting_link,
+    meeting_id
+)
+SELECT
+    id AS tuition_id,
+
+    -- Infer the meeting type based on the URL
+    (CASE
+        WHEN meeting_link->>'meeting_link' ILIKE '%zoom.us%' THEN 'ZOOM'
+        WHEN meeting_link->>'meeting_link' ILIKE '%meet.google.com%' THEN 'GOOGLE_MEET'
+        ELSE 'ZOOM' -- Fallback based on your example
+    END)::MeetingLinkType AS meeting_link_type,
+    
+    -- Extract the data from the JSON fields
+    meeting_link->>'meeting_link' AS meeting_link,
+    meeting_link->>'meeting_id' AS meeting_id
+FROM
+    tuitions
+WHERE
+    -- Only migrate rows that actually have meeting link data
+    meeting_link IS NOT NULL
+    AND meeting_link->>'meeting_link' IS NOT NULL;
+/* ******************* Delete student notes column ********************* */
+ALTER TABLE tuitions
+DROP COLUMN meeting_link;
+/* ********************************************************************* */
+/* ********************************************************************* */
+/* ********************************************************************* */
+

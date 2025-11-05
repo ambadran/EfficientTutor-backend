@@ -321,12 +321,17 @@ class Tuitions(Base):
     max_duration_minutes: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True), server_default=text('now()'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True), server_default=text('now()'))
-    meeting_link: Mapped[Optional[dict]] = mapped_column(JSONB)
     teacher_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     teacher: Mapped[Optional['Teachers']] = relationship('Teachers', back_populates='tuitions')
     tuition_logs: Mapped[List['TuitionLogs']] = relationship('TuitionLogs', back_populates='tuition')
     tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship('TuitionTemplateCharges', back_populates='tuition')
+
+    meeting_link: Mapped['MeetingLinks'] = relationship(
+        'MeetingLinks',
+        back_populates='tuition',
+        cascade='all, delete-orphan' # Deleting a tuition deletes its link
+    )
 
 
 class TuitionLogs(Base):
@@ -438,3 +443,21 @@ class Notes(Base):
     student: Mapped['Students'] = relationship('Students', back_populates='notes')
     teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='notes')
 
+class MeetingLinks(Base):
+    __tablename__ = 'meeting_links'
+    __table_args__ = (
+        ForeignKeyConstraint(['tuition_id'], ['tuitions.id'], ondelete='CASCADE', name='meeting_links_tuition_id_fkey'),
+        PrimaryKeyConstraint('tuition_id', name='meeting_links_pkey')
+    )
+
+    tuition_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    meeting_link_type: Mapped[str] = mapped_column(Enum('GOOGLE_MEET', 'ZOOM', name='meetinglinktype'))
+    meeting_link: Mapped[str] = mapped_column(Text)
+    meeting_id: Mapped[Optional[str]] = mapped_column(Text)
+    meeting_password: Mapped[Optional[str]] = mapped_column(Text)
+
+    # --- ADD THIS 1-to-1 RELATIONSHIP BACK TO TUITIONS ---
+    tuition: Mapped['Tuitions'] = relationship(
+        'Tuitions', 
+        back_populates='meeting_link'
+    )

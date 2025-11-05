@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 # Import the new, simple read models
 from .user import UserRead, ParentRead
 from ..database.db_enums import SubjectEnum
+from .meeting_links import MeetingLinkRead
 
 # --- API Read Models (Output) ---
 
@@ -35,7 +36,7 @@ class TuitionReadForTeacher(BaseModel):
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
-    meeting_link: Optional[str] = None # The service will populate this string
+    meeting_link: Optional[MeetingLinkRead] = None # The service will populate this string
     
     # As requested: full details
     charges: list[TuitionChargeDetailRead]
@@ -52,7 +53,7 @@ class TuitionReadForParent(BaseModel):
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
-    meeting_link: Optional[str] = None # The service will populate this string
+    meeting_link: Optional[MeetingLinkRead] = None # The service will populate this string
 
     # As requested: only the parent's cost
     charge: Decimal 
@@ -70,7 +71,7 @@ class TuitionReadForStudent(BaseModel):
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
-    meeting_link: Optional[str] = None # The service will populate this string
+    meeting_link: Optional[MeetingLinkRead] = None # The service will populate this string
     
     # As requested: no cost/charge
     attendee_names: list[str] # All student names for context
