@@ -16,6 +16,7 @@ from ..database.db_enums import UserRole, RunStatusEnum
 from ..models import timetable as timetable_models
 from ..models import tuition as tuition_models
 from ..models import user as user_models
+from ..models.meeting_links import MeetingLinkRead
 from ..common.logger import log
 from .tuition_service import TuitionService
 
@@ -106,29 +107,20 @@ class TimeTableService:
 
     # --- Private Formatters (Fix the ValidationError) ---
 
-    def _get_common_names_and_link(self, tuition_data: db_models.Tuitions) -> (list[str], Optional[str]):
-        """Helper to extract attendee names and the meeting link string."""
-        # Extract meeting_link string correctly
-        meeting_link_str = None
-        if tuition_data.meeting_link and isinstance(tuition_data.meeting_link, dict):
-            meeting_link_str = tuition_data.meeting_link.get('meeting_link')
-            
-        # Get all attendee names for context
-        attendee_names = [
-            f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
-            for c in tuition_data.tuition_template_charges
-        ]
-        return attendee_names, meeting_link_str
-
     def _format_for_teacher_api(self, scheduled_tuition: ScheduledTuition) -> timetable_models.ScheduledTuitionReadForTeacher:
         """
-        Manually formats a single scheduled tuition for a TEACHER's view.
+        REFACTORED: Manually formats a single scheduled tuition for a TEACHER's view.
         This fixes the ValidationError.
         """
         tuition_data = scheduled_tuition.tuition
-        attendee_names, meeting_link_str = self._get_common_names_and_link(tuition_data)
 
-        # Manually create the detailed charge list for the teacher
+        # --- START OF FIX ---
+        # 1. Manually build the nested MeetingLinkRead model
+        meeting_link_model: Optional[MeetingLinkRead] = None
+        if tuition_data.meeting_link:
+            meeting_link_model = MeetingLinkRead.model_validate(tuition_data.meeting_link)
+
+        # 2. Manually build the detailed charge list
         charges_list = [
             tuition_models.TuitionChargeDetailRead(
                 cost=c.cost,
@@ -137,18 +129,19 @@ class TimeTableService:
             ) for c in tuition_data.tuition_template_charges
         ]
 
-        # 1. Create the inner Pydantic model
+        # 3. Create the inner Pydantic model
         teacher_tuition_model = tuition_models.TuitionReadForTeacher(
             id=tuition_data.id,
             subject=tuition_data.subject,
             lesson_index=tuition_data.lesson_index,
             min_duration_minutes=tuition_data.min_duration_minutes,
             max_duration_minutes=tuition_data.max_duration_minutes,
-            meeting_link=meeting_link_str,
+            meeting_link=meeting_link_model, # Pass the Pydantic model, not a string
             charges=charges_list
         )
+        # --- END OF FIX ---
 
-        # 2. Create the outer (timetable) Pydantic model
+        # 4. Create the outer (timetable) Pydantic model
         return timetable_models.ScheduledTuitionReadForTeacher(
             start_time=scheduled_tuition.start_time,
             end_time=scheduled_tuition.end_time,
@@ -156,30 +149,40 @@ class TimeTableService:
         )
 
     def _format_for_parent_api(self, scheduled_tuition: ScheduledTuition, current_user: db_models.Users) -> timetable_models.ScheduledTuitionReadForParent:
-        """Manually formats a single scheduled tuition for a PARENT's view."""
+        """REFACTORED: Manually formats a single scheduled tuition for a PARENT's view."""
         tuition_data = scheduled_tuition.tuition
-        attendee_names, meeting_link_str = self._get_common_names_and_link(tuition_data)
 
-        # Find the specific charge for this parent
+        # 1. Build the nested MeetingLinkRead model
+        meeting_link_model: Optional[MeetingLinkRead] = None
+        if tuition_data.meeting_link:
+            meeting_link_model = MeetingLinkRead.model_validate(tuition_data.meeting_link)
+
+        # 2. Get all attendee names
+        attendee_names = [
+            f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
+            for c in tuition_data.tuition_template_charges
+        ]
+
+        # 3. Find the specific charge for this parent
         parent_charge = Decimal("0.00")
         for charge_orm in tuition_data.tuition_template_charges:
             if charge_orm.parent_id == current_user.id:
                 parent_charge = charge_orm.cost
                 break
 
-        # 1. Create the inner Pydantic model
+        # 4. Create the inner Pydantic model
         parent_tuition_model = tuition_models.TuitionReadForParent(
             id=tuition_data.id,
             subject=tuition_data.subject,
             lesson_index=tuition_data.lesson_index,
             min_duration_minutes=tuition_data.min_duration_minutes,
             max_duration_minutes=tuition_data.max_duration_minutes,
-            meeting_link=meeting_link_str,
+            meeting_link=meeting_link_model,
             charge=parent_charge,
             attendee_names=attendee_names
         )
 
-        # 2. Create the outer (timetable) Pydantic model
+        # 5. Create the outer (timetable) Pydantic model
         return timetable_models.ScheduledTuitionReadForParent(
             start_time=scheduled_tuition.start_time,
             end_time=scheduled_tuition.end_time,
@@ -187,22 +190,32 @@ class TimeTableService:
         )
 
     def _format_for_student_api(self, scheduled_tuition: ScheduledTuition) -> timetable_models.ScheduledTuitionReadForStudent:
-        """Manually formats a single scheduled tuition for a STUDENT's view."""
+        """REFACTORED: Manually formats a single scheduled tuition for a STUDENT's view."""
         tuition_data = scheduled_tuition.tuition
-        attendee_names, meeting_link_str = self._get_common_names_and_link(tuition_data)
 
-        # 1. Create the inner Pydantic model
+        # 1. Build the nested MeetingLinkRead model
+        meeting_link_model: Optional[MeetingLinkRead] = None
+        if tuition_data.meeting_link:
+            meeting_link_model = MeetingLinkRead.model_validate(tuition_data.meeting_link)
+
+        # 2. Get all attendee names
+        attendee_names = [
+            f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
+            for c in tuition_data.tuition_template_charges
+        ]
+
+        # 3. Create the inner Pydantic model
         student_tuition_model = tuition_models.TuitionReadForStudent(
             id=tuition_data.id,
             subject=tuition_data.subject,
             lesson_index=tuition_data.lesson_index,
             min_duration_minutes=tuition_data.min_duration_minutes,
             max_duration_minutes=tuition_data.max_duration_minutes,
-            meeting_link=meeting_link_str,
+            meeting_link=meeting_link_model,
             attendee_names=attendee_names
         )
 
-        # 2. Create the outer (timetable) Pydantic model
+        # 4. Create the outer (timetable) Pydantic model
         return timetable_models.ScheduledTuitionReadForStudent(
             start_time=scheduled_tuition.start_time,
             end_time=scheduled_tuition.end_time,
