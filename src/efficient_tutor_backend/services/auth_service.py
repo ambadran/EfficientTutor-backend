@@ -18,7 +18,6 @@ class LoginService:
     """
     def __init__(
         self, 
-        # CHANGED: Depend on UserService, not AsyncSession
         user_service: Annotated[UserService, Depends(UserService)]
     ):
         self.user_service = user_service
