@@ -6,7 +6,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
-# Import the static enum we created
 from ..database.db_enums import MeetingLinkTypeEnum
 
 
@@ -15,7 +14,6 @@ class MeetingLinkBase(BaseModel):
     Base Pydantic model with common fields for a Meeting Link.
     """
     meeting_link_type: MeetingLinkTypeEnum
-    # Use Pydantic's HttpUrl for automatic URL validation
     meeting_link: HttpUrl
     meeting_id: Optional[str] = None
     meeting_password: Optional[str] = None
@@ -24,9 +22,10 @@ class MeetingLinkBase(BaseModel):
 class MeetingLinkCreate(MeetingLinkBase):
     """
     Pydantic model for validating the JSON payload when CREATING a new link.
-    The service will use the 'tuition_id' to associate the link.
+    'tuition_id' is NOT included here because it will be provided
+    via the URL path (e.g., /tuitions/{tuition_id}/meeting_link).
     """
-    tuition_id: UUID
+    pass # Inherits all fields from MeetingLinkBase
 
 
 class MeetingLinkUpdate(BaseModel):

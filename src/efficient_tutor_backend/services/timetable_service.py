@@ -51,7 +51,7 @@ class TimeTableService:
         log.info(f"Fetching latest scheduled tuitions for user {current_user.id}")
         
         # 1. Fetch only the tuition objects relevant to the viewer.
-        user_tuitions = await self.tuition_service.get_all_tuitions(current_user)
+        user_tuitions = await self.tuition_service.get_all_tuitions_orm(current_user)
         if not user_tuitions:
             log.warning(f"No tuitions exist for user {current_user.id}. Cannot show timetable.")
             return []

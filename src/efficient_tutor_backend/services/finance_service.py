@@ -149,7 +149,7 @@ class TuitionLogService:
         """
         log.info(f"Creating SCHEDULED log from tuition ID {data.tuition_id} by user {current_user.id}")
         
-        tuition = await self.tuition_service.get_tuition_by_id(data.tuition_id)
+        tuition = await self.tuition_service._get_tuition_by_id_internal(data.tuition_id)
         if not tuition:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tuition template not found.")
         

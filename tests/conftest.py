@@ -29,7 +29,9 @@ from tests.constants import (
     TEST_TUITION_LOG_ID_CUSTOM,
     TEST_PAYMENT_LOG_ID,
     TEST_NOTE_ID,
-    TEST_UNRELATED_TEACHER_ID
+    TEST_UNRELATED_TEACHER_ID,
+    TEST_UNRELATED_PARENT_ID,
+    TEST_TUITION_ID_NO_LINK
 )
 
 # --- Application Imports ---
@@ -266,8 +268,41 @@ async def test_parent_orm(db_session: AsyncSession) -> db_models.Parents:
 
 @pytest.fixture(scope="function")
 async def test_tuition_orm(db_session: AsyncSession) -> db_models.Tuitions:
-    tuition = await db_session.get(db_models.Tuitions, TEST_TUITION_ID)
-    assert tuition is not None, f"Test tuition with ID {TEST_TUITION_ID} not found."
+    """Fetches the main test tuition, EAGERLY LOADING the meeting_link."""
+    
+    # --- THE FIX ---
+    # We must eagerly load the relationship to prevent lazy-load errors
+    stmt = select(db_models.Tuitions).options(
+        selectinload(db_models.Tuitions.meeting_link)
+    ).filter(db_models.Tuitions.id == TEST_TUITION_ID)
+    
+    result = await db_session.execute(stmt)
+    tuition = result.scalars().first()
+    # ---------------
+    
+    assert tuition is not None, f"Test tuition with ID {TEST_TUITION_ID} not found in DB."
+    assert tuition.meeting_link is not None, \
+        f"Test tuition {TEST_TUITION_ID} must have a meeting link for update/delete tests."
+    return tuition
+
+@pytest.fixture(scope="function")
+async def test_tuition_orm_no_link(db_session: AsyncSession) -> db_models.Tuitions:
+    """
+    Fetches a known tuition from the test DB that does NOT have a meeting link.
+    Used for testing 'create' logic.
+    """
+    
+    # --- ALSO FIX THIS one for consistency ---
+    stmt = select(db_models.Tuitions).options(
+        selectinload(db_models.Tuitions.meeting_link) # Eager load (even if it's None)
+    ).filter(db_models.Tuitions.id == TEST_TUITION_ID_NO_LINK)
+    
+    tuition = (await db_session.scalars(stmt)).first()
+    # ---------------
+    
+    assert tuition is not None, f"Test tuition {TEST_TUITION_ID_NO_LINK} not found."
+    assert tuition.meeting_link is None, \
+        f"Test tuition {TEST_TUITION_ID_NO_LINK} IS NOT clean. It already has a meeting link."
     return tuition
 
 @pytest.fixture(scope="function")
@@ -350,3 +385,14 @@ async def test_unrelated_teacher_orm(db_session: AsyncSession) -> db_models.Teac
     assert teacher is not None, f"Test unrelated teacher {TEST_UNRELATED_TEACHER_ID} not found in DB."
     assert teacher.id != TEST_TEACHER_ID, "TEST_UNRELATED_TEACHER_ID is the same as TEST_TEACHER_ID"
     return teacher
+
+@pytest.fixture(scope="function")
+async def test_unrelated_parent_orm(db_session: AsyncSession) -> db_models.Parents:
+    """Fetches a parent who is NOT the owner of the test note."""
+    parent = await db_session.get(db_models.Parents, TEST_UNRELATED_PARENT_ID)
+    assert parent is not None, f"Test unrelated parent {TEST_UNRELATED_PARENT_ID} not found in DB."
+    assert parent.id != TEST_PARENT_ID, "TEST_UNRELATED_PARENT_ID is the same as TEST_PARENT_ID"
+    return parent 
+
+
+
