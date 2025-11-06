@@ -1,23 +1,28 @@
 '''
 
 '''
-from typing import Optional, Annotated
-from uuid import UUID
 import hashlib
-from fastapi import Depends
-from sqlalchemy import select, delete, func
+from typing import Optional, Annotated, Any
+from uuid import UUID
+from decimal import Decimal
+from fastapi import Depends, HTTPException, status
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database.engine import get_db_session
 from ..database import models as db_models
 from ..database.db_enums import UserRole
+from ..models import tuition as tuition_models
+from ..models import user as user_models
+from ..models import meeting_links as meeting_link_models
 from ..common.logger import log
 from .user_service import UserService
 
 class TuitionService:
     """
-    Service for managing tuition templates (the "schedulable" tuitions).
+    REFACTORED: Service for managing tuition templates, including authorization,
+    read operations, and meeting link management.
     """
     def __init__(
         self, 
@@ -27,79 +32,379 @@ class TuitionService:
         self.db = db
         self.user_service = user_service
 
-    async def get_tuition_by_id(self, tuition_id: UUID) -> db_models.Tuitions | None:
+    # --- 1. Authorization Helpers ---
+
+    def _authorize_write_access(self, tuition: db_models.Tuitions, current_user: db_models.Users):
         """
-        Fetches a single, fully-loaded tuition object by its ID.
+        Checks if a user has write/delete permission (Teacher owner only).
+        Raises 403 HTTPException if the user is not the owner.
         """
-        log.info(f"Fetching tuition by ID: {tuition_id}")
+        if not (current_user.role == UserRole.TEACHER.value and tuition.teacher_id == current_user.id):
+            log.warning(f"SECURITY: User {current_user.id} tried to write to tuition {tuition.id} owned by {tuition.teacher_id}.")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to modify this resource."
+            )
+
+    async def _authorize_read_access(self, tuition: db_models.Tuitions, current_user: db_models.Users):
+        """
+        Checks if a user (Teacher, Parent, or Student) has read permission
+        for a *specific* tuition.
+        """
+        # 1. Check if Teacher is the owner
+        if current_user.role == UserRole.TEACHER.value:
+            if tuition.teacher_id == current_user.id:
+                return  # Allow
+        
+        # 2. Check if Student is in the charges
+        elif current_user.role == UserRole.STUDENT.value:
+            if any(charge.student_id == current_user.id for charge in tuition.tuition_template_charges):
+                return  # Allow
+        
+        # 3. Check if Parent is in the charges
+        elif current_user.role == UserRole.PARENT.value:
+            if any(charge.parent_id == current_user.id for charge in tuition.tuition_template_charges):
+                return  # Allow
+        
+        # 4. If none passed, deny access
+        log.warning(f"SECURITY: User <{current_user.id}-{current_user.first_name} {current_user.last_name}> tried to read tuition {tuition.id} without permission.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to view this resource."
+        )
+
+    # --- 2. Internal Fetchers (No Auth) ---
+
+    async def _get_tuition_by_id_internal(self, tuition_id: UUID) -> db_models.Tuitions:
+        # ... (this method is unchanged) ...
+        log.info(f"Internal fetch for tuition by ID: {tuition_id}")
         try:
             stmt = select(db_models.Tuitions).options(
                 selectinload(db_models.Tuitions.teacher),
+                selectinload(db_models.Tuitions.meeting_link),
                 selectinload(db_models.Tuitions.tuition_template_charges).options(
-                    selectinload(db_models.TuitionTemplateCharges.student),
-                    selectinload(db_models.TuitionTemplateCharges.parent)
+                    selectinload(db_models.TuitionTemplateCharges.student).joinedload('*'),
+                    selectinload(db_models.TuitionTemplateCharges.parent).joinedload('*')
                 )
             ).filter(db_models.Tuitions.id == tuition_id)
             
             result = await self.db.execute(stmt)
-            return result.scalars().first()
+            tuition = result.scalars().first()
+            if not tuition:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tuition not found.")
+            return tuition
         except Exception as e:
-            log.error(f"Database error fetching tuition by ID {tuition_id}: {e}", exc_info=True)
+            log.error(f"Error in _get_tuition_by_id_internal: {e}", exc_info=True)
             raise
-
-    async def get_all_tuitions(self, current_user: db_models.Users) -> list[db_models.Tuitions]:
+    
+    # --- 3. NEW Internal Logic Method ---
+    
+    async def get_all_tuitions_orm(self, current_user: db_models.Users) -> list[db_models.Tuitions]:
         """
-        Fetches all tuitions relevant to the current user, fully loaded.
+        NEW: Internal-facing method. Fetches all ORM Tuition objects
+        visible to the current user (Teacher, Parent, or Student).
+        This method is used by other services (like TimeTableService).
         """
-        log.info(f"Fetching all tuitions for user {current_user.id} (Role: {current_user.role})")
+        log.info(f"Internal ORM fetch for all tuitions for user {current_user.id} (Role: {current_user.role}).")
         
-        # Base query with all relationships eager-loaded
+        # 1. Base query with eager loading
         stmt = select(db_models.Tuitions).options(
             selectinload(db_models.Tuitions.teacher),
-            selectinload(db_models.Tuitions.meeting_link),  # <-- EAGER LOAD THE MEETING LINK
+            selectinload(db_models.Tuitions.meeting_link),
             selectinload(db_models.Tuitions.tuition_template_charges).options(
-                selectinload(db_models.TuitionTemplateCharges.student), # Load the student (base User)
-                selectinload(db_models.TuitionTemplateCharges.parent)  # Load the parent (base User)
+                selectinload(db_models.TuitionTemplateCharges.student).joinedload('*'),
+                selectinload(db_models.TuitionTemplateCharges.parent).joinedload('*')
             )
-        )       
+        ).order_by(db_models.Tuitions.subject, db_models.Tuitions.lesson_index).distinct()
 
-        # Add role-based filtering
         try:
+            # 2. Build filter based on role (This *is* the read authorization)
             if current_user.role == UserRole.TEACHER.value:
                 stmt = stmt.filter(db_models.Tuitions.teacher_id == current_user.id)
             
             elif current_user.role == UserRole.PARENT.value:
+                # We must load the parent's students to filter
+                await self.db.refresh(current_user, ['students'])
+                student_ids = [student.id for student in current_user.students]
+                if not student_ids:
+                    return [] # This parent has no students
+                
                 stmt = stmt.join(db_models.TuitionTemplateCharges).filter(
-                    db_models.TuitionTemplateCharges.parent_id == current_user.id
+                    db_models.TuitionTemplateCharges.student_id.in_(student_ids)
                 )
             
             elif current_user.role == UserRole.STUDENT.value:
                 stmt = stmt.join(db_models.TuitionTemplateCharges).filter(
                     db_models.TuitionTemplateCharges.student_id == current_user.id
                 )
-            else:
+            
+            else: 
                 log.warning(f"User {current_user.id} with role {current_user.role} is not authorized to list tuitions.")
                 return []
             
-            stmt = stmt.order_by(db_models.Tuitions.subject, db_models.Tuitions.lesson_index).distinct()
+            # 3. Execute
             result = await self.db.execute(stmt)
             return list(result.scalars().all())
-            
+        
         except Exception as e:
-            log.error(f"Database error fetching all tuitions for user {current_user.id}: {e}", exc_info=True)
+            log.error(f"Database error in get_all_tuitions_orm for user {current_user.id}: {e}", exc_info=True)
             raise
+
+    # --- 4. API-Facing Read Methods (With Auth) ---
+
+    async def get_tuition_by_id_for_api(self, tuition_id: UUID, current_user: db_models.Users) -> dict[str, Any]:
+        """
+        Fetches a single tuition by ID, formats it for the API,
+        and verifies the user is authorized to read it.
+        """
+        log.info(f"User {current_user.id} requesting tuition {tuition_id}")
+        try:
+            tuition_orm = await self._get_tuition_by_id_internal(tuition_id)
+            await self._authorize_read_access(tuition_orm, current_user)
+            return self._format_tuition_for_api(tuition_orm, current_user)
+        
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Error in get_tuition_by_id_for_api for tuition {tuition_id}: {e}", exc_info=True)
+            raise
+
+    async def get_all_tuitions_for_api(self, current_user: db_models.Users) -> list[dict[str, Any]]:
+        """
+        REFACTORED: API-facing method. Fetches all relevant tuitions
+        and formats them into the correct API response.
+        """
+        try:
+            # 1. Get the rich ORM objects
+            tuitions_orm = await self.get_all_tuitions_orm(current_user)
+            
+            # 2. Format them for the API
+            return [self._format_tuition_for_api(tuition, current_user) for tuition in tuitions_orm]
+        
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Database error in get_all_tuitions_for_api for user {current_user.id}: {e}", exc_info=True)
+            raise
+
+    # --- 5. API-Facing Write Methods (With Auth) ---
+    
+    async def create_meeting_link_for_api(self, tuition_id: UUID, data: meeting_link_models.MeetingLinkCreate, current_user: db_models.Users) -> dict[str, Any]:
+        """
+        Creates a new meeting link for a tuition.
+        Restricted to the Teacher who owns the tuition.
+        """
+        log.info(f"User {current_user.id} attempting to create meeting link for tuition {tuition_id}.")
+        try:
+            # 1. Fetch parent tuition
+            tuition = await self._get_tuition_by_id_internal(tuition_id)
+            
+            # 2. Authorize
+            self._authorize_write_access(tuition, current_user)
+            
+            # 3. Check for existing link (1-to-1)
+            if tuition.meeting_link:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A meeting link for this tuition already exists.")
+            
+            # 4. Create new link
+            new_link = db_models.MeetingLinks(
+                tuition_id=tuition_id,
+                meeting_link_type=data.meeting_link_type.value, # Use .value
+                meeting_link=str(data.meeting_link), # Cast HttpUrl to str
+                meeting_id=data.meeting_id,
+                meeting_password=data.meeting_password
+            )
+            self.db.add(new_link)
+            await self.db.flush()
+            
+            # 5. Format and return
+            return meeting_link_models.MeetingLinkRead.model_validate(new_link).model_dump(mode='json')
+
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Error in create_meeting_link_for_api for tuition {tuition_id}: {e}", exc_info=True)
+            raise
+
+    async def update_meeting_link_for_api(self, tuition_id: UUID, data: meeting_link_models.MeetingLinkUpdate, current_user: db_models.Users) -> dict[str, Any]:
+        """
+        Updates an existing meeting link for a tuition.
+        Restricted to the Teacher who owns the tuition.
+        """
+        log.info(f"User {current_user.id} attempting to update meeting link for tuition {tuition_id}.")
+        try:
+            # 1. Fetch parent tuition
+            tuition = await self._get_tuition_by_id_internal(tuition_id)
+            
+            # 2. Authorize
+            self._authorize_write_access(tuition, current_user)
+            
+            # 3. Check that link exists
+            link_to_update = tuition.meeting_link
+            if not link_to_update:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No meeting link found for this tuition to update.")
+                
+            # 4. Apply updates
+            update_data = data.model_dump(exclude_unset=True)
+            if not update_data:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields provided to update.")
+            
+            # 5. Apply updates manually, converting enums/HttpUrl
+            for key, value in update_data.items():
+                if value is None:
+                    setattr(link_to_update, key, None)
+                elif key == 'meeting_link_type':
+                    setattr(link_to_update, key, value.value) # Use .value
+                elif key == 'meeting_link':
+                    setattr(link_to_update, key, str(value)) # Cast HttpUrl to str
+                else:
+                    setattr(link_to_update, key, value)
+                
+            self.db.add(link_to_update)
+            await self.db.flush()
+            
+            # 5. Format and return
+            return meeting_link_models.MeetingLinkRead.model_validate(link_to_update).model_dump(mode='json')
+            
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Error in update_meeting_link_for_api for tuition {tuition_id}: {e}", exc_info=True)
+            raise
+
+    async def delete_meeting_link(self, tuition_id: UUID, current_user: db_models.Users) -> None:
+        """
+        Deletes a meeting link from a tuition.
+        Restricted to the Teacher who owns the tuition.
+        """
+        log.info(f"User {current_user.id} attempting to delete meeting link for tuition {tuition_id}.")
+        try:
+            # 1. Fetch parent tuition
+            tuition = await self._get_tuition_by_id_internal(tuition_id)
+            
+            # 2. Authorize
+            self._authorize_write_access(tuition, current_user)
+            
+            # 3. Check that link exists
+            link_to_delete = tuition.meeting_link
+            if not link_to_delete:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No meeting link found for this tuition to delete.")
+            
+            # 4. Delete
+            await self.db.delete(link_to_delete)
+            
+            # 5. Return (will be a 204 No Content in the API)
+            return
+
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Error in delete_meeting_link for tuition {tuition_id}: {e}", exc_info=True)
+            raise
+
+    # --- 6. Internal Formatters ---
+
+    def _format_tuition_for_api(self, tuition_orm: db_models.Tuitions, current_user: db_models.Users) -> dict[str, Any]:
+        """
+        Dispatcher that formats a single ORM object into the correct
+        Pydantic API model based on the viewer's role.
+        """
+        if current_user.role == UserRole.TEACHER.value:
+            return self._format_for_teacher_api(tuition_orm)
+        elif current_user.role == UserRole.PARENT.value:
+            return self._format_for_parent_api(tuition_orm, current_user.id)
+        elif current_user.role == UserRole.STUDENT.value:
+            return self._format_for_student_api(tuition_orm, current_user.id)
+        else:
+            # This case should be impossible if get_all_tuitions_for_api is used
+            raise HTTPException(status_code=403, detail="Unauthorized role.")
+
+    def _format_for_teacher_api(self, tuition_orm: db_models.Tuitions) -> dict:
+        """Formats a tuition for a Teacher's view."""
+        
+        # Manually build the detailed charge list
+        charges_list = [
+            tuition_models.TuitionChargeDetailRead(
+                cost=c.cost,
+                student=user_models.UserRead.model_validate(c.student),
+                parent=user_models.ParentRead.model_validate(c.parent)
+            ) for c in tuition_orm.tuition_template_charges
+        ]
+        
+        api_model = tuition_models.TuitionReadForTeacher(
+            id=tuition_orm.id,
+            subject=tuition_orm.subject,
+            lesson_index=tuition_orm.lesson_index,
+            min_duration_minutes=tuition_orm.min_duration_minutes,
+            max_duration_minutes=tuition_orm.max_duration_minutes,
+            meeting_link=tuition_orm.meeting_link, # Pydantic will auto-validate
+            charges=charges_list
+        )
+        return api_model.model_dump(mode='json')
+        
+    def _format_for_parent_api(self, tuition_orm: db_models.Tuitions, parent_id: UUID) -> dict:
+        """Formats a tuition for a Parent's view."""
+        
+        # Find the specific charge for this parent
+        parent_charge = Decimal("0.00")
+        for charge in tuition_orm.tuition_template_charges:
+            if charge.parent_id == parent_id:
+                parent_charge = charge.cost
+                break
+
+        attendee_names = [
+            f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
+            for c in tuition_orm.tuition_template_charges
+        ]
+        
+        api_model = tuition_models.TuitionReadForParent(
+            id=tuition_orm.id,
+            subject=tuition_orm.subject,
+            lesson_index=tuition_orm.lesson_index,
+            min_duration_minutes=tuition_orm.min_duration_minutes,
+            max_duration_minutes=tuition_orm.max_duration_minutes,
+            meeting_link=tuition_orm.meeting_link,
+            charge=parent_charge,
+            attendee_names=attendee_names
+        )
+        return api_model.model_dump(mode='json')
+
+    def _format_for_student_api(self, tuition_orm: db_models.Tuitions, student_id: UUID) -> dict:
+        """Formats a tuition for a Student's view."""
+        
+        attendee_names = [
+            f"{c.student.first_name or ''} {c.student.last_name or ''}".strip() or "Unknown"
+            for c in tuition_orm.tuition_template_charges
+        ]
+        
+        api_model = tuition_models.TuitionReadForStudent(
+            id=tuition_orm.id,
+            subject=tuition_orm.subject,
+            lesson_index=tuition_orm.lesson_index,
+            min_duration_minutes=tuition_orm.min_duration_minutes,
+            max_duration_minutes=tuition_orm.max_duration_minutes,
+            meeting_link=tuition_orm.meeting_link,
+            attendee_names=attendee_names
+        )
+        return api_model.model_dump(mode='json')
+
+    # --- 7. Regeneration Logic (BUG FIX) ---
 
     async def regenerate_all_tuitions(self) -> bool:
         """
-        THIS METHOD SHOULD NOT BE USED UNLESS NECESSARY,
-        #TODO: it deletes meeting_link data for now, but after we implemented same tuition_id methodology and after we put the meeting data in its own table, we shouldn't face this issue anymore
-        Regenerates all tuition templates based on the current student data.
-        This is a full TRUNCATE and-RELOAD operation.
+        REFACTORED: Regenerates all tuition templates and preserves
+        the associated meeting links.
         """
         log.info("Starting regeneration of all tuitions...")
         
         try:
-            # 1. Fetch all students with their parent relationships pre-loaded
+            # 1. Preserve existing meeting links
+            old_links_stmt = select(db_models.MeetingLinks)
+            old_links_result = await self.db.execute(old_links_stmt)
+            old_links_dict = {link.tuition_id: link for link in old_links_result.scalars().all()}
+            log.info(f"Preserved {len(old_links_dict)} existing meeting links.")
+
+            # 2. Fetch all students
             student_stmt = select(db_models.Students).options(
                 selectinload(db_models.Students.parent)
             )
@@ -107,24 +412,14 @@ class TuitionService:
             
             if not all_students:
                 log.warning("No students found. Truncating tuitions and finishing.")
-                await self.db.execute(text("TRUNCATE TABLE tuitions, tuition_template_charges RESTART IDENTITY CASCADE"))
+                await self.db.execute(text("TRUNCATE TABLE tuitions RESTART IDENTITY CASCADE"))
                 return True
-
-            # 2. Fetch existing tuitions to preserve meeting links
-            existing_links = {}
-            links_stmt = select(db_models.Tuitions.id, db_models.Tuitions.meeting_link).filter(
-                db_models.Tuitions.meeting_link.is_not(None)
-            )
-            for row in (await self.db.execute(links_stmt)).all():
-                existing_links[row.id] = row.meeting_link
-            log.info(f"Preserved {len(existing_links)} existing meeting links.")
 
             # 3. Group students in Python (same logic as before)
             grouped_students = {}
             for student in all_students:
                 if not student.student_data or not student.student_data.get('subjects'):
                     continue
-                
                 for subject_info in student.student_data['subjects']:
                     for teacher_id in subject_info.get('sharedWith', []):
                         key = (subject_info['name'], teacher_id)
@@ -135,9 +430,10 @@ class TuitionService:
             # 4. Prepare new ORM objects
             new_tuitions = []
             new_charges = []
+            new_meeting_links = [] # List to hold the restored links
+            
             for (subject_name, teacher_id), students_in_group in grouped_students.items():
-                
-                lesson_index = 1 # Assuming this is still 1
+                lesson_index = 1
                 student_ids = sorted([s.id for s in students_in_group])
                 
                 tuition_id = self._generate_deterministic_id(
@@ -154,7 +450,7 @@ class TuitionService:
                     lesson_index=lesson_index,
                     min_duration_minutes=students_in_group[0].min_duration_mins,
                     max_duration_minutes=students_in_group[0].max_duration_mins,
-                    meeting_link=existing_links.get(tuition_id) # Restore link if it existed
+                    # DO NOT add meeting link here yet
                 )
                 new_tuitions.append(new_tuition)
                 
@@ -165,16 +461,26 @@ class TuitionService:
                         parent_id=student.parent_id,
                         cost=student.cost
                     ))
+                
+                # 5. Check if a link existed for this ID and re-create it
+                if tuition_id in old_links_dict:
+                    old_link = old_links_dict[tuition_id]
+                    new_meeting_links.append(db_models.MeetingLinks(
+                        tuition_id=tuition_id, # Link to the new tuition
+                        meeting_link_type=old_link.meeting_link_type,
+                        meeting_link=old_link.meeting_link,
+                        meeting_id=old_link.meeting_id,
+                        meeting_password=old_link.meeting_password
+                    ))
             
-            log.info(f"Generated {len(new_tuitions)} new tuitions and {len(new_charges)} charges.")
+            log.info(f"Generated {len(new_tuitions)} tuitions, {len(new_charges)} charges, and restored {len(new_meeting_links)} links.")
 
-            # 5. Perform the database transaction
-            # We must use `text()` for TRUNCATE with SQLAlchemy Core
-            await self.db.execute(text("TRUNCATE TABLE tuitions, tuition_template_charges RESTART IDENTITY CASCADE"))
+            # 6. Perform the database transaction
+            await self.db.execute(text("TRUNCATE TABLE tuitions RESTART IDENTITY CASCADE"))
             
-            # Add all new objects to the session
             self.db.add_all(new_tuitions)
             self.db.add_all(new_charges)
+            self.db.add_all(new_meeting_links) # Add the restored links
             
             log.info("Successfully regenerated all tuitions.")
             return True
