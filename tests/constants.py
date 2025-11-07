@@ -1,4 +1,6 @@
 from uuid import UUID
+import sys
+
 TEST_PARENT_ID = UUID('e850ce9b-d934-47b9-a029-b510f39d5bbc')
 TEST_TEACHER_ID = UUID('dcef54de-bc89-4388-a7a8-dba5d8327447')
 TEST_STUDENT_ID = UUID('e46d56d4-a856-49cc-b078-bffa79d9a142')
@@ -14,7 +16,22 @@ TEST_TUITION_LOG_ID_CUSTOM = UUID('8bb36a2a-fed8-4908-a4fa-32ea960a8335')
 
 TEST_PAYMENT_LOG_ID = UUID('d5dcf3b2-d166-4fd0-890d-3553bf2eca57')
 
-TEST_NOTE_ID=UUID('dff7ebbe-e9de-4b01-8815-e7e41d9b9949')
-TEST_UNRELATED_TEACHER_ID=UUID('ed9b6fe5-94c2-49b1-9206-8ff72bd15271')
+if sys.platform == 'linux':
+    TEST_NOTE_ID=UUID('dff7ebbe-e9de-4b01-8815-e7e41d9b9949')  # linux
+elif sys.platform == 'darwin':
+    TEST_NOTE_ID=UUID('60ea094c-28ec-4994-adb7-44b773ad8f21') # MacOS
+else:
+    raise ValueError("didn't create TEST_NOTE_ID for this device")
+
+
+if sys.platform == 'linux':
+    TEST_UNRELATED_TEACHER_ID=UUID('ed9b6fe5-94c2-49b1-9206-8ff72bd15271')
+elif sys.platform == 'darwin':
+    TEST_UNRELATED_TEACHER_ID=UUID('78280aae-2a09-4e11-ab25-bad18965c95d')
+else:
+    raise ValueError("didn't create TEST_UNRELATED_TEACHER_ID for this device")
+
 TEST_UNRELATED_PARENT_ID = UUID('d4c17e60-08de-47c7-9ef0-33ae8aa442fb')
+
 TEST_TUITION_ID_NO_LINK = UUID('80194ca6-fb6a-422a-bdb8-63e64e23e79e')
+
