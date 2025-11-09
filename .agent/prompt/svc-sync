@@ -1,0 +1,4 @@
+@src/efficient_tutor_backend/models/ @src/efficient_tutor_backend/services/ @src/efficient_tutor_backend/api/
+SYNC REQUIRED. The service and models layers have been updated externally.
+
+Please re-read these directories to ensure you have the latest business logic and data structures available for new endpoints. Confirm when you are ready.
