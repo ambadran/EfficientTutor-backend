@@ -23,7 +23,7 @@ __pychache__
 ~$*
 *.env
 .venv
-*.egg-info
+.venv/
 *.egg-info/
 migrate_to_hashed.py
 tmp
@@ -33,5 +33,11 @@ token.json
 zoom_creds.json
 *.dump
 tmp.py
+
+
+scripts/
+setup.cfg
+*.egg-info
+*.egg-info/
 .pytest_cache
 .pytest_cache/

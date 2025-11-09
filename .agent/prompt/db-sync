@@ -1,0 +1,4 @@
+@src/efficient_tutor_backend/database/models.py @src/efficient_tutor_backend/models/ @src/efficient_tutor_backend/services/
+SYNC REQUIRED. The database layer (or shared models) has been updated externally.
+
+Please re-read these directories to sync your internal state with the latest schema and model changes. Confirm when you are ready to proceed.

@@ -1,0 +1,4 @@
+@src/efficient_tutor_backend/common/ @src/efficient_tutor_backend/database/
+SYNC REQUIRED. Manual edits have been made to the configuration or database layer.
+
+Please re-read your designated directories to ensure you are up-to-date.
