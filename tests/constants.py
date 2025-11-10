@@ -11,13 +11,13 @@ TEST_PARENT_IDS = [UUID('e850ce9b-d934-47b9-a029-b510f39d5bbc'),
                          UUID('eca287cc-2774-43d6-bef8-8f2d75ad11cf')]
 
 TEST_TUITION_ID = UUID('026ce9a5-eded-480f-b98c-a62b459807aa')
-TEST_TUITION_LOG_ID_SCHEDULED = UUID('1d406436-daf7-45ff-9354-cf5d8568c56c')
+TEST_TUITION_LOG_ID_SCHEDULED = UUID('d3bff492-2d0c-4fce-a65b-a58107d125ec')
 TEST_TUITION_LOG_ID_CUSTOM = UUID('8bb36a2a-fed8-4908-a4fa-32ea960a8335')
 
 TEST_PAYMENT_LOG_ID = UUID('d5dcf3b2-d166-4fd0-890d-3553bf2eca57')
 
 if sys.platform == 'linux':
-    TEST_NOTE_ID=UUID('dff7ebbe-e9de-4b01-8815-e7e41d9b9949')  # linux
+    TEST_NOTE_ID=UUID('b61ff351-2115-4008-899e-ee48a706e82a')  # linux
 elif sys.platform == 'darwin':
     TEST_NOTE_ID=UUID('60ea094c-28ec-4994-adb7-44b773ad8f21') # MacOS
 else:
@@ -25,7 +25,7 @@ else:
 
 
 if sys.platform == 'linux':
-    TEST_UNRELATED_TEACHER_ID=UUID('ed9b6fe5-94c2-49b1-9206-8ff72bd15271')
+    TEST_UNRELATED_TEACHER_ID=UUID('6667e14b-f8b7-45ee-998a-48832413d4c7')
 elif sys.platform == 'darwin':
     TEST_UNRELATED_TEACHER_ID=UUID('78280aae-2a09-4e11-ab25-bad18965c95d')
 else:

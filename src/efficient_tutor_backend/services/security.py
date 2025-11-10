@@ -3,7 +3,6 @@
 '''
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Annotated
-from passlib.context import CryptContext
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -13,17 +12,7 @@ from ..models.token import TokenPayload
 from ..common.logger import log
 from ..database import models as db_models
 from .user_service import UserService
-
-# --- Password Hashing ---
-class HashedPassword:
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    @classmethod
-    def verify(cls, plain_password: str, hashed_password: str) -> bool:
-        return cls.pwd_context.verify(plain_password, hashed_password)
-
-    @classmethod
-    def get_hash(cls, password: str) -> str:
-        return cls.pwd_context.hash(password)
+from ..common.security_utils import HashedPassword
 
 # --- JWT Handling ---
 class JWTHandler:

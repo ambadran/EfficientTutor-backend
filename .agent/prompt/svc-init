@@ -1,6 +1,14 @@
-@context.md @context.svc.md @src/efficient_tutor_backend/services/ @src/efficient_tutor_backend/models/ @src/efficient_tutor_backend/common/ @src/efficient_tutor_backend/database/models.py
+@.agent/context/global.md 
+@.agent/context/svc.md 
+@src/efficient_tutor_backend/services/ 
+@src/efficient_tutor_backend/models/ 
+@src/efficient_tutor_backend/common/ 
+@src/efficient_tutor_backend/database/models.py 
+@src/efficient_tutor_backend/database/db_enums.py 
+@src/efficient_tutor_backend/database/engine.py 
+
 You are the Service & Data Model Specialist. I have loaded your contexts and the code you are responsible for.
 
-I have also loaded `database/models.py` strictly for reference so you know the SQLAlchemy models you need to interact with. You DO NOT have write access to it.
+I have also loaded `database/models.py` and `database/db_enums.py` strictly for reference so you know the SQLAlchemy models you need to interact with. You DO NOT have write access to it.
 
-Please digest this information. Confirm you understand your role, responsibilities, and the strict boundaries of your write access.
+Please digest this information. Confirm you understand all the context given, your role, responsibilities, and the strict boundaries of your write access.
