@@ -1,7 +1,9 @@
 '''
 
 '''
-from typing import Optional, Annotated
+import secrets
+from typing import Optional, Annotated, List
+import uuid # Added this import
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
@@ -12,6 +14,8 @@ from ..database.engine import get_db_session
 from ..database import models as db_models
 from ..database.db_enums import UserRole
 from ..common.logger import log
+from ..models import user as user_models
+from ..common.security_utils import HashedPassword
 
 # ... (UserService class remains unchanged) ...
 class UserService:
@@ -43,7 +47,9 @@ class UserService:
                 ).filter(db_models.Parents.id == base_user.id)
             elif base_user.role == UserRole.STUDENT.value:
                 stmt = select(db_models.Students).options(
-                    selectinload(db_models.Students.parent) # EAGER LOAD PARENT
+                    selectinload(db_models.Students.parent), # EAGER LOAD PARENT
+                    selectinload(db_models.Students.student_subjects).selectinload(db_models.StudentSubjects.shared_with_student),
+                    selectinload(db_models.Students.student_availability_intervals)
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
                 stmt = select(db_models.Teachers).filter(db_models.Teachers.id == base_user.id)
@@ -79,7 +85,9 @@ class UserService:
                 ).filter(db_models.Parents.id == base_user.id)
             elif base_user.role == UserRole.STUDENT.value:
                 stmt = select(db_models.Students).options(
-                    selectinload(db_models.Students.parent) # EAGER LOAD PARENT
+                    selectinload(db_models.Students.parent), # EAGER LOAD PARENT
+                    selectinload(db_models.Students.student_subjects).selectinload(db_models.StudentSubjects.shared_with_student),
+                    selectinload(db_models.Students.student_availability_intervals)
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
                 stmt = select(db_models.Teachers).filter(db_models.Teachers.id == base_user.id)
@@ -126,7 +134,9 @@ class UserService:
 
             if role_map[UserRole.STUDENT.value]:
                 stmt = select(db_models.Students).options(
-                    selectinload(db_models.Students.parent) # EAGER LOAD PARENT
+                    selectinload(db_models.Students.parent), # EAGER LOAD PARENT
+                    selectinload(db_models.Students.student_subjects).selectinload(db_models.StudentSubjects.shared_with_student),
+                    selectinload(db_models.Students.student_availability_intervals)
                 ).filter(db_models.Students.id.in_(role_map[UserRole.STUDENT.value]))
                 final_users.extend((await self.db.execute(stmt)).scalars().all())
 
@@ -222,7 +232,9 @@ class StudentService(UserService):
                 ).filter(db_models.TuitionLogs.teacher_id == current_user.id)
                 
                 stmt = select(db_models.Students).options(
-                    selectinload(db_models.Students.parent) # Eager load the parent
+                    selectinload(db_models.Students.parent), # Eager load the parent
+                    selectinload(db_models.Students.student_subjects).selectinload(db_models.StudentSubjects.shared_with_student),
+                    selectinload(db_models.Students.student_availability_intervals)
                 ).filter(
                     db_models.Students.id.in_(subquery)
                 ).order_by(db_models.Students.first_name)
@@ -244,6 +256,142 @@ class StudentService(UserService):
             # 3. This now only catches database/unexpected errors.
             log.error(f"Database error fetching all students for user {current_user.id}: {e}", exc_info=True)
             raise
+
+    async def create_student(
+        self,
+        student_data: user_models.StudentCreate,
+        current_user: db_models.Users
+    ) -> user_models.StudentRead:
+        """
+        Creates a new student user.
+        - Authorized for Teachers and Parents.
+        - Auto-generates a password.
+        - Creates all related subject and availability records.
+        """
+        log.info(f"User {current_user.id} attempting to create student {student_data.email}.")
+
+        # 1. Authorization
+        if current_user.role not in [UserRole.TEACHER.value, UserRole.PARENT.value]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to create a student."
+            )
+
+        # 2. Check for existing user
+        existing_user = await self.get_user_by_email(student_data.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered."
+            )
+
+        # 3. Validate parent
+        parent = await self.get_user_by_id(student_data.parent_id)
+        if not parent or parent.role != UserRole.PARENT.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Parent with id {student_data.parent_id} not found."
+            )
+
+        # 4. Generate password
+        plain_password = secrets.token_urlsafe(6) # 8 characters
+        hashed_password = HashedPassword.get_hash(plain_password)
+
+        # 5. Create the Student ORM object
+        new_student = db_models.Students(
+            id=uuid.uuid4(), # Explicitly generate UUID for the primary key
+            email=student_data.email,
+            password=hashed_password,
+            first_name=student_data.first_name,
+            last_name=student_data.last_name,
+            timezone=student_data.timezone,
+            role=UserRole.STUDENT.value, # Hardcode role
+            parent_id=student_data.parent_id,
+            cost=student_data.cost,
+            status=student_data.status.value,
+            min_duration_mins=student_data.min_duration_mins,
+            max_duration_mins=student_data.max_duration_mins,
+            grade=student_data.grade,
+            generated_password=plain_password # Store plain text password
+        )
+
+        # 6. Create related objects
+        # Availability Intervals
+        for interval_data in student_data.student_availability_intervals:
+            new_interval = db_models.StudentAvailabilityIntervals(
+                student=new_student,
+                **interval_data.model_dump()
+            )
+            self.db.add(new_interval)
+
+        # Subjects and their M2M relationships
+        all_shared_student_ids = {
+            student_id
+            for subject_data in student_data.student_subjects
+            for student_id in subject_data.shared_with_student_ids
+        }
+
+        shared_students_map = {}
+        if all_shared_student_ids:
+            shared_students = await self.get_users_by_ids(list(all_shared_student_ids))
+            shared_students_map = {user.id: user for user in shared_students}
+
+
+        for subject_data in student_data.student_subjects:
+            new_subject = db_models.StudentSubjects(
+                student=new_student,
+                subject=subject_data.subject.value,
+                lessons_per_week=subject_data.lessons_per_week
+            )
+            # Handle M2M relationship
+            for shared_student_id in subject_data.shared_with_student_ids:
+                shared_student = shared_students_map.get(shared_student_id)
+                if shared_student:
+                    new_subject.shared_with_student.append(shared_student)
+            self.db.add(new_subject)
+
+        # 7. Add student, commit, and refresh
+        self.db.add(new_student)
+        await self.db.flush()
+        
+        # Refresh the new student to load all relationships for the response model
+        await self.db.refresh(
+            new_student,
+            ['parent', 'student_subjects', 'student_availability_intervals']
+        )
+        
+        # Manually construct StudentSubjectRead objects to include shared_with_student_ids
+        student_subjects_read = []
+        for sub in new_student.student_subjects:
+            student_subjects_read.append(user_models.StudentSubjectRead(
+                id=sub.id,
+                subject=sub.subject,
+                lessons_per_week=sub.lessons_per_week,
+                shared_with_student_ids=[s.id for s in sub.shared_with_student]
+            ))
+
+        # Construct the final StudentRead model
+        return user_models.StudentRead(
+            id=new_student.id,
+            email=new_student.email,
+            role=new_student.role,
+            timezone=new_student.timezone,
+            first_name=new_student.first_name,
+            last_name=new_student.last_name,
+            is_first_sign_in=new_student.is_first_sign_in,
+            parent_id=new_student.parent_id,
+            cost=new_student.cost,
+            status=new_student.status,
+            min_duration_mins=new_student.min_duration_mins,
+            max_duration_mins=new_student.max_duration_mins,
+            grade=new_student.grade,
+            student_subjects=student_subjects_read,
+            student_availability_intervals=[
+                user_models.StudentAvailabilityIntervalRead.model_validate(interval)
+                for interval in new_student.student_availability_intervals
+            ]
+        )
+
 
 class TeacherService(UserService):
     """Service for teacher-specific logic."""

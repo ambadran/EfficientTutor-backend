@@ -35,3 +35,4 @@ zoom_creds.json
 tmp.py
 .pytest_cache
 .pytest_cache/
+.gemini/
