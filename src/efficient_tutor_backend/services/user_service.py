@@ -6,7 +6,7 @@ from typing import Optional, Annotated, List
 import uuid # Added this import
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,6 +16,7 @@ from ..database.db_enums import UserRole
 from ..common.logger import log
 from ..models import user as user_models
 from ..common.security_utils import HashedPassword
+from .geo_service import GeoService
 
 # ... (UserService class remains unchanged) ...
 class UserService:
@@ -165,9 +166,163 @@ class UserService:
             log.error(f"Database error fetching user with password for {email}: {e}", exc_info=True)
             raise
 
+    
 class ParentService(UserService):
     """Service for parent-specific logic."""
     
+    def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)], geo_service: Annotated[GeoService, Depends()]):
+        super().__init__(db)
+        self.geo_service = geo_service
+
+    async def create_parent(
+        self,
+        parent_data: user_models.ParentCreate,
+        ip_address: str # Add ip_address argument
+    ) -> user_models.ParentRead:
+        """
+        Creates a new parent user (for sign-up).
+        - Checks for existing email.
+        - Hashes the provided password.
+        - Automatically determines timezone and currency from IP address.
+        """
+        log.info(f"Attempting to create parent {parent_data.email} from IP {ip_address}.")
+
+        # 1. Check for existing user
+        existing_user = await self.get_user_by_email(parent_data.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered."
+            )
+
+        # 2. Get timezone and currency from IP address
+        location_info = await self.geo_service.get_location_info(ip_address)
+        timezone = location_info["timezone"]
+        currency = location_info["currency"]
+
+        # 3. Hash password
+        hashed_password = HashedPassword.get_hash(parent_data.password)
+
+        # 4. Create the Parent ORM object
+        new_parent = db_models.Parents(
+            id=uuid.uuid4(), # Explicitly generate UUID for the primary key
+            email=parent_data.email,
+            password=hashed_password,
+            first_name=parent_data.first_name,
+            last_name=parent_data.last_name,
+            timezone=timezone, # Use determined timezone
+            role=UserRole.PARENT.value, # Hardcode role
+            currency=currency # Use determined currency
+        )
+
+        # 5. Add parent, commit, and refresh
+        self.db.add(new_parent)
+        await self.db.flush()
+        
+        # Refresh the new parent to load all relationships for the response model
+        await self.db.refresh(new_parent, ['students']) # Eager load students for ParentRead
+
+        # Construct the final ParentRead model
+        return user_models.ParentRead(
+            id=new_parent.id,
+            email=new_parent.email,
+            role=new_parent.role,
+            timezone=new_parent.timezone,
+            first_name=new_parent.first_name,
+            last_name=new_parent.last_name,
+            is_first_sign_in=new_parent.is_first_sign_in,
+            currency=new_parent.currency
+        )
+
+    async def update_parent(
+        self,
+        parent_id: UUID,
+        update_data: user_models.ParentUpdate,
+        current_user: db_models.Users
+    ) -> user_models.ParentRead:
+        """
+        Updates a parent's profile.
+        - Authorized for the parent themselves or any teacher.
+        - Allows partial updates.
+        - Hashes the password if a new one is provided.
+        """
+        log.info(f"User {current_user.id} attempting to update parent {parent_id}.")
+
+        # 1. Fetch parent to update
+        parent_to_update = await self.get_user_by_id(parent_id)
+        if not parent_to_update or parent_to_update.role != UserRole.PARENT.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Parent not found."
+            )
+
+        # 2. Authorization
+        is_owner = parent_to_update.id == current_user.id
+        is_teacher = current_user.role == UserRole.TEACHER.value
+        
+        if not is_owner and not is_teacher:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update this profile."
+            )
+
+        # 3. Apply updates
+        update_dict = update_data.model_dump(exclude_unset=True)
+
+        for key, value in update_dict.items():
+            if key == "password":
+                if value: # Ensure password is not empty
+                    setattr(parent_to_update, key, HashedPassword.get_hash(value))
+            elif hasattr(parent_to_update, key):
+                setattr(parent_to_update, key, value)
+
+        self.db.add(parent_to_update)
+        await self.db.flush()
+        await self.db.refresh(parent_to_update)
+
+        # 4. Return updated data using the read model
+        return user_models.ParentRead.model_validate(parent_to_update)
+
+    async def delete_parent(self, parent_id: UUID, current_user: db_models.Users) -> bool:
+        """
+        Deletes a parent user.
+        - Authorized for the parent themselves or any teacher.
+        - Fails if the parent has associated students.
+        """
+        log.info(f"User {current_user.id} attempting to delete parent {parent_id}.")
+
+        # 1. Fetch parent to delete
+        parent_to_delete = await self.get_user_by_id(parent_id)
+        if not parent_to_delete or parent_to_delete.role != UserRole.PARENT.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Parent not found."
+            )
+
+        # 2. Authorization
+        is_owner = parent_to_delete.id == current_user.id
+        is_teacher = current_user.role == UserRole.TEACHER.value
+        
+        if not is_owner and not is_teacher:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to delete this profile."
+            )
+
+        # 3. Check for associated students
+        # The get_user_by_id method eager loads students, so this check is efficient.
+        if parent_to_delete.students:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete a parent with associated students. Please reassign or delete the students first."
+            )
+
+        # 4. Delete the parent
+        await self.db.delete(parent_to_delete)
+        
+        log.info(f"Successfully deleted parent {parent_id}.")
+        return True
+
     async def get_all(self, current_user: db_models.Users) -> list[db_models.Parents]:
         """
         Fetches a list of Parent objects.
@@ -276,6 +431,13 @@ class StudentService(UserService):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to create a student."
             )
+        
+        # If the current user is a parent, they can only create a student for themselves.
+        if current_user.role == UserRole.PARENT.value and student_data.parent_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Parents can only create students for themselves."
+            )
 
         # 2. Check for existing user
         existing_user = await self.get_user_by_email(student_data.email)
@@ -304,7 +466,7 @@ class StudentService(UserService):
             password=hashed_password,
             first_name=student_data.first_name,
             last_name=student_data.last_name,
-            timezone=student_data.timezone,
+            timezone=parent.timezone, # Set timezone from parent
             role=UserRole.STUDENT.value, # Hardcode role
             parent_id=student_data.parent_id,
             cost=student_data.cost,
@@ -391,6 +553,203 @@ class StudentService(UserService):
                 for interval in new_student.student_availability_intervals
             ]
         )
+
+    async def update_student(
+        self,
+        student_id: UUID,
+        update_data: user_models.StudentUpdate,
+        current_user: db_models.Users
+    ) -> user_models.StudentRead:
+        """
+        Updates an existing student user.
+        - Authorized for Teachers and Parents (only their own children).
+        - Allows partial updates.
+        - Replaces nested subject and availability records.
+        """
+        log.info(f"User {current_user.id} attempting to update student {student_id}.")
+
+        # 1. Fetch existing student and authorize
+        student_to_update = await self.get_user_by_id(student_id)
+        if not student_to_update or student_to_update.role != UserRole.STUDENT.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Student not found."
+            )
+
+        if current_user.role == UserRole.TEACHER.value:
+            # Teachers can update any student
+            pass
+        elif current_user.role == UserRole.PARENT.value:
+            # Parents can only update their own children
+            if student_to_update.parent_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Parents can only update their own children."
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update students."
+            )
+        
+        # Ensure student_to_update is fully loaded if coming from get_user_by_id
+        # which might only load base student fields without relationships.
+        # This is crucial for accessing relationships later for deletion/replacement
+        student_to_update = await self.get_user_by_id(student_id) # Re-fetch to ensure eager loading
+
+        # 2. Apply updates to simple fields (on Users and Students tables)
+        update_dict = update_data.model_dump(exclude_unset=True)
+
+        for key, value in update_dict.items():
+            if key in ['email', 'first_name', 'last_name', 'timezone']:
+                setattr(student_to_update, key, value)
+            elif key in ['cost', 'status', 'min_duration_mins', 'max_duration_mins', 'grade', 'parent_id']:
+                if key == 'status' and value is not None:
+                    setattr(student_to_update, key, value.value) # Handle Enum value
+                elif key == 'parent_id' and value is not None: # Validate new parent_id
+                    new_parent = await self.get_user_by_id(value)
+                    if not new_parent or new_parent.role != UserRole.PARENT.value:
+                        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="New parent not found or is not a parent.")
+                    setattr(student_to_update, key, value)
+                elif value is not None:
+                    setattr(student_to_update, key, value)
+                
+        # 3. Handle nested list updates (delete and replace strategy)
+        if update_data.student_availability_intervals is not None:
+            # Delete existing intervals from DB
+            await self.db.execute(
+                delete(db_models.StudentAvailabilityIntervals).filter_by(student_id=student_to_update.id)
+            )
+            # Clear the in-memory collection and flush deletions
+            student_to_update.student_availability_intervals.clear()
+            await self.db.flush()
+
+            # Create new intervals and append them
+            for interval_data in update_data.student_availability_intervals:
+                new_interval = db_models.StudentAvailabilityIntervals(
+                    **interval_data.model_dump()
+                )
+                student_to_update.student_availability_intervals.append(new_interval)
+
+        if update_data.student_subjects is not None:
+            # Delete existing subjects and their M2M links from DB
+            await self.db.execute(
+                delete(db_models.t_student_subject_sharings).where(
+                    db_models.t_student_subject_sharings.c.student_subject_id.in_(
+                        select(db_models.StudentSubjects.id).where(db_models.StudentSubjects.student_id == student_to_update.id)
+                    )
+                )
+            )
+            await self.db.execute(
+                delete(db_models.StudentSubjects).filter_by(student_id=student_to_update.id)
+            )
+            # Clear the in-memory collection and flush deletions
+            student_to_update.student_subjects.clear()
+            await self.db.flush()
+            
+            # Create new subjects and their M2M relationships
+            all_shared_student_ids = {
+                student_id
+                for subject_data in update_data.student_subjects
+                for student_id in subject_data.shared_with_student_ids
+            }
+
+            shared_students_map = {}
+            if all_shared_student_ids:
+                shared_students = await self.get_users_by_ids(list(all_shared_student_ids))
+                shared_students_map = {user.id: user for user in shared_students}
+
+            for subject_data in update_data.student_subjects:
+                new_subject = db_models.StudentSubjects(
+                    subject=subject_data.subject.value,
+                    lessons_per_week=subject_data.lessons_per_week
+                )
+                for shared_student_id in subject_data.shared_with_student_ids:
+                    shared_student = shared_students_map.get(shared_student_id)
+                    if shared_student:
+                        new_subject.shared_with_student.append(shared_student)
+                student_to_update.student_subjects.append(new_subject)
+
+        self.db.add(student_to_update)
+        await self.db.flush()
+
+        # Re-fetch the student to get all updated relationships
+        updated_student = await self.get_user_by_id(student_id)
+        if not updated_student:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve updated student.")
+
+        # Manually construct StudentSubjectRead objects to include shared_with_student_ids
+        student_subjects_read = []
+        for sub in updated_student.student_subjects:
+            student_subjects_read.append(user_models.StudentSubjectRead(
+                id=sub.id,
+                subject=sub.subject,
+                lessons_per_week=sub.lessons_per_week,
+                shared_with_student_ids=[s.id for s in sub.shared_with_student]
+            ))
+
+        # Construct the final StudentRead model
+        return user_models.StudentRead(
+            id=updated_student.id,
+            email=updated_student.email,
+            role=updated_student.role,
+            timezone=updated_student.timezone,
+            first_name=updated_student.first_name,
+            last_name=updated_student.last_name,
+            is_first_sign_in=updated_student.is_first_sign_in,
+            parent_id=updated_student.parent_id,
+            cost=updated_student.cost,
+            status=updated_student.status, # ORM will return string here correctly
+            min_duration_mins=updated_student.min_duration_mins,
+            max_duration_mins=updated_student.max_duration_mins,
+            grade=updated_student.grade,
+            student_subjects=student_subjects_read,
+            student_availability_intervals=[
+                user_models.StudentAvailabilityIntervalRead.model_validate(interval)
+                for interval in updated_student.student_availability_intervals
+            ]
+        )
+
+    async def delete_student(
+        self,
+        student_id: UUID,
+        current_user: db_models.Users
+    ) -> bool:
+        """
+        Deletes a student user.
+        - Authorized for Teachers and Parents (only their own children).
+        """
+        log.info(f"User {current_user.id} attempting to delete student {student_id}.")
+
+        # 1. Fetch existing student and authorize
+        student_to_delete = await self.get_user_by_id(student_id)
+        if not student_to_delete or student_to_delete.role != UserRole.STUDENT.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Student not found."
+            )
+
+        if current_user.role == UserRole.TEACHER.value:
+            # Teachers can delete any student
+            pass
+        elif current_user.role == UserRole.PARENT.value:
+            # Parents can only delete their own children
+            if student_to_delete.parent_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Parents can only delete their own children."
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to delete students."
+            )
+        
+        # 2. Delete the student
+        await self.db.delete(student_to_delete)
+        # No need to explicitly delete related objects due to CASCADE ON DELETE in DB schema
+        
+        return True
 
 
 class TeacherService(UserService):

@@ -286,38 +286,45 @@ class Students(Users):
     parent: Mapped['Parents'] = relationship(
         'Parents', 
         back_populates='students',
-        foreign_keys='[Students.parent_id]'  # MANUAL: Add this
+        foreign_keys='[Students.parent_id]'
     )
 
     notes: Mapped[list['Notes']] = relationship(
         'Notes', 
         back_populates='student',
-        cascade='all, delete-orphan' # Added cascade
+        cascade='all, delete-orphan'
     )
 
     tuition_template_charges: Mapped[List['TuitionTemplateCharges']] = relationship(
         'TuitionTemplateCharges', 
         back_populates='student',
-        foreign_keys='[TuitionTemplateCharges.student_id]'  # MANUAL: Add this
+        foreign_keys='[TuitionTemplateCharges.student_id]',
+        cascade='all, delete-orphan'
     )
     tuition_log_charges: Mapped[List['TuitionLogCharges']] = relationship(
         'TuitionLogCharges', 
         back_populates='student',
-        foreign_keys='[TuitionLogCharges.student_id]'  # MANUAL: Add this
+        foreign_keys='[TuitionLogCharges.student_id]',
+        cascade='all, delete-orphan'
     )
 
     student_subject: Mapped[List['StudentSubjects']] = relationship(
-            'StudentSubjects', 
-            secondary='student_subject_sharings', 
-            back_populates='shared_with_student')
+        'StudentSubjects', 
+        secondary='student_subject_sharings', 
+        back_populates='shared_with_student'
+    )
 
     student_subjects: Mapped[List['StudentSubjects']] = relationship(
-            'StudentSubjects', 
-            back_populates='student')
+        'StudentSubjects', 
+        back_populates='student',
+        cascade='all, delete-orphan'
+    )
 
     student_availability_intervals: Mapped[List['StudentAvailabilityIntervals']] = relationship(
-            'StudentAvailabilityIntervals', 
-            back_populates='student')
+        'StudentAvailabilityIntervals', 
+        back_populates='student',
+        cascade='all, delete-orphan'
+    )
 
 class Tuitions(Base):
     __tablename__ = 'tuitions'

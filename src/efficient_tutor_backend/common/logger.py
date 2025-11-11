@@ -12,6 +12,9 @@ def setup_logger():
     logger = logging.getLogger('ET-backend')
     logger.setLevel(logging.INFO)
 
+    # Suppress specific noisy loggers
+    logging.getLogger('passlib.handlers.bcrypt').setLevel(logging.ERROR)
+    
     handler = logging.StreamHandler(sys.stdout)
     
     # This adds the module name and pads it to 18 characters for clean alignment.
