@@ -133,7 +133,6 @@ class StudentCreate(BaseModel):
     email: str
     first_name: str
     last_name: str
-    timezone: str
 
     # Fields specific to Student
     parent_id: UUID
@@ -145,3 +144,47 @@ class StudentCreate(BaseModel):
     
     student_subjects: List[StudentSubjectWrite] = Field(default_factory=list)
     student_availability_intervals: List[StudentAvailabilityIntervalWrite] = Field(default_factory=list)
+
+class StudentUpdate(BaseModel):
+    """
+    Pydantic model for validating the JSON payload when UPDATING an existing student.
+    All fields are optional to allow for partial updates (PATCH).
+    """
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    timezone: Optional[str] = None
+
+    parent_id: Optional[UUID] = None # Changing parent is a significant operation, but allowed
+    cost: Optional[Decimal] = Field(None, decimal_places=2)
+    status: Optional[StudentStatusEnum] = None
+    min_duration_mins: Optional[int] = None
+    max_duration_mins: Optional[int] = None
+    grade: Optional[int] = None
+    
+    # For nested lists, we typically replace the entire list on update
+    student_subjects: Optional[List[StudentSubjectWrite]] = None
+    student_availability_intervals: Optional[List[StudentAvailabilityIntervalWrite]] = None
+
+class ParentCreate(BaseModel):
+    """
+    Pydantic model for validating the JSON payload when CREATING a new parent.
+    This is used for parent sign-up.
+    Timezone and currency will be determined automatically by the backend.
+    """
+    email: str
+    password: str
+    first_name: str
+    last_name: str
+
+class ParentUpdate(BaseModel):
+    """
+    Pydantic model for validating the JSON payload when UPDATING a parent.
+    All fields are optional to allow for partial updates.
+    """
+    email: Optional[str] = None
+    password: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    timezone: Optional[str] = None
+    currency: Optional[str] = None

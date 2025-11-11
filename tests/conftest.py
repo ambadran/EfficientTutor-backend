@@ -11,6 +11,8 @@ This file sets up fixtures for:
 import pytest
 import os
 from typing import AsyncGenerator
+from datetime import time
+from unittest.mock import AsyncMock, MagicMock
 
 # --- FastAPI & Testing Imports ---
 from fastapi.testclient import TestClient
@@ -38,6 +40,7 @@ from tests.constants import (
 from src.efficient_tutor_backend.main import app
 from src.efficient_tutor_backend.common.config import settings
 from src.efficient_tutor_backend.database.engine import get_db_session
+from src.efficient_tutor_backend.database.db_enums import SubjectEnum
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import (
     UserService, ParentService, StudentService
@@ -50,6 +53,7 @@ from src.efficient_tutor_backend.services.finance_service import (
     FinancialSummaryService
 )
 from src.efficient_tutor_backend.services.notes_service import NotesService
+from src.efficient_tutor_backend.services.geo_service import GeoService
 
 
 @pytest.fixture(scope="session")
@@ -139,8 +143,19 @@ def user_service(db_session: AsyncSession) -> UserService:
     return UserService(db=db_session)
 
 @pytest.fixture(scope="function")
-def parents_service(db_session: AsyncSession) -> ParentService:
-    return ParentService(db=db_session)
+def parents_service(db_session: AsyncSession, mock_geo_service: GeoService) -> ParentService:
+    return ParentService(db=db_session, geo_service=mock_geo_service)
+
+@pytest.fixture(scope="function")
+def mock_geo_service() -> GeoService:
+    """Provides a mock GeoService instance."""
+    mock_service = MagicMock(spec=GeoService)
+    # Configure the mock's get_location_info method
+    mock_service.get_location_info = AsyncMock(return_value={
+        "timezone": "America/New_York",
+        "currency": "USD"
+    })
+    return mock_service
 
 @pytest.fixture(scope="function")
 def student_service(db_session: AsyncSession) -> StudentService:
@@ -394,5 +409,31 @@ async def test_unrelated_parent_orm(db_session: AsyncSession) -> db_models.Paren
     assert parent.id != TEST_PARENT_ID, "TEST_UNRELATED_PARENT_ID is the same as TEST_PARENT_ID"
     return parent 
 
+
+@pytest.fixture
+def valid_student_data() -> dict:
+    """Provides a valid dictionary for creating a student."""
+    return {
+        "email": "pytest.student@example.com",
+        "first_name": "Pytest",
+        "last_name": "Student",
+        "timezone": "UTC",
+        "parent_id": TEST_PARENT_ID,
+        "student_subjects": [
+            {
+                "subject": SubjectEnum.PHYSICS,
+                "lessons_per_week": 2,
+                "shared_with_student_ids": [TEST_STUDENT_ID]
+            }
+        ],
+        "student_availability_intervals": [
+            {
+                "day_of_week": 1,
+                "start_time": time(9, 0),
+                "end_time": time(17, 0),
+                "availability_type": "school"
+            }
+        ]
+    }
 
 
