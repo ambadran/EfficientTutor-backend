@@ -288,7 +288,8 @@ async def test_tuition_orm(db_session: AsyncSession) -> db_models.Tuitions:
     # --- THE FIX ---
     # We must eagerly load the relationship to prevent lazy-load errors
     stmt = select(db_models.Tuitions).options(
-        selectinload(db_models.Tuitions.meeting_link)
+        selectinload(db_models.Tuitions.meeting_link),
+        selectinload(db_models.Tuitions.tuition_template_charges)
     ).filter(db_models.Tuitions.id == TEST_TUITION_ID)
     
     result = await db_session.execute(stmt)
@@ -423,7 +424,8 @@ def valid_student_data() -> dict:
             {
                 "subject": SubjectEnum.PHYSICS,
                 "lessons_per_week": 2,
-                "shared_with_student_ids": [TEST_STUDENT_ID]
+                "shared_with_student_ids": [TEST_STUDENT_ID],
+                "teacher_id": TEST_TEACHER_ID
             }
         ],
         "student_availability_intervals": [

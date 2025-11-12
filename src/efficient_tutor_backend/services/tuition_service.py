@@ -19,6 +19,7 @@ from ..models import meeting_links as meeting_link_models
 from ..common.logger import log
 from .user_service import UserService
 
+
 class TuitionService:
     """
     REFACTORED: Service for managing tuition templates, including authorization,
@@ -302,6 +303,83 @@ class TuitionService:
             log.error(f"Error in delete_meeting_link for tuition {tuition_id}: {e}", exc_info=True)
             raise
 
+    async def update_tuition_by_id(self, tuition_id: UUID, update_data: tuition_models.TuitionUpdate, current_user: db_models.Users) -> dict[str, Any]:
+        """
+        Updates the editable fields of a tuition (durations and student costs).
+        Restricted to the Teacher who owns the tuition.
+        """
+        log.info(f"User {current_user.id} attempting to update tuition {tuition_id}.")
+        
+        if not update_data.model_dump(exclude_unset=True):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No update data provided."
+            )
+            
+        try:
+            # 1. Fetch the complete tuition object, which eager-loads charges
+            tuition_orm = await self._get_tuition_by_id_internal(tuition_id)
+            
+            # 2. Authorize that the current user is the teacher owning this tuition
+            self._authorize_write_access(tuition_orm, current_user)
+            
+            # 3. Update Durations
+            min_updated = update_data.min_duration_minutes is not None
+            max_updated = update_data.max_duration_minutes is not None
+
+            # Start with the existing values
+            new_min = tuition_orm.min_duration_minutes
+            new_max = tuition_orm.max_duration_minutes
+
+            # Overwrite with new values if they were provided
+            if min_updated:
+                new_min = update_data.min_duration_minutes
+            if max_updated:
+                new_max = update_data.max_duration_minutes
+
+            # Validate consistency
+            if new_max < new_min:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="max_duration_minutes cannot be less than min_duration_minutes."
+                )
+            
+            # Apply the final, validated values
+            tuition_orm.min_duration_minutes = new_min
+            tuition_orm.max_duration_minutes = new_max
+
+            # 4. Update Charges
+            if update_data.charges is not None:
+                charge_map = {charge.student_id: charge for charge in tuition_orm.tuition_template_charges}
+                
+                valid_student_ids = set(charge_map.keys())
+                incoming_student_ids = {charge.student_id for charge in update_data.charges}
+                
+                invalid_ids = incoming_student_ids - valid_student_ids
+                if invalid_ids:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"One or more student IDs are not part of this tuition: {', '.join(map(str, invalid_ids))}"
+                    )
+                
+                # Apply the cost updates
+                for charge_update in update_data.charges:
+                    charge_map[charge_update.student_id].cost = charge_update.cost
+
+            # 5. Commit and Return
+            self.db.add(tuition_orm)
+            await self.db.flush()
+            
+            # The ORM object is now updated. We can format it for the response.
+            return self._format_for_teacher_api(tuition_orm)
+
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Error in update_tuition_by_id for tuition {tuition_id}: {e}", exc_info=True)
+            raise
+
+
     # --- 6. Internal Formatters ---
 
     def _format_tuition_for_api(self, tuition_orm: db_models.Tuitions, current_user: db_models.Users) -> dict[str, Any]:
@@ -392,77 +470,107 @@ class TuitionService:
 
     async def regenerate_all_tuitions(self) -> bool:
         """
-        REFACTORED: Regenerates all tuition templates and preserves
-        the associated meeting links.
+        REFACTORED: Regenerates all tuition templates based on the new
+        `StudentSubjects` and `student_subject_sharings` tables,
+        and preserves associated meeting links and costs.
         """
         log.info("Starting regeneration of all tuitions...")
         
         try:
-            # 1. Preserve existing meeting links
             old_links_stmt = select(db_models.MeetingLinks)
             old_links_result = await self.db.execute(old_links_stmt)
-            old_links_dict = {link.tuition_id: link for link in old_links_result.scalars().all()}
+            old_links = old_links_result.scalars().all()
+            old_links_dict = {link.tuition_id: link for link in old_links}
             log.info(f"Preserved {len(old_links_dict)} existing meeting links.")
+            for link in old_links:
+                self.db.expunge(link)
 
-            # 2. Fetch all students
-            student_stmt = select(db_models.Students).options(
-                selectinload(db_models.Students.parent)
+            old_charges_stmt = select(db_models.TuitionTemplateCharges)
+            old_charges_result = await self.db.execute(old_charges_stmt)
+            old_charges = old_charges_result.scalars().all()
+            old_charges_dict = {
+                (charge.tuition_id, charge.student_id): charge.cost 
+                for charge in old_charges
+            }
+            log.info(f"Preserved {len(old_charges_dict)} existing tuition charges.")
+            for charge in old_charges:
+                self.db.expunge(charge)
+
+            # 2. Fetch all student subject enrollments with necessary related data.
+            stmt = select(db_models.StudentSubjects).options(
+                selectinload(db_models.StudentSubjects.student).selectinload(db_models.Students.parent),
+                selectinload(db_models.StudentSubjects.teacher),
+                selectinload(db_models.StudentSubjects.shared_with_student).selectinload(db_models.Students.parent) # Critical for grouping
             )
-            all_students = list((await self.db.execute(student_stmt)).scalars().all())
+            all_student_subjects = list((await self.db.execute(stmt)).scalars().all())
             
-            if not all_students:
-                log.warning("No students found. Truncating tuitions and finishing.")
+            if not all_student_subjects:
+                log.warning("No student subjects found. Truncating tuitions and finishing.")
                 await self.db.execute(text("TRUNCATE TABLE tuitions RESTART IDENTITY CASCADE"))
                 return True
 
-            # 3. Group students in Python (same logic as before)
-            grouped_students = {}
-            for student in all_students:
-                if not student.student_data or not student.student_data.get('subjects'):
-                    continue
-                for subject_info in student.student_data['subjects']:
-                    for teacher_id in subject_info.get('sharedWith', []):
-                        key = (subject_info['name'], teacher_id)
-                        if key not in grouped_students:
-                            grouped_students[key] = []
-                        grouped_students[key].append(student)
-
-            # 4. Prepare new ORM objects
+            # 3. Group students and generate new ORM objects
             new_tuitions = []
             new_charges = []
-            new_meeting_links = [] # List to hold the restored links
-            
-            for (subject_name, teacher_id), students_in_group in grouped_students.items():
-                lesson_index = 1
-                student_ids = sorted([s.id for s in students_in_group])
+            new_meeting_links = []
+            # Use a set to track students already assigned to a group for a specific subject/teacher
+            # to avoid creating duplicate tuitions. Key: (student_id, subject, teacher_id)
+            processed_students = set()
+
+            for ss in all_student_subjects:
+                process_key = (ss.student_id, ss.subject, ss.teacher_id)
+                if process_key in processed_students:
+                    continue # This student has already been added to a group for this subject/teacher
+
+                # This is a new group. The group consists of the main student
+                # plus all students they share this subject with.
+                group_students = [ss.student] + ss.shared_with_student
                 
+                # The teacher and subject are the same for the whole group
+                teacher_id = ss.teacher_id
+                subject_name = ss.subject
+                
+                if not teacher_id:
+                    log.warning(f"Skipping group for subject '{subject_name}' because teacher_id is missing for student {ss.student_id}.")
+                    continue
+
+                # Generate the deterministic ID based on all students in the group
+                student_ids_in_group = sorted([s.id for s in group_students])
                 tuition_id = self._generate_deterministic_id(
                     subject=subject_name,
-                    lesson_index=lesson_index,
+                    lesson_index=1, # lesson_index is always 1 for templates
                     teacher_id=teacher_id,
-                    student_ids=student_ids
+                    student_ids=student_ids_in_group
                 )
-                
+
+                # Create the new Tuition object
+                # Durations are assumed to be consistent across the group, taken from the first student.
                 new_tuition = db_models.Tuitions(
                     id=tuition_id,
                     teacher_id=teacher_id,
                     subject=subject_name,
-                    lesson_index=lesson_index,
-                    min_duration_minutes=students_in_group[0].min_duration_mins,
-                    max_duration_minutes=students_in_group[0].max_duration_mins,
-                    # DO NOT add meeting link here yet
+                    lesson_index=1,
+                    min_duration_minutes=ss.student.min_duration_mins,
+                    max_duration_minutes=ss.student.max_duration_mins,
                 )
                 new_tuitions.append(new_tuition)
-                
-                for student in students_in_group:
+
+                # Create charges for every student in the group
+                for student_in_group in group_students:
+                    # Use preserved cost if available, otherwise fall back to student's current cost
+                    preserved_cost = old_charges_dict.get((tuition_id, student_in_group.id))
+                    cost_to_use = preserved_cost if preserved_cost is not None else student_in_group.cost
+
                     new_charges.append(db_models.TuitionTemplateCharges(
                         tuition_id=tuition_id,
-                        student_id=student.id,
-                        parent_id=student.parent_id,
-                        cost=student.cost
+                        student_id=student_in_group.id,
+                        parent_id=student_in_group.parent_id,
+                        cost=cost_to_use
                     ))
-                
-                # 5. Check if a link existed for this ID and re-create it
+                    # Mark this student as processed for this specific subject/teacher combo
+                    processed_students.add((student_in_group.id, subject_name, teacher_id))
+
+                # 5. Check if a link existed for this deterministic ID and restore it
                 if tuition_id in old_links_dict:
                     old_link = old_links_dict[tuition_id]
                     new_meeting_links.append(db_models.MeetingLinks(
@@ -475,13 +583,14 @@ class TuitionService:
             
             log.info(f"Generated {len(new_tuitions)} tuitions, {len(new_charges)} charges, and restored {len(new_meeting_links)} links.")
 
-            # 6. Perform the database transaction
-            await self.db.execute(text("TRUNCATE TABLE tuitions RESTART IDENTITY CASCADE"))
+            # 6. Perform the database transaction: wipe and recreate
+            await self.db.execute(delete(db_models.Tuitions))
             
             self.db.add_all(new_tuitions)
             self.db.add_all(new_charges)
-            self.db.add_all(new_meeting_links) # Add the restored links
+            self.db.add_all(new_meeting_links)
             
+            await self.db.flush()
             log.info("Successfully regenerated all tuitions.")
             return True
 
