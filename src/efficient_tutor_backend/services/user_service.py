@@ -49,7 +49,10 @@ class UserService:
             elif base_user.role == UserRole.STUDENT.value:
                 stmt = select(db_models.Students).options(
                     selectinload(db_models.Students.parent), # EAGER LOAD PARENT
-                    selectinload(db_models.Students.student_subjects).selectinload(db_models.StudentSubjects.shared_with_student),
+                    selectinload(db_models.Students.student_subjects).options(
+                        selectinload(db_models.StudentSubjects.shared_with_student),
+                        selectinload(db_models.StudentSubjects.teacher)
+                    ),
                     selectinload(db_models.Students.student_availability_intervals)
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
@@ -87,7 +90,10 @@ class UserService:
             elif base_user.role == UserRole.STUDENT.value:
                 stmt = select(db_models.Students).options(
                     selectinload(db_models.Students.parent), # EAGER LOAD PARENT
-                    selectinload(db_models.Students.student_subjects).selectinload(db_models.StudentSubjects.shared_with_student),
+                    selectinload(db_models.Students.student_subjects).options(
+                        selectinload(db_models.StudentSubjects.shared_with_student),
+                        selectinload(db_models.StudentSubjects.teacher)
+                    ),
                     selectinload(db_models.Students.student_availability_intervals)
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
@@ -136,7 +142,10 @@ class UserService:
             if role_map[UserRole.STUDENT.value]:
                 stmt = select(db_models.Students).options(
                     selectinload(db_models.Students.parent), # EAGER LOAD PARENT
-                    selectinload(db_models.Students.student_subjects).selectinload(db_models.StudentSubjects.shared_with_student),
+                    selectinload(db_models.Students.student_subjects).options(
+                        selectinload(db_models.StudentSubjects.shared_with_student),
+                        selectinload(db_models.StudentSubjects.teacher)
+                    ),
                     selectinload(db_models.Students.student_availability_intervals)
                 ).filter(db_models.Students.id.in_(role_map[UserRole.STUDENT.value]))
                 final_users.extend((await self.db.execute(stmt)).scalars().all())
@@ -388,7 +397,10 @@ class StudentService(UserService):
                 
                 stmt = select(db_models.Students).options(
                     selectinload(db_models.Students.parent), # Eager load the parent
-                    selectinload(db_models.Students.student_subjects).selectinload(db_models.StudentSubjects.shared_with_student),
+                    selectinload(db_models.Students.student_subjects).options(
+                        selectinload(db_models.StudentSubjects.shared_with_student),
+                        selectinload(db_models.StudentSubjects.teacher)
+                    ),
                     selectinload(db_models.Students.student_availability_intervals)
                 ).filter(
                     db_models.Students.id.in_(subquery)
@@ -486,26 +498,38 @@ class StudentService(UserService):
             )
             self.db.add(new_interval)
 
-        # Subjects and their M2M relationships
+        # Subjects, M2M relationships, and Teacher validation
+        all_teacher_ids = {sub.teacher_id for sub in student_data.student_subjects}
         all_shared_student_ids = {
             student_id
             for subject_data in student_data.student_subjects
             for student_id in subject_data.shared_with_student_ids
         }
+        
+        # Fetch all relevant users (teachers and shared students) in one go
+        all_related_user_ids = list(all_teacher_ids | all_shared_student_ids)
+        related_users = await self.get_users_by_ids(all_related_user_ids)
+        
+        # Create maps for quick lookup and validation
+        teachers_map = {u.id: u for u in related_users if u.role == UserRole.TEACHER.value}
+        shared_students_map = {u.id: u for u in related_users if u.role == UserRole.STUDENT.value}
 
-        shared_students_map = {}
-        if all_shared_student_ids:
-            shared_students = await self.get_users_by_ids(list(all_shared_student_ids))
-            shared_students_map = {user.id: user for user in shared_students}
-
+        # Validate that all provided teacher_ids are valid teachers
+        if len(teachers_map) != len(all_teacher_ids):
+            invalid_ids = all_teacher_ids - set(teachers_map.keys())
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Invalid teacher_id(s) provided: {', '.join(map(str, invalid_ids))}"
+            )
 
         for subject_data in student_data.student_subjects:
             new_subject = db_models.StudentSubjects(
                 student=new_student,
                 subject=subject_data.subject.value,
-                lessons_per_week=subject_data.lessons_per_week
+                lessons_per_week=subject_data.lessons_per_week,
+                teacher_id=subject_data.teacher_id # Assign the teacher
             )
-            # Handle M2M relationship
+            # Handle M2M relationship for shared subjects
             for shared_student_id in subject_data.shared_with_student_ids:
                 shared_student = shared_students_map.get(shared_student_id)
                 if shared_student:
@@ -516,19 +540,30 @@ class StudentService(UserService):
         self.db.add(new_student)
         await self.db.flush()
         
-        # Refresh the new student to load all relationships for the response model
-        await self.db.refresh(
-            new_student,
-            ['parent', 'student_subjects', 'student_availability_intervals']
+        # Re-fetch the new student with all necessary relationships eagerly loaded
+        new_student = await self.db.execute(
+            select(db_models.Students)
+            .options(
+                selectinload(db_models.Students.parent),
+                selectinload(db_models.Students.student_subjects).options(
+                    selectinload(db_models.StudentSubjects.shared_with_student)
+                ),
+                selectinload(db_models.Students.student_availability_intervals)
+            )
+            .filter(db_models.Students.id == new_student.id)
         )
+        new_student = new_student.scalars().first()
+        if not new_student:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve newly created student.")
         
-        # Manually construct StudentSubjectRead objects to include shared_with_student_ids
+        # Manually construct StudentSubjectRead objects to include the new teacher_id
         student_subjects_read = []
         for sub in new_student.student_subjects:
             student_subjects_read.append(user_models.StudentSubjectRead(
                 id=sub.id,
                 subject=sub.subject,
                 lessons_per_week=sub.lessons_per_week,
+                teacher_id=sub.teacher_id,
                 shared_with_student_ids=[s.id for s in sub.shared_with_student]
             ))
 
@@ -647,22 +682,32 @@ class StudentService(UserService):
             student_to_update.student_subjects.clear()
             await self.db.flush()
             
-            # Create new subjects and their M2M relationships
+            # Create new subjects, M2M relationships, and validate teachers
+            all_teacher_ids = {sub.teacher_id for sub in update_data.student_subjects}
             all_shared_student_ids = {
                 student_id
                 for subject_data in update_data.student_subjects
                 for student_id in subject_data.shared_with_student_ids
             }
 
-            shared_students_map = {}
-            if all_shared_student_ids:
-                shared_students = await self.get_users_by_ids(list(all_shared_student_ids))
-                shared_students_map = {user.id: user for user in shared_students}
+            all_related_user_ids = list(all_teacher_ids | all_shared_student_ids)
+            related_users = await self.get_users_by_ids(all_related_user_ids)
+
+            teachers_map = {u.id: u for u in related_users if u.role == UserRole.TEACHER.value}
+            shared_students_map = {u.id: u for u in related_users if u.role == UserRole.STUDENT.value}
+
+            if len(teachers_map) != len(all_teacher_ids):
+                invalid_ids = all_teacher_ids - set(teachers_map.keys())
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Invalid teacher_id(s) provided: {', '.join(map(str, invalid_ids))}"
+                )
 
             for subject_data in update_data.student_subjects:
                 new_subject = db_models.StudentSubjects(
                     subject=subject_data.subject.value,
-                    lessons_per_week=subject_data.lessons_per_week
+                    lessons_per_week=subject_data.lessons_per_week,
+                    teacher_id=subject_data.teacher_id # Assign the teacher
                 )
                 for shared_student_id in subject_data.shared_with_student_ids:
                     shared_student = shared_students_map.get(shared_student_id)
@@ -678,13 +723,14 @@ class StudentService(UserService):
         if not updated_student:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve updated student.")
 
-        # Manually construct StudentSubjectRead objects to include shared_with_student_ids
+        # Manually construct StudentSubjectRead objects to include the new teacher_id
         student_subjects_read = []
         for sub in updated_student.student_subjects:
             student_subjects_read.append(user_models.StudentSubjectRead(
                 id=sub.id,
                 subject=sub.subject,
                 lessons_per_week=sub.lessons_per_week,
+                teacher_id=sub.teacher_id,
                 shared_with_student_ids=[s.id for s in sub.shared_with_student]
             ))
 

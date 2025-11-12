@@ -171,3 +171,14 @@ class MeetingLinkTypeEnum(Enum):
     def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
+
+
+class AvailabilityTypeEnum(Enum):
+    SLEEP = 'sleep'
+    SCHOOL = 'school'
+    OTHERS = 'others'
+
+    @classmethod
+    def get_values(cls) -> list[str]:
+        """Returns all string values of the enum."""
+        return [e.value for e in cls]

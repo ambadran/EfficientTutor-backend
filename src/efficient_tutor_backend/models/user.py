@@ -24,6 +24,7 @@ class StudentSubjectRead(BaseModel):
     id: UUID
     subject: SubjectEnum
     lessons_per_week: int
+    teacher_id: UUID
     shared_with_student_ids: List[UUID] = Field(default_factory=list) # List of student IDs this subject is shared with
 
     model_config = ConfigDict(from_attributes=True)
@@ -111,6 +112,7 @@ class StudentSubjectWrite(BaseModel):
     Corresponds to db_models.StudentSubjects.
     """
     subject: SubjectEnum
+    teacher_id: UUID
     lessons_per_week: int = 1
     shared_with_student_ids: List[UUID] = Field(default_factory=list)
 

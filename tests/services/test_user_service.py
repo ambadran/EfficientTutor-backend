@@ -18,7 +18,7 @@ from src.efficient_tutor_backend.models import user as user_models
 from src.efficient_tutor_backend.database.db_enums import SubjectEnum, UserRole
 from src.efficient_tutor_backend.common.security_utils import HashedPassword
 from unittest.mock import MagicMock
-from tests.constants import TEST_TEACHER_ID, TEST_PARENT_ID, TEST_STUDENT_ID
+from tests.constants import TEST_TEACHER_ID, TEST_PARENT_ID, TEST_STUDENT_ID, TEST_UNRELATED_TEACHER_ID
 
 from pprint import pp as pprint
 
@@ -261,7 +261,6 @@ class TestParentService:
         
         assert e.value.status_code == 403
 
-
     # --- Tests for update_parent ---
 
     async def test_update_parent_as_self(
@@ -471,8 +470,6 @@ class TestParentService:
         with pytest.raises(HTTPException) as e:
             await parents_service.delete_parent(UUID(int=0), test_teacher_orm)
         assert e.value.status_code == 404
-
-
 
 
 @pytest.mark.anyio
@@ -804,7 +801,9 @@ class TestStudentService:
         assert len(student_to_update.student_availability_intervals) > 0
 
         new_subjects = [
-            user_models.StudentSubjectWrite(subject=SubjectEnum.CHEMISTRY, lessons_per_week=3)
+            user_models.StudentSubjectWrite(subject=SubjectEnum.CHEMISTRY,
+                                            lessons_per_week=3,
+                                            teacher_id=TEST_UNRELATED_TEACHER_ID)
         ]
         new_availability = [
             user_models.StudentAvailabilityIntervalWrite(day_of_week=7, start_time=time(10,0), end_time=time(12,0), availability_type="sleep")
@@ -826,6 +825,7 @@ class TestStudentService:
         assert len(updated_student.student_subjects) == 1
         assert updated_student.student_subjects[0].subject == SubjectEnum.CHEMISTRY
         assert updated_student.student_subjects[0].lessons_per_week == 3
+        assert updated_student.student_subjects[0].teacher_id == TEST_UNRELATED_TEACHER_ID
         
         assert len(updated_student.student_availability_intervals) == 1
         assert updated_student.student_availability_intervals[0].day_of_week == 7

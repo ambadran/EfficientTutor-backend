@@ -1,8 +1,7 @@
 from typing import List, Optional
 
-from sqlalchemy import Boolean, CheckConstraint, Enum, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, String, Text, Time, UniqueConstraint, Uuid, text
+from sqlalchemy import Boolean, CheckConstraint, Enum, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-import datetime
 import decimal
 import uuid
 
@@ -41,6 +40,18 @@ class Parents(Users):
     students: Mapped[List['Students']] = relationship('Students', back_populates='parent')
 
 
+class Teachers(Users):
+    __tablename__ = 'teachers'
+    __table_args__ = (
+        ForeignKeyConstraint(['id'], ['users.id'], ondelete='CASCADE', name='teachers_id_fkey'),
+        PrimaryKeyConstraint('id', name='teachers_pkey')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+
+    student_subjects: Mapped[List['StudentSubjects']] = relationship('StudentSubjects', back_populates='teacher')
+
+
 class Students(Users):
     __tablename__ = 'students'
     __table_args__ = (
@@ -60,23 +71,24 @@ class Students(Users):
     generated_password: Mapped[Optional[str]] = mapped_column(Text)
 
     parent: Mapped['Parents'] = relationship('Parents', back_populates='students')
-    student_availability_intervals: Mapped[List['StudentAvailabilityIntervals']] = relationship('StudentAvailabilityIntervals', back_populates='student')
+    student_subjects: Mapped[List['StudentSubjects']] = relationship('StudentSubjects', back_populates='student')
 
 
-class StudentAvailabilityIntervals(Base):
-    __tablename__ = 'student_availability_intervals'
+class StudentSubjects(Base):
+    __tablename__ = 'student_subjects'
     __table_args__ = (
-        CheckConstraint('day_of_week >= 1 AND day_of_week <= 7', name='student_availability_intervals_day_of_week_check'),
-        ForeignKeyConstraint(['student_id'], ['students.id'], ondelete='CASCADE', name='student_availability_intervals_student_id_fkey'),
-        PrimaryKeyConstraint('id', name='student_availability_intervals_pkey'),
-        Index('idx_student_availability_student_id', 'student_id')
+        ForeignKeyConstraint(['student_id'], ['students.id'], ondelete='CASCADE', name='student_subjects_student_id_fkey'),
+        ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='SET NULL', name='student_subjects_teacher_id_fkey'),
+        PrimaryKeyConstraint('id', name='student_subjects_pkey'),
+        UniqueConstraint('student_id', 'subject', 'teacher_id', name='student_subjects_student_id_subject_teacher_id_key'),
+        Index('idx_student_subjects_student_id', 'student_id')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     student_id: Mapped[uuid.UUID] = mapped_column(Uuid)
-    day_of_week: Mapped[int] = mapped_column(Integer)
-    start_time: Mapped[datetime.time] = mapped_column(Time)
-    end_time: Mapped[datetime.time] = mapped_column(Time)
-    availability_type: Mapped[str] = mapped_column(Enum('sleep', 'school', 'sports', 'others', name='availability_type_enum'))
+    subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
+    lessons_per_week: Mapped[int] = mapped_column(Integer, server_default=text('1'))
+    teacher_id: Mapped[uuid.UUID] = mapped_column(Uuid)
 
-    student: Mapped['Students'] = relationship('Students', back_populates='student_availability_intervals')
+    student: Mapped['Students'] = relationship('Students', back_populates='student_subjects')
+    teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='student_subjects')

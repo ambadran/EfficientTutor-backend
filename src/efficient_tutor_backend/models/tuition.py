@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Import the new, simple read models
 from .user import UserRead, ParentRead
@@ -77,3 +77,39 @@ class TuitionReadForStudent(BaseModel):
     attendee_names: list[str] # All student names for context
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- API Write Models (Input) ---
+
+class TuitionChargeUpdate(BaseModel):
+    """
+    Specifies a new cost for a single student within a tuition.
+    """
+    student_id: UUID
+    cost: Decimal = Field(..., gt=0, description="The new cost for the student, must be positive.")
+
+class TuitionUpdate(BaseModel):
+    """
+    The API model for updating a tuition's editable fields.
+    All fields are optional.
+    """
+    min_duration_minutes: Optional[int] = Field(None, gt=0, description="The new minimum duration in minutes.")
+    max_duration_minutes: Optional[int] = Field(None, gt=0, description="The new maximum duration in minutes.")
+    charges: Optional[list[TuitionChargeUpdate]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode='after')
+    def validate_durations(self) -> 'TuitionUpdate':
+        """
+        Ensures that if both min and max durations are provided, max is not less than min.
+        If only one is provided, it will be validated against the existing value in the service layer.
+        """
+        min_duration = self.min_duration_minutes
+        max_duration = self.max_duration_minutes
+        
+        if min_duration is not None and max_duration is not None:
+            if max_duration < min_duration:
+                raise ValueError('max_duration_minutes cannot be less than min_duration_minutes')
+        return self
+
