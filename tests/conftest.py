@@ -169,6 +169,23 @@ def mock_geo_service() -> GeoService:
     return mock_service
 
 @pytest.fixture(scope="function")
+def mock_api_geo_service() -> MagicMock:
+    """
+    Provides a mock GeoService where get_location_info returns a mock
+    response object with a .json() method, suitable for API-level tests.
+    """
+    mock_service = MagicMock(spec=GeoService)
+    
+    location_data = {"timezone": "America/New_York", "currency": "USD"}
+
+    mock_response = MagicMock()
+    mock_response.json = AsyncMock(return_value=location_data)
+
+    mock_service.get_location_info = AsyncMock(return_value=mock_response)
+    
+    return mock_service
+
+@pytest.fixture(scope="function")
 def student_service(db_session: AsyncSession) -> StudentService:
     return StudentService(db=db_session)
 
