@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from .database.engine import create_db_engine_and_session_factory, dispose_db_engine
 from .common.logger import log
 from .common.config import settings
-from .api import auth, users
+from .api import auth, users, tuitions, timetable, tuition_logs, payment_logs, financial_summaries, notes # Added notes
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,5 +64,11 @@ async def health_check():
 
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(tuitions.router)
+app.include_router(timetable.router)
+app.include_router(tuition_logs.router)
+app.include_router(payment_logs.router)
+app.include_router(financial_summaries.router)
+app.include_router(notes.router) # Included notes router
 
 
