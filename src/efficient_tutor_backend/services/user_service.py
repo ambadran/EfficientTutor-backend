@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from ..database.engine import get_db_session
 from ..database import models as db_models
-from ..database.db_enums import UserRole, LogStatusEnum
+from ..database.db_enums import UserRole, LogStatusEnum, AdminPrivilegeType
 from ..common.logger import log
 from ..models import user as user_models
 from ..common.security_utils import HashedPassword
@@ -57,7 +57,9 @@ class UserService:
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
                 stmt = select(db_models.Teachers).filter(db_models.Teachers.id == base_user.id)
-            else: # Admin or other role
+            elif base_user.role == UserRole.ADMIN.value:
+                stmt = select(db_models.Admins).filter(db_models.Admins.id == base_user.id)
+            else: # Other role
                 return base_user # Return the base object
 
             result = await self.db.execute(stmt)
@@ -98,6 +100,8 @@ class UserService:
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
                 stmt = select(db_models.Teachers).filter(db_models.Teachers.id == base_user.id)
+            elif base_user.role == UserRole.ADMIN.value:
+                stmt = select(db_models.Admins).filter(db_models.Admins.id == base_user.id)
             else:
                 return base_user
 
@@ -155,7 +159,7 @@ class UserService:
                 final_users.extend((await self.db.execute(stmt)).scalars().all())
 
             if role_map[UserRole.ADMIN.value]:
-                stmt = select(db_models.Users).filter(db_models.Users.id.in_(role_map[UserRole.ADMIN.value]))
+                stmt = select(db_models.Admins).filter(db_models.Admins.id.in_(role_map[UserRole.ADMIN.value]))
                 final_users.extend((await self.db.execute(stmt)).scalars().all())
                 
             return final_users
@@ -943,4 +947,182 @@ class TeacherService(UserService):
         await self.db.delete(teacher_to_delete)
         log.info(f"Successfully deleted teacher {teacher_id}.")
         return True
+
+
+class AdminService(UserService):
+    """Service for admin-specific logic, including privilege management."""
+
+    def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)], geo_service: Annotated[GeoService, Depends(GeoService)]):
+        super().__init__(db)
+        self.geo_service = geo_service
+
+    async def get_all(self, current_user: db_models.Users) -> list[user_models.AdminRead]:
+        """
+        Fetches a list of all Admin objects.
+        This action is restricted to MASTER admins only.
+        """
+        log.info(f"User {current_user.id} attempting to get all admins.")
+        
+        if not isinstance(current_user, db_models.Admins):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to view this list."
+            )
+
+        if current_user.privileges != AdminPrivilegeType.MASTER.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only a Master admin can view the list of all admins."
+            )
+        
+        stmt = select(db_models.Admins).order_by(db_models.Admins.first_name)
+        result = await self.db.execute(stmt)
+        admins = result.scalars().all()
+        return [user_models.AdminRead.model_validate(admin) for admin in admins]
+
+    async def create_admin(
+        self,
+        admin_data: user_models.AdminCreate,
+        current_user: db_models.Users,
+        ip_address: str
+    ) -> user_models.AdminRead:
+        """
+        Creates a new admin user.
+        - Authorized for Master admins only.
+        - New admin's privilege cannot be Master.
+        - Determines timezone from IP.
+        """
+        log.info(f"User {current_user.id} attempting to create new admin {admin_data.email}.")
+
+        if not isinstance(current_user, db_models.Admins):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to create admins."
+            )
+
+        if current_user.privileges != AdminPrivilegeType.MASTER.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only a Master admin can create new admins."
+            )
+        
+        if admin_data.privileges == AdminPrivilegeType.MASTER.value or admin_data.privileges ==AdminPrivilegeType.MASTER:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot create another Master admin."
+            )
+
+        existing_user = await self.get_user_by_email(admin_data.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered."
+            )
+
+        location_info = await self.geo_service.get_location_info(ip_address)
+        hashed_password = HashedPassword.get_hash(admin_data.password)
+
+        new_admin = db_models.Admins(
+            id=uuid.uuid4(),
+            email=admin_data.email,
+            password=hashed_password,
+            first_name=admin_data.first_name,
+            last_name=admin_data.last_name,
+            timezone=location_info["timezone"],
+            role=UserRole.ADMIN.value,
+            privileges=admin_data.privileges.value
+        )
+
+        self.db.add(new_admin)
+        await self.db.flush()
+        await self.db.refresh(new_admin)
+
+        return user_models.AdminRead.model_validate(new_admin)
+
+    async def update_admin(
+        self,
+        admin_id: UUID,
+        update_data: user_models.AdminUpdate,
+        current_user: db_models.Users
+    ) -> user_models.AdminRead:
+        """
+        Updates an admin's profile with complex authorization.
+        """
+        log.info(f"User {current_user.id} attempting to update admin {admin_id}.")
+
+        if not isinstance(current_user, db_models.Admins):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update admin profiles."
+            )
+
+        admin_to_update = await self.get_user_by_id(admin_id)
+        if not admin_to_update or not isinstance(admin_to_update, db_models.Admins):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found.")
+
+        is_self_update = admin_to_update.id == current_user.id
+        update_dict = update_data.model_dump(exclude_unset=True)
+
+        if is_self_update:
+            if 'privileges' in update_dict:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot change your own privilege level.")
+        else:
+            if current_user.privileges != AdminPrivilegeType.MASTER.value:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a Master admin can update other admin profiles.")
+            
+            if update_data.privileges == AdminPrivilegeType.MASTER.value or update_data.privileges == AdminPrivilegeType.MASTER:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign Master privilege. This must be done via a dedicated transfer process.")
+
+        for key, value in update_dict.items():
+            if key == "password" and value:
+                setattr(admin_to_update, key, HashedPassword.get_hash(value))
+            elif key == "privileges" and value:
+                setattr(admin_to_update, key, value.value)
+            elif value is not None:
+                setattr(admin_to_update, key, value)
+
+        self.db.add(admin_to_update)
+        await self.db.flush()
+        await self.db.refresh(admin_to_update)
+
+        return user_models.AdminRead.model_validate(admin_to_update)
+
+    async def delete_admin(self, admin_id: UUID, current_user: db_models.Users) -> bool:
+        """
+        Deletes an admin user.
+        - Authorized for Master admins only.
+        - Prevents self-deletion.
+        """
+        log.info(f"User {current_user.id} attempting to delete admin {admin_id}.")
+
+        if not isinstance(current_user, db_models.Admins):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to delete admins."
+            )
+
+        if current_user.privileges != AdminPrivilegeType.MASTER.value:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a Master admin can delete other admins.")
+
+        if admin_id == current_user.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own account.")
+
+        admin_to_delete = await self.get_user_by_id(admin_id)
+        if not admin_to_delete or not isinstance(admin_to_delete, db_models.Admins):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found.")
+
+        try:
+            await self.db.delete(admin_to_delete)
+            await self.db.flush()
+            log.info(f"Successfully deleted admin {admin_id}.")
+            return True
+        except Exception as e:
+            # Catch potential errors from the database trigger
+            await self.db.rollback()
+            log.error(f"Database error during admin deletion, possibly from trigger: {e}")
+            # Check if the error message is from our trigger
+            if "Cannot delete or change the last Master admin" in str(e):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the last Master admin.")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected database error occurred.")
+
 

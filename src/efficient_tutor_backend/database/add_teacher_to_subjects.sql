@@ -20,3 +20,8 @@ ALTER COLUMN teacher_id SET NOT NULL;
 ALTER TABLE student_subjects
 DROP CONSTRAINT student_subjects_student_id_subject_key,
 ADD CONSTRAINT student_subjects_student_id_subject_teacher_id_key UNIQUE (student_id, subject, teacher_id);
+
+-- Add a 'currency' column to the 'teachers' table for financial consistency.
+-- It is non-nullable and defaults to 'EGP', matching the 'parents' table.
+ALTER TABLE teachers
+ADD COLUMN currency TEXT NOT NULL DEFAULT 'EGP';

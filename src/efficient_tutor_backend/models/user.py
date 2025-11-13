@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..database.db_enums import (
     UserRole, 
     StudentStatusEnum, 
-    SubjectEnum
+    SubjectEnum,
+    AdminPrivilegeType
 )
 
 # --- New Student-Specific Read Models (for relational data) ---
@@ -202,3 +203,37 @@ class TeacherUpdate(BaseModel):
     last_name: Optional[str] = None
     timezone: Optional[str] = None
     currency: Optional[str] = None
+
+
+class AdminRead(UserRead):
+    """
+    Pydantic model for reading an Admin.
+    Includes fields from db_models.Admins.
+    """
+    privileges: AdminPrivilegeType
+
+
+class AdminCreate(BaseModel):
+    """
+    Pydantic model for validating the JSON payload when CREATING a new admin.
+    This is used by a Master admin.
+    Timezone will be determined automatically by the backend.
+    """
+    email: str
+    password: str
+    first_name: str
+    last_name: str
+    privileges: AdminPrivilegeType = Field(..., description="Privilege level for the new admin.")
+
+
+class AdminUpdate(BaseModel):
+    """
+    Pydantic model for validating the JSON payload when UPDATING an admin.
+    All fields are optional to allow for partial updates.
+    """
+    email: Optional[str] = None
+    password: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    timezone: Optional[str] = None
+    privileges: Optional[AdminPrivilegeType] = None

@@ -238,10 +238,12 @@ class Admins(Users):
     __tablename__ = 'admins'
     __table_args__ = (
         ForeignKeyConstraint(['id'], ['users.id'], ondelete='CASCADE', name='admins_id_fkey'),
-        PrimaryKeyConstraint('id', name='admins_pkey')
+        PrimaryKeyConstraint('id', name='admins_pkey'),
+        Index('one_master_admin_idx', unique=True)
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    privileges: Mapped[str] = mapped_column(Enum('ReadOnly', 'Normal', 'Master', name='admin_privilege_type'), server_default=text("'Normal'::admin_privilege_type"))
 
 
 class PaymentLogs(Base):

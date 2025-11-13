@@ -12,6 +12,7 @@ import pytest
 import os
 from typing import AsyncGenerator
 from datetime import time
+import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 # --- FastAPI & Testing Imports ---
@@ -41,10 +42,19 @@ from tests.constants import (
 from src.efficient_tutor_backend.main import app
 from src.efficient_tutor_backend.common.config import settings
 from src.efficient_tutor_backend.database.engine import get_db_session
-from src.efficient_tutor_backend.database.db_enums import SubjectEnum
+from src.efficient_tutor_backend.database.db_enums import (
+        SubjectEnum,
+        UserRole,
+        AdminPrivilegeType
+        )
+
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import (
-    UserService, ParentService, StudentService, TeacherService
+    UserService, 
+    ParentService, 
+    StudentService, 
+    TeacherService,
+    AdminService
 )
 from src.efficient_tutor_backend.services.tuition_service import TuitionService
 from src.efficient_tutor_backend.services.timetable_service import TimeTableService
@@ -165,6 +175,10 @@ def student_service(db_session: AsyncSession) -> StudentService:
 @pytest.fixture(scope="function")
 def teacher_service(db_session: AsyncSession, mock_geo_service: GeoService) -> TeacherService:
     return TeacherService(db=db_session, geo_service=mock_geo_service)
+
+@pytest.fixture(scope="function")
+def admin_service(db_session: AsyncSession, mock_geo_service: GeoService) -> AdminService:
+    return AdminService(db=db_session, geo_service=mock_geo_service)
 
 @pytest.fixture(scope="function")
 def tuition_service_sync() -> TuitionService:
@@ -417,6 +431,23 @@ async def test_unrelated_parent_orm(db_session: AsyncSession) -> db_models.Paren
     assert parent.id != TEST_PARENT_ID, "TEST_UNRELATED_PARENT_ID is the same as TEST_PARENT_ID"
     return parent 
 
+@pytest.fixture(scope="function")
+async def test_normal_admin_orm(db_session: AsyncSession) -> db_models.Admins:
+    """Provides a mock normal admin user ORM object for testing."""
+    normal_admin_user = db_models.Admins(
+        id=uuid.uuid4(), # Dynamic UUID for this one
+        email="normal.admin@example.com",
+        role=UserRole.ADMIN.value,
+        privileges=AdminPrivilegeType.NORMAL.value, # Corrected privilege type
+        first_name="Normal",
+        last_name="Admin",
+        timezone="UTC",
+        password="hashed_password"
+    )
+    db_session.add(normal_admin_user)
+    await db_session.flush()
+    await db_session.refresh(normal_admin_user)
+    return normal_admin_user
 
 @pytest.fixture
 def valid_student_data() -> dict:
