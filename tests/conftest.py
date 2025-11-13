@@ -33,7 +33,8 @@ from tests.constants import (
     TEST_NOTE_ID,
     TEST_UNRELATED_TEACHER_ID,
     TEST_UNRELATED_PARENT_ID,
-    TEST_TUITION_ID_NO_LINK
+    TEST_TUITION_ID_NO_LINK,
+    TEST_ADMIN_ID
 )
 
 # --- Application Imports ---
@@ -43,7 +44,7 @@ from src.efficient_tutor_backend.database.engine import get_db_session
 from src.efficient_tutor_backend.database.db_enums import SubjectEnum
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import (
-    UserService, ParentService, StudentService
+    UserService, ParentService, StudentService, TeacherService
 )
 from src.efficient_tutor_backend.services.tuition_service import TuitionService
 from src.efficient_tutor_backend.services.timetable_service import TimeTableService
@@ -162,6 +163,10 @@ def student_service(db_session: AsyncSession) -> StudentService:
     return StudentService(db=db_session)
 
 @pytest.fixture(scope="function")
+def teacher_service(db_session: AsyncSession, mock_geo_service: GeoService) -> TeacherService:
+    return TeacherService(db=db_session, geo_service=mock_geo_service)
+
+@pytest.fixture(scope="function")
 def tuition_service_sync() -> TuitionService:
     """
     allow me to test synchronous methods without the stupid warning
@@ -234,6 +239,18 @@ async def notes_service(db_session: AsyncSession) -> NotesService:
 # Note: They are now `async` and must depend on `db_session`.
 
 @pytest.fixture(scope="function")
+async def test_admin_orm(db_session: AsyncSession) -> db_models.Admins: # <-- Changed type
+    """Fetches the main test admin ORM object from the test DB."""
+    # --- CHANGED ---
+    # Get the specific 'Admin's class, not the base 'Users' class
+    admin = await db_session.get(db_models.Admins, TEST_ADMIN_ID)
+    # ---------------
+    
+    assert admin is not None, f"Test admin with ID {TEST_ADMIN_ID} not found in DB."
+    return admin
+
+
+@pytest.fixture(scope="function")
 async def test_teacher_orm(db_session: AsyncSession) -> db_models.Teachers: # <-- Changed type
     """Fetches the main test teacher ORM object from the test DB."""
     # --- CHANGED ---
@@ -243,16 +260,6 @@ async def test_teacher_orm(db_session: AsyncSession) -> db_models.Teachers: # <-
     
     assert teacher is not None, f"Test teacher with ID {TEST_TEACHER_ID} not found in DB."
     return teacher
-
-@pytest.fixture(scope="function")
-async def test_parent_orm(db_session: AsyncSession) -> db_models.Parents: # <-- Changed type
-    """Fetches the main test parent ORM object from the test DB."""
-    # --- CHANGED ---
-    parent = await db_session.get(db_models.Parents, TEST_PARENT_ID)
-    # ---------------
-
-    assert parent is not None, f"Test parent with ID {TEST_PARENT_ID} not found in DB."
-    return parent
 
 @pytest.fixture(scope="function")
 async def test_student_orm(db_session: AsyncSession) -> db_models.Students: # <-- Changed type

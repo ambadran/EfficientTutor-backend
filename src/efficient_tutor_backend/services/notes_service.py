@@ -15,6 +15,8 @@ from ..database.db_enums import UserRole
 from ..models import notes as notes_models
 from ..common.logger import log
 
+
+
 class NotesService:
     """
     Service for all business logic related to student notes.
