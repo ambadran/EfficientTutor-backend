@@ -70,9 +70,9 @@ class ParentRead(UserRead):
 class TeacherRead(UserRead):
     """
     Pydantic model for reading a Teacher.
-    (No extra fields for now)
     """
-    pass
+    currency: str
+
 
 class StudentRead(UserRead):
     """
@@ -89,19 +89,6 @@ class StudentRead(UserRead):
     # New relational fields
     student_subjects: List[StudentSubjectRead] = Field(default_factory=list)
     student_availability_intervals: List[StudentAvailabilityIntervalRead] = Field(default_factory=list)
-
-# We can also add input/create models here
-class UserCreate(BaseModel):
-    """
-    Pydantic model for validating user creation input.
-    """
-    email: str
-    password: str
-    first_name: str
-    last_name: str
-    timezone: str
-    
-    # We will expand this as we build the user creation service
 
 
 # --- New Student-Specific Write Models (for relational data) ---
@@ -182,6 +169,31 @@ class ParentCreate(BaseModel):
 class ParentUpdate(BaseModel):
     """
     Pydantic model for validating the JSON payload when UPDATING a parent.
+    All fields are optional to allow for partial updates.
+    """
+    email: Optional[str] = None
+    password: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    timezone: Optional[str] = None
+    currency: Optional[str] = None
+
+
+class TeacherCreate(BaseModel):
+    """
+    Pydantic model for validating the JSON payload when CREATING a new teacher.
+    This is used for teacher sign-up.
+    Timezone and currency will be determined automatically by the backend.
+    """
+    email: str
+    password: str
+    first_name: str
+    last_name: str
+
+
+class TeacherUpdate(BaseModel):
+    """
+    Pydantic model for validating the JSON payload when UPDATING a teacher.
     All fields are optional to allow for partial updates.
     """
     email: Optional[str] = None

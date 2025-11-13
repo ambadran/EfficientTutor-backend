@@ -28,6 +28,7 @@ class ScheduledTuition:
     start_time: datetime
     end_time: datetime
 
+
 # --- Service Class ---
 
 class TimeTableService:

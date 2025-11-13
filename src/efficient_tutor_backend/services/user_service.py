@@ -12,13 +12,13 @@ from sqlalchemy.orm import selectinload
 
 from ..database.engine import get_db_session
 from ..database import models as db_models
-from ..database.db_enums import UserRole
+from ..database.db_enums import UserRole, LogStatusEnum
 from ..common.logger import log
 from ..models import user as user_models
 from ..common.security_utils import HashedPassword
 from .geo_service import GeoService
 
-# ... (UserService class remains unchanged) ...
+
 class UserService:
     """
     Base service for user-related database operations.
@@ -371,6 +371,7 @@ class ParentService(UserService):
             # 4. This now only catches actual database/unexpected errors.
             log.error(f"Database error fetching parents for teacher {current_user.id}: {e}", exc_info=True)
             raise
+
 
 class StudentService(UserService):
     """Service for student-specific logic."""
@@ -800,4 +801,146 @@ class StudentService(UserService):
 
 class TeacherService(UserService):
     """Service for teacher-specific logic."""
-    pass
+
+    def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)], geo_service: Annotated[GeoService, Depends(GeoService)]):
+        super().__init__(db)
+        self.geo_service = geo_service
+
+    async def get_all(self, current_user: db_models.Users) -> list[db_models.Teachers]:
+        """
+        Fetches a list of all Teacher objects.
+        This action is restricted to ADMINS only.
+        """
+        log.info(f"User {current_user.id} attempting to get all teachers.")
+        if current_user.role != UserRole.ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to view this list."
+            )
+        
+        stmt = select(db_models.Teachers).order_by(db_models.Teachers.first_name)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def create_teacher(
+        self,
+        teacher_data: user_models.TeacherCreate,
+        ip_address: str
+    ) -> user_models.TeacherRead:
+        """
+        Creates a new teacher user (for sign-up).
+        - Checks for existing email.
+        - Hashes password.
+        - Determines timezone and currency from IP.
+        """
+        log.info(f"Attempting to create teacher {teacher_data.email} from IP {ip_address}.")
+
+        existing_user = await self.get_user_by_email(teacher_data.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered."
+            )
+
+        location_info = await self.geo_service.get_location_info(ip_address)
+        hashed_password = HashedPassword.get_hash(teacher_data.password)
+
+        new_teacher = db_models.Teachers(
+            id=uuid.uuid4(),
+            email=teacher_data.email,
+            password=hashed_password,
+            first_name=teacher_data.first_name,
+            last_name=teacher_data.last_name,
+            timezone=location_info["timezone"],
+            currency=location_info["currency"],
+            role=UserRole.TEACHER.value
+        )
+
+        self.db.add(new_teacher)
+        await self.db.flush()
+        await self.db.refresh(new_teacher)
+
+        return user_models.TeacherRead.model_validate(new_teacher)
+
+    async def update_teacher(
+        self,
+        teacher_id: UUID,
+        update_data: user_models.TeacherUpdate,
+        current_user: db_models.Users
+    ) -> user_models.TeacherRead:
+        """
+        Updates a teacher's profile.
+        - Authorized for the teacher themselves or an admin.
+        """
+        log.info(f"User {current_user.id} attempting to update teacher {teacher_id}.")
+
+        is_owner = teacher_id == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN.value
+        
+        if not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update this profile."
+            )
+
+        teacher_to_update = await self.get_user_by_id(teacher_id)
+        if not teacher_to_update or teacher_to_update.role != UserRole.TEACHER.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Teacher not found."
+            )
+
+        update_dict = update_data.model_dump(exclude_unset=True)
+        for key, value in update_dict.items():
+            if key == "password" and value:
+                setattr(teacher_to_update, key, HashedPassword.get_hash(value))
+            elif hasattr(teacher_to_update, key):
+                setattr(teacher_to_update, key, value)
+
+        self.db.add(teacher_to_update)
+        await self.db.flush()
+        await self.db.refresh(teacher_to_update)
+
+        return user_models.TeacherRead.model_validate(teacher_to_update)
+
+    async def delete_teacher(self, teacher_id: UUID, current_user: db_models.Users) -> bool:
+        """
+        Deletes a teacher user.
+        - Authorized for the teacher themselves or an admin.
+        - Fails if the teacher has any active tuition logs.
+        """
+        log.info(f"User {current_user.id} attempting to delete teacher {teacher_id}.")
+
+        teacher_to_delete = await self.get_user_by_id(teacher_id)
+        if not teacher_to_delete or teacher_to_delete.role != UserRole.TEACHER.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Teacher not found."
+            )
+
+        is_owner = teacher_to_delete.id == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN.value
+        
+        if not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to delete this profile."
+            )
+
+        # Safety check for active tuition logs
+        active_logs_check = await self.db.execute(
+            select(db_models.TuitionLogs.id)
+            .filter(db_models.TuitionLogs.teacher_id == teacher_id)
+            .filter(db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value)
+            .limit(1)
+        )
+        if active_logs_check.scalars().first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete a teacher with active tuition logs. Please void or reassign them first."
+            )
+
+        await self.db.delete(teacher_to_delete)
+        log.info(f"Successfully deleted teacher {teacher_id}.")
+        return True
+

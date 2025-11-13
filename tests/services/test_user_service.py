@@ -12,7 +12,8 @@ from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import (
     UserService, 
     ParentService, 
-    StudentService
+    StudentService,
+    TeacherService
 )
 from src.efficient_tutor_backend.models import user as user_models
 from src.efficient_tutor_backend.database.db_enums import SubjectEnum, UserRole
@@ -73,7 +74,6 @@ class TestUserService:
         assert user is not None
         assert user.id == test_student_orm.id
         assert user.email == test_student_orm.email
-
 
     async def test_get_user_by_id_not_found(self, user_service: UserService):
         """Tests that None is returned for a non-existent ID."""
@@ -147,6 +147,46 @@ class TestUserService:
 
 @pytest.mark.anyio
 class TestParentService:
+
+    # --- Tests for get_all ---
+
+    async def test_get_all_as_teacher(
+        self, 
+        parents_service: ParentService, 
+        test_teacher_orm: db_models.Users, # <-- Use the new fixture
+        test_parent_orm: db_models.Users   # <-- Use the new fixture
+    ):
+        """Tests that a TEACHER can get all parents."""
+        parents = await parents_service.get_all(current_user=test_teacher_orm)
+
+        print(f"Found {len(parents)} parents for teacher '{test_teacher_orm.first_name} {test_teacher_orm.last_name}':\n{[parent.first_name for parent in parents]}")
+        
+        assert len(parents) >= 1
+        assert any(p.id == test_parent_orm.id for p in parents)
+
+    async def test_get_all_as_parent_forbidden(
+        self, 
+        parents_service: ParentService, 
+        test_parent_orm: db_models.Users # <-- Use the new fixture
+    ):
+        """Tests that a PARENT cannot get all parents (HTTP 403)."""
+        with pytest.raises(HTTPException) as e:
+            await parents_service.get_all(current_user=test_parent_orm)
+        
+        assert e.value.status_code == 403
+
+    async def test_get_all_as_student_forbidden(
+        self, 
+        parents_service: ParentService, 
+        test_student_orm: db_models.Users # <-- Use the new fixture
+    ):
+        """Tests that a PARENT cannot get all parents (HTTP 403)."""
+        with pytest.raises(HTTPException) as e:
+            await parents_service.get_all(current_user=test_student_orm)
+        
+        assert e.value.status_code == 403
+
+    # --- Tests for create_parent ---
 
     async def test_create_parent_happy_path(
         self,
@@ -223,43 +263,6 @@ class TestParentService:
         assert exc_info.value.status_code == 400
         assert "Email already registered" in exc_info.value.detail
         print(f"--- Correctly raised HTTPException: {exc_info.value.status_code} ---")
-
-
-    async def test_get_all_as_teacher(
-        self, 
-        parents_service: ParentService, 
-        test_teacher_orm: db_models.Users, # <-- Use the new fixture
-        test_parent_orm: db_models.Users   # <-- Use the new fixture
-    ):
-        """Tests that a TEACHER can get all parents."""
-        parents = await parents_service.get_all(current_user=test_teacher_orm)
-
-        print(f"Found {len(parents)} parents for teacher '{test_teacher_orm.first_name} {test_teacher_orm.last_name}':\n{[parent.first_name for parent in parents]}")
-        
-        assert len(parents) >= 1
-        assert any(p.id == test_parent_orm.id for p in parents)
-
-    async def test_get_all_as_parent_forbidden(
-        self, 
-        parents_service: ParentService, 
-        test_parent_orm: db_models.Users # <-- Use the new fixture
-    ):
-        """Tests that a PARENT cannot get all parents (HTTP 403)."""
-        with pytest.raises(HTTPException) as e:
-            await parents_service.get_all(current_user=test_parent_orm)
-        
-        assert e.value.status_code == 403
-
-    async def test_get_all_as_student_forbidden(
-        self, 
-        parents_service: ParentService, 
-        test_student_orm: db_models.Users # <-- Use the new fixture
-    ):
-        """Tests that a PARENT cannot get all parents (HTTP 403)."""
-        with pytest.raises(HTTPException) as e:
-            await parents_service.get_all(current_user=test_student_orm)
-        
-        assert e.value.status_code == 403
 
     # --- Tests for update_parent ---
 
@@ -475,6 +478,8 @@ class TestParentService:
 @pytest.mark.anyio
 class TestStudentService:
 
+    # --- Tests for get_all ---
+
     async def test_get_all_as_teacher(
         self, 
         student_service: StudentService, 
@@ -652,7 +657,6 @@ class TestStudentService:
             assert e.value.status_code == 404
             assert "not found" in e.value.detail
             print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
-
 
     async def test_create_student_with_minimal_data(
         self,
@@ -948,5 +952,304 @@ class TestStudentService:
             
         assert e.value.status_code == 404
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+
+@pytest.mark.anyio
+class TestTeacherService:
+
+    # --- Tests for get_all ---
+
+    async def test_get_all_as_admin_happy_path(
+        self,
+        teacher_service: TeacherService,
+        test_admin_orm: db_models.Admins,
+        test_teacher_orm: db_models.Teachers # Ensure at least one teacher exists
+    ):
+        """Tests that an ADMIN can get all teachers."""
+        # Create a mock admin user
+        teachers = await teacher_service.get_all(current_user=test_admin_orm)
+        
+        assert len(teachers) >= 1
+        assert any(t.id == test_teacher_orm.id for t in teachers)
+        assert all(isinstance(t, db_models.Teachers) for t in teachers)
+
+        print(f"\nFound {len(teachers)} Teacher users")
+        print("Example Teacher user:")
+        pprint(teachers[0].__dict__)
+
+    async def test_get_all_as_teacher_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that a TEACHER cannot get all teachers (HTTP 403)."""
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.get_all(current_user=test_teacher_orm)
+        
+        assert e.value.status_code == 403
+        assert "You do not have permission to view this list." in e.value.detail
+
+    async def test_get_all_as_parent_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_parent_orm: db_models.Parents
+    ):
+        """Tests that a PARENT cannot get all teachers (HTTP 403)."""
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.get_all(current_user=test_parent_orm)
+        
+        assert e.value.status_code == 403
+        assert "You do not have permission to view this list." in e.value.detail
+
+        assert "You do not have permission to view this list." in e.value.detail
+
+
+    # --- Tests for create_teacher ---
+
+    async def test_create_teacher_happy_path(
+        self,
+        teacher_service: TeacherService,
+        user_service: UserService,
+        mock_geo_service: MagicMock
+    ):
+        """Tests the successful creation of a new teacher user."""
+        print("\n--- Testing create_teacher (Happy Path) ---")
+        teacher_data = user_models.TeacherCreate(
+            email="new.teacher@example.com",
+            password="strongpassword123",
+            first_name="New",
+            last_name="Teacher",
+            timezone="UTC", # This will be overridden by geo_service
+            currency="USD"  # This will be overridden by geo_service
+        )
+        ip_address = "1.2.3.4" # Dummy IP for testing
+
+        # --- ACT ---
+        created_teacher = await teacher_service.create_teacher(teacher_data, ip_address)
+
+        # --- ASSERT ---
+        # 1. Check the returned Pydantic model
+        assert isinstance(created_teacher, user_models.TeacherRead)
+        assert created_teacher.email == teacher_data.email
+        assert created_teacher.first_name == teacher_data.first_name
+        assert created_teacher.role == UserRole.TEACHER
+        assert created_teacher.is_first_sign_in is True
+        assert created_teacher.timezone == "America/New_York" # Assert against mocked value
+        assert created_teacher.currency == "USD" # Assert against mocked value
+
+        # 2. Verify the user exists in the database
+        db_user = await user_service.get_user_by_id(created_teacher.id)
+        assert db_user is not None
+        assert db_user.email == teacher_data.email
+        assert isinstance(db_user, db_models.Teachers)
+        assert db_user.timezone == "America/New_York" # Assert against mocked value
+        assert db_user.currency == "USD" # Assert against mocked value
+
+        # 3. Verify the password was hashed correctly
+        assert HashedPassword.verify(teacher_data.password, db_user.password) is True
+        assert db_user.password != teacher_data.password
+
+        # 4. Verify geo_service was called
+        mock_geo_service.get_location_info.assert_called_once_with(ip_address)
+
+        print("--- Successfully created teacher ---")
+        pprint(created_teacher.model_dump())
+
+    async def test_create_teacher_duplicate_email(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        mock_geo_service: MagicMock
+    ):
+        """Tests that creating a teacher with a duplicate email raises a 400 error."""
+        print("\n--- Testing create_teacher with duplicate email ---")
+        teacher_data = user_models.TeacherCreate(
+            email=test_teacher_orm.email,  # Use an existing email
+            password="anotherpassword",
+            first_name="Duplicate",
+            last_name="Email",
+            timezone="UTC",
+            currency="EUR"
+        )
+        ip_address = "5.6.7.8" # Dummy IP
+
+        # --- ACT & ASSERT ---
+        with pytest.raises(HTTPException) as exc_info:
+            await teacher_service.create_teacher(teacher_data, ip_address)   
+        
+        assert exc_info.value.status_code == 400
+        assert "Email already registered" in exc_info.value.detail   
+        print(f"--- Correctly raised HTTPException: {exc_info.value.status_code} ---")
+
+
+    # --- Tests for update_teacher ---
+
+    async def test_update_teacher_as_self_happy_path(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        user_service: UserService
+    ):
+        """Tests that a teacher can successfully update their own profile."""
+        print("\n--- Testing update_teacher as self ---")
+        update_data = user_models.TeacherUpdate(
+            first_name="UpdatedTeacherFirstName",
+            currency="EUR"
+        )
+
+        updated_teacher = await teacher_service.update_teacher(
+            teacher_id=test_teacher_orm.id,
+            update_data=update_data,
+            current_user=test_teacher_orm
+        )
+
+        assert isinstance(updated_teacher, user_models.TeacherRead)
+        assert updated_teacher.id == test_teacher_orm.id
+        assert updated_teacher.first_name == "UpdatedTeacherFirstName"
+        assert updated_teacher.currency == "EUR"
+        # Ensure other fields are unchanged
+        assert updated_teacher.last_name == test_teacher_orm.last_name
+
+        # Verify in DB
+        db_user = await user_service.get_user_by_id(test_teacher_orm.id)
+        assert db_user.first_name == "UpdatedTeacherFirstName"
+        assert db_user.currency == "EUR"
+        print("--- Successfully updated teacher as self ---")
+        pprint(updated_teacher.model_dump())
+
+    async def test_update_teacher_as_admin_happy_path(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_admin_orm: db_models.Admins,
+        user_service: UserService
+    ):
+        """Tests that an admin can successfully update a teacher's profile."""
+        print("\n--- Testing update_teacher as admin ---")
+        update_data = user_models.TeacherUpdate(
+            email="new.teacher.email@example.com",
+            timezone="Europe/London"
+        )
+
+        updated_teacher = await teacher_service.update_teacher(
+            teacher_id=test_teacher_orm.id,
+            update_data=update_data,
+            current_user=test_admin_orm
+        )
+
+        assert isinstance(updated_teacher, user_models.TeacherRead)
+        assert updated_teacher.email == "new.teacher.email@example.com"
+        assert updated_teacher.timezone == "Europe/London"
+
+        # Verify in DB
+        db_user = await user_service.get_user_by_id(test_teacher_orm.id)
+        assert db_user.email == "new.teacher.email@example.com"
+        assert db_user.timezone == "Europe/London"
+        print("--- Successfully updated teacher as admin ---")
+        pprint(updated_teacher.model_dump())
+
+    async def test_update_teacher_password_change(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        user_service: UserService
+    ):
+        """Tests that a teacher can update their own password."""
+        print("\n--- Testing update_teacher password change ---")
+        new_password = "new_secure_teacher_password_456"
+        update_data = user_models.TeacherUpdate(password=new_password)
+
+        original_hash = test_teacher_orm.password
+        
+        await teacher_service.update_teacher(
+            teacher_id=test_teacher_orm.id,
+            update_data=update_data,
+            current_user=test_teacher_orm
+        )
+
+        db_user = await user_service.get_user_by_id(test_teacher_orm.id)
+        assert db_user.password != original_hash
+        assert HashedPassword.verify(new_password, db_user.password)
+        print("--- Successfully updated teacher password ---")
+
+    async def test_update_teacher_as_unrelated_teacher_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_unrelated_teacher_orm: db_models.Teachers
+    ):
+        """Tests that an unrelated teacher is forbidden from updating a profile."""
+        print("\n--- Testing update_teacher as unrelated teacher (Forbidden) ---")
+        update_data = user_models.TeacherUpdate(first_name="Forbidden")
+        
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.update_teacher(
+                teacher_id=test_teacher_orm.id,
+                update_data=update_data,
+                current_user=test_unrelated_teacher_orm
+            )
+        assert e.value.status_code == 403
+        assert "You do not have permission to update this profile." in e.value.detail
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_update_teacher_as_parent_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_parent_orm: db_models.Parents
+    ):
+        """Tests that a parent is forbidden from updating a teacher's profile."""
+        print("\n--- Testing update_teacher as parent (Forbidden) ---")
+        update_data = user_models.TeacherUpdate(first_name="Forbidden")
+        
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.update_teacher(
+                teacher_id=test_teacher_orm.id,
+                update_data=update_data,
+                current_user=test_parent_orm
+            )
+        assert e.value.status_code == 403
+        assert "You do not have permission to update this profile." in e.value.detail
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_update_teacher_as_student_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_student_orm: db_models.Students
+    ):
+        """Tests that a student is forbidden from updating a teacher's profile."""
+        print("\n--- Testing update_teacher as student (Forbidden) ---")
+        update_data = user_models.TeacherUpdate(first_name="Forbidden")
+        
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.update_teacher(
+                teacher_id=test_teacher_orm.id,
+                update_data=update_data,
+                current_user=test_student_orm
+            )
+        assert e.value.status_code == 403
+        assert "You do not have permission to update this profile." in e.value.detail
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_update_teacher_not_found(
+        self,
+        teacher_service: TeacherService,
+        test_admin_orm: db_models.Admins
+    ):
+        """Tests that updating a non-existent teacher raises a 404."""
+        print("\n--- Testing update_teacher for non-existent ID ---")
+        update_data = user_models.TeacherUpdate(first_name="NotFound")
+
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.update_teacher(
+                teacher_id=UUID(int=0),
+                update_data=update_data,
+                current_user=test_admin_orm
+            )
+        assert e.value.status_code == 404
+        assert "Teacher not found." in e.value.detail
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
 
 

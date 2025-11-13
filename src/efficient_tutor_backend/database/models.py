@@ -214,7 +214,7 @@ class Teachers(Users):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
-
+    currency: Mapped[str] = mapped_column(Text, server_default=text("'EGP'::text"))
     payment_logs: Mapped[List['PaymentLogs']] = relationship(
         'PaymentLogs', 
         back_populates='teacher',
@@ -232,6 +232,16 @@ class Teachers(Users):
         foreign_keys='[Notes.teacher_id]'
     )
     student_subjects: Mapped[List['StudentSubjects']] = relationship('StudentSubjects', back_populates='teacher')
+
+
+class Admins(Users):
+    __tablename__ = 'admins'
+    __table_args__ = (
+        ForeignKeyConstraint(['id'], ['users.id'], ondelete='CASCADE', name='admins_id_fkey'),
+        PrimaryKeyConstraint('id', name='admins_pkey')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
 
 
 class PaymentLogs(Base):
