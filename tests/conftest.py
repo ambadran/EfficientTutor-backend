@@ -78,7 +78,7 @@ def anyio_backend():
 
 
 @pytest.fixture(scope="function")
-def client() -> TestClient:
+def client(mock_geo_service: GeoService) -> TestClient:
     """
     The core fixture for all tests.
     
@@ -113,6 +113,9 @@ def client() -> TestClient:
 
     # Apply the override to the main app
     app.dependency_overrides[get_db_session] = override_get_db_session
+    
+    # Create a mock for GeoService and override it
+    app.dependency_overrides[GeoService] = lambda: mock_geo_service
 
     # This 'with' block runs the app's startup lifespan,
     # which creates the engine and session factory.
@@ -166,23 +169,6 @@ def mock_geo_service() -> GeoService:
         "timezone": "America/New_York",
         "currency": "USD"
     })
-    return mock_service
-
-@pytest.fixture(scope="function")
-def mock_api_geo_service() -> MagicMock:
-    """
-    Provides a mock GeoService where get_location_info returns a mock
-    response object with a .json() method, suitable for API-level tests.
-    """
-    mock_service = MagicMock(spec=GeoService)
-    
-    location_data = {"timezone": "America/New_York", "currency": "USD"}
-
-    mock_response = MagicMock()
-    mock_response.json = AsyncMock(return_value=location_data)
-
-    mock_service.get_location_info = AsyncMock(return_value=mock_response)
-    
     return mock_service
 
 @pytest.fixture(scope="function")
@@ -279,7 +265,6 @@ async def test_admin_orm(db_session: AsyncSession) -> db_models.Admins: # <-- Ch
     
     assert admin is not None, f"Test admin with ID {TEST_ADMIN_ID} not found in DB."
     return admin
-
 
 @pytest.fixture(scope="function")
 async def test_teacher_orm(db_session: AsyncSession) -> db_models.Teachers: # <-- Changed type
