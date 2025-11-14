@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from .database.engine import create_db_engine_and_session_factory, dispose_db_engine
 from .common.logger import log
 from .common.config import settings
-from .api import auth, users, tuitions, timetable, tuition_logs, payment_logs, financial_summaries, notes # Added notes
+from .api import auth, users, tuitions, timetable, tuition_logs, payment_logs, financial_summaries, notes 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -28,6 +28,8 @@ async def lifespan(app: FastAPI):
     else:
         log.info("Skipping database engine disposal in TEST_MODE.")
 
+
+# ---- CREATING THE APP ----
 app = FastAPI(
     title=settings.APP_NAME,
     description=settings.APP_DESCRIPTION,
@@ -36,26 +38,25 @@ app = FastAPI(
 
 )
 
-# --- NEW: Add CORS Middleware ---
+# --- Add CORS Middleware ---
 origins = [
-    # "http://localhost",
-    # "http://localhost:8000",
-    # "http://127.0.0.1",
-    # "http://127.0.0.1:8000",
-    # "http://0.0.0.0",
-    # "http://0.0.0.0:8000",
+    # URL of testing frontend
     "http://0.0.0.0:8080",
-    # Add the URL of your deployed frontend if applicable
+
+    # URL of deployed frontend 
     "efficienttutor.tech"
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,              # List of origins allowed (or "*" for all)
-    allow_credentials=True,             # Allow cookies to be included
-    allow_methods=["*"],                # Allow all methods (GET, POST, etc.)
-    allow_headers=["*"],                # Allow all headers
-)
+    # List of origins allowed (or "*" for all)
+    allow_origins=origins,
+    # Allow cookies to be included
+    allow_credentials=True,
+    # Allow all methods (GET, POST, etc.)
+    allow_methods=["*"],
+    # Allow all headers
+    allow_headers=["*"],)
 # --- End of CORS Middleware ---
 
 @app.get("/")
@@ -69,6 +70,6 @@ app.include_router(timetable.router)
 app.include_router(tuition_logs.router)
 app.include_router(payment_logs.router)
 app.include_router(financial_summaries.router)
-app.include_router(notes.router) # Included notes router
+app.include_router(notes.router) 
 
 

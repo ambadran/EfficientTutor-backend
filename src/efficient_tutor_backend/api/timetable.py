@@ -29,7 +29,11 @@ class TimetableAPI:
 
     def _register_routes(self):
         """Registers all the API routes for this class."""
-        self.router.add_api_route("/", self.get_timetable, methods=["GET"], response_model=List[TimetableReadRoleBased])
+        self.router.add_api_route(
+                "/", 
+                self.get_timetable,
+                methods=["GET"],
+                response_model=List[TimetableReadRoleBased])
 
     async def get_timetable(
         self,

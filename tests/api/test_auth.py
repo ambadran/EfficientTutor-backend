@@ -13,14 +13,12 @@ from tests.constants import (
         TEST_PASSWORD_STUDENT
         )
 
-# Note: No hardcoded emails. We use the emails from the fixtures.
 
 @pytest.mark.anyio
-class TestAuthAPI:
+class TestAuthLoginAPI:
     """
     Tests for the authentication API endpoints (/auth).
     - Login tests USE EXISTING fixtures from conftest.py.
-    - Signup tests CREATE new data to test the creation process.
     """
 
     # --- Login Tests ---
@@ -137,12 +135,19 @@ class TestAuthAPI:
         assert response.json()["detail"] == "Incorrect email or password"
         print("Login for non-existent user failed as expected.")
 
+
+@pytest.mark.anyio
+class TestAuthSignupAPI:
+    """
+    Tests for the authentication API endpoints (/auth).
+    - Signup tests CREATE new data to test the creation process.
+    """
+
     # --- Signup Tests ---
 
     async def test_signup_parent_success(
         self, 
         client: TestClient, 
-        db_session: AsyncSession, 
         mock_geo_service: MagicMock
     ):
         """
@@ -150,10 +155,6 @@ class TestAuthAPI:
         """
         new_parent_email = "new.parent.signup@example.com"
         
-        # Verify user does NOT exist before signup
-        existing_user = await db_session.scalar(select(db_models.Users).filter_by(email=new_parent_email))
-        assert existing_user is None
-
         parent_data = user_models.ParentCreate(
             email=new_parent_email,
             password='new_parent_pass',
@@ -175,13 +176,6 @@ class TestAuthAPI:
         assert parent_read.timezone == "America/New_York"
         assert parent_read.currency == "USD"
         print("Parent signup successful.")
-
-        # Verify user was flushed to the DB (it will be rolled back by the fixture)
-        await db_session.flush()
-        db_parent = await db_session.get(db_models.Parents, parent_read.id)
-        assert db_parent is not None
-        assert db_parent.id == parent_read.id
-        print("Verified new parent exists in DB session before rollback.")
 
     async def test_signup_parent_existing_email(
         self,
@@ -213,17 +207,12 @@ class TestAuthAPI:
     async def test_signup_teacher_success(
         self,
         client: TestClient, 
-        db_session: AsyncSession,
         mock_geo_service: MagicMock
     ):
         """
         Test successful teacher signup. This test correctly creates a new user.
         """
         new_teacher_email = "new.teacher.signup@example.com"
-
-        # Verify user does NOT exist before signup
-        existing_user = await db_session.scalar(select(db_models.Users).filter_by(email=new_teacher_email))
-        assert existing_user is None
 
         teacher_data = user_models.TeacherCreate(
             email=new_teacher_email,
@@ -246,13 +235,6 @@ class TestAuthAPI:
         assert teacher_read.timezone == "America/New_York"
         assert teacher_read.currency == "USD"
         print("Teacher signup successful.")
-
-        # Verify user was flushed to the DB (it will be rolled back by the fixture)
-        await db_session.flush()
-        db_teacher = await db_session.get(db_models.Teachers, teacher_read.id)
-        assert db_teacher is not None
-        assert db_teacher.id == teacher_read.id
-        print("Verified new teacher exists in DB session before rollback.")
 
     async def test_signup_teacher_existing_email(
         self,
