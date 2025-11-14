@@ -20,14 +20,32 @@ def to_pydantic_list(orm_list: list, model):
 class AdminsAPI:
     """CRUD endpoints for Admin users."""
     def __init__(self):
-        self.router = APIRouter(prefix="/admins", tags=["Admins"])
+        self.router = APIRouter(
+                prefix="/admins",
+                tags=["Admins"])
         self._register_routes()
 
     def _register_routes(self):
-        self.router.add_api_route("/", self.get_all, methods=["GET"], response_model=List[user_models.AdminRead])
-        self.router.add_api_route("/{admin_id}", self.get_by_id, methods=["GET"], response_model=user_models.AdminRead)
-        self.router.add_api_route("/{admin_id}", self.update, methods=["PATCH"], response_model=user_models.AdminRead)
-        self.router.add_api_route("/{admin_id}", self.delete, methods=["DELETE"], status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/", 
+                self.get_all,
+                methods=["GET"], 
+                response_model=List[user_models.AdminRead])
+        self.router.add_api_route(
+                "/{admin_id}",
+                self.get_by_id, 
+                methods=["GET"], 
+                response_model=user_models.AdminRead)
+        self.router.add_api_route(
+                "/{admin_id}", 
+                self.update,
+                methods=["PATCH"], 
+                response_model=user_models.AdminRead)
+        self.router.add_api_route(
+                "/{admin_id}", 
+                self.delete,
+                methods=["DELETE"], 
+                status_code=status.HTTP_204_NO_CONTENT)
 
     async def get_all(self, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], admin_service: Annotated[AdminService, Depends(AdminService)]):
         admins = await admin_service.get_all(current_user)
@@ -50,14 +68,32 @@ class AdminsAPI:
 class ParentsAPI:
     """CRUD endpoints for Parent users."""
     def __init__(self):
-        self.router = APIRouter(prefix="/parents", tags=["Parents"])
+        self.router = APIRouter(
+                prefix="/parents", 
+                tags=["Parents"])
         self._register_routes()
 
     def _register_routes(self):
-        self.router.add_api_route("/", self.get_all, methods=["GET"], response_model=List[user_models.ParentRead])
-        self.router.add_api_route("/{parent_id}", self.get_by_id, methods=["GET"], response_model=user_models.ParentRead)
-        self.router.add_api_route("/{parent_id}", self.update, methods=["PATCH"], response_model=user_models.ParentRead)
-        self.router.add_api_route("/{parent_id}", self.delete, methods=["DELETE"], status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/", 
+                self.get_all,
+                methods=["GET"], 
+                response_model=List[user_models.ParentRead])
+        self.router.add_api_route(
+                "/{parent_id}", 
+                self.get_by_id,
+                methods=["GET"], 
+                response_model=user_models.ParentRead)
+        self.router.add_api_route(
+                "/{parent_id}", 
+                self.update,
+                methods=["PATCH"], 
+                response_model=user_models.ParentRead)
+        self.router.add_api_route(
+                "/{parent_id}", 
+                self.delete, 
+                methods=["DELETE"], 
+                status_code=status.HTTP_204_NO_CONTENT)
 
     async def get_all(self, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], parent_service: Annotated[ParentService, Depends(ParentService)]):
         parents = await parent_service.get_all(current_user)
@@ -80,15 +116,38 @@ class ParentsAPI:
 class StudentsAPI:
     """CRUD endpoints for Student users."""
     def __init__(self):
-        self.router = APIRouter(prefix="/students", tags=["Students"])
+        self.router = APIRouter(
+                prefix="/students", 
+                tags=["Students"])
         self._register_routes()
 
     def _register_routes(self):
-        self.router.add_api_route("/", self.create, methods=["POST"], status_code=status.HTTP_201_CREATED, response_model=user_models.StudentRead)
-        self.router.add_api_route("/", self.get_all, methods=["GET"], response_model=List[user_models.StudentRead])
-        self.router.add_api_route("/{student_id}", self.get_by_id, methods=["GET"], response_model=user_models.StudentRead)
-        self.router.add_api_route("/{student_id}", self.update, methods=["PATCH"], response_model=user_models.StudentRead)
-        self.router.add_api_route("/{student_id}", self.delete, methods=["DELETE"], status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/", 
+                self.create,
+                methods=["POST"], 
+                status_code=status.HTTP_201_CREATED, 
+                response_model=user_models.StudentRead)
+        self.router.add_api_route(
+                "/", 
+                self.get_all,
+                methods=["GET"],
+                response_model=List[user_models.StudentRead])
+        self.router.add_api_route(
+                "/{student_id}", 
+                self.get_by_id, 
+                methods=["GET"], 
+                response_model=user_models.StudentRead)
+        self.router.add_api_route(
+                "/{student_id}", 
+                self.update, 
+                methods=["PATCH"], 
+                response_model=user_models.StudentRead)
+        self.router.add_api_route(
+                "/{student_id}", 
+                self.delete, 
+                methods=["DELETE"], 
+                status_code=status.HTTP_204_NO_CONTENT)
 
     async def create(
         self,
@@ -138,14 +197,32 @@ class StudentsAPI:
 class TeachersAPI:
     """CRUD endpoints for Teacher users."""
     def __init__(self):
-        self.router = APIRouter(prefix="/teachers", tags=["Teachers"])
+        self.router = APIRouter(
+                prefix="/teachers", 
+                tags=["Teachers"])
         self._register_routes()
 
     def _register_routes(self):
-        self.router.add_api_route("/", self.get_all, methods=["GET"], response_model=List[user_models.TeacherRead])
-        self.router.add_api_route("/{teacher_id}", self.get_by_id, methods=["GET"], response_model=user_models.TeacherRead)
-        self.router.add_api_route("/{teacher_id}", self.update, methods=["PATCH"], response_model=user_models.TeacherRead)
-        self.router.add_api_route("/{teacher_id}", self.delete, methods=["DELETE"], status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/", 
+                self.get_all, 
+                methods=["GET"], 
+                response_model=List[user_models.TeacherRead])
+        self.router.add_api_route(
+                "/{teacher_id}", 
+                self.get_by_id, 
+                methods=["GET"], 
+                response_model=user_models.TeacherRead)
+        self.router.add_api_route(
+                "/{teacher_id}", 
+                self.update, 
+                methods=["PATCH"], 
+                response_model=user_models.TeacherRead)
+        self.router.add_api_route(
+                "/{teacher_id}", 
+                self.delete, 
+                methods=["DELETE"], 
+                status_code=status.HTTP_204_NO_CONTENT)
 
     async def get_all(self, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], teacher_service: Annotated[TeacherService, Depends(TeacherService)]):
         teachers = await teacher_service.get_all(current_user)

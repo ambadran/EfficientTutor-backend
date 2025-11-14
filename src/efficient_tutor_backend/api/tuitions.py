@@ -34,15 +34,44 @@ class TuitionsAPI:
     def _register_routes(self):
         """Registers all the API routes for this class."""
         # CRUD for Tuition Templates
-        self.router.add_api_route("/", self.list_tuitions, methods=["GET"], response_model=List[TuitionReadRoleBased])
-        self.router.add_api_route("/regenerate", self.regenerate_tuitions, methods=["POST"], status_code=status.HTTP_202_ACCEPTED)
-        self.router.add_api_route("/{tuition_id}", self.get_tuition, methods=["GET"], response_model=TuitionReadRoleBased)
-        self.router.add_api_route("/{tuition_id}", self.update_tuition, methods=["PATCH"], response_model=tuition_models.TuitionReadForTeacher)
+        self.router.add_api_route(
+                "/", 
+                self.list_tuitions, 
+                methods=["GET"], 
+                response_model=List[TuitionReadRoleBased])
+        self.router.add_api_route(
+                "/regenerate", 
+                self.regenerate_tuitions, 
+                methods=["POST"], 
+                status_code=status.HTTP_202_ACCEPTED)
+        self.router.add_api_route(
+                "/{tuition_id}", 
+                self.get_tuition, 
+                methods=["GET"], 
+                response_model=TuitionReadRoleBased)
+        self.router.add_api_route(
+                "/{tuition_id}", 
+                self.update_tuition, 
+                methods=["PATCH"], 
+                response_model=tuition_models.TuitionReadForTeacher)
 
         # CRUD for Meeting Link sub-resource
-        self.router.add_api_route("/{tuition_id}/meeting_link", self.create_meeting_link, methods=["POST"], status_code=status.HTTP_201_CREATED, response_model=meeting_link_models.MeetingLinkRead)
-        self.router.add_api_route("/{tuition_id}/meeting_link", self.update_meeting_link, methods=["PATCH"], response_model=meeting_link_models.MeetingLinkRead)
-        self.router.add_api_route("/{tuition_id}/meeting_link", self.delete_meeting_link, methods=["DELETE"], status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/{tuition_id}/meeting_link", 
+                self.create_meeting_link, 
+                methods=["POST"], 
+                status_code=status.HTTP_201_CREATED, 
+                response_model=meeting_link_models.MeetingLinkRead)
+        self.router.add_api_route(
+                "/{tuition_id}/meeting_link", 
+                self.update_meeting_link, 
+                methods=["PATCH"], 
+                response_model=meeting_link_models.MeetingLinkRead)
+        self.router.add_api_route(
+                "/{tuition_id}/meeting_link", 
+                self.delete_meeting_link, 
+                methods=["DELETE"], 
+                status_code=status.HTTP_204_NO_CONTENT)
 
     async def list_tuitions(
         self,

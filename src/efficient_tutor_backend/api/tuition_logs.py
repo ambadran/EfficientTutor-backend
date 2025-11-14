@@ -17,6 +17,7 @@ TuitionLogReadRoleBased = Union[
     finance_models.TuitionLogReadForStudent,
 ]
 
+
 class TuitionLogsAPI:
     """
     A class to encapsulate endpoints for Tuition Logs.
@@ -94,6 +95,7 @@ class TuitionLogsAPI:
         Restricted to the owning Teacher.
         """
         return await tuition_log_service.correct_tuition_log(log_id, correction_data.model_dump(), current_user)
+
 
 # Instantiate the class and export its router
 tuition_logs_api = TuitionLogsAPI()
