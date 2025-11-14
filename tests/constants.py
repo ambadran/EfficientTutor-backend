@@ -24,7 +24,7 @@ TEST_PAYMENT_LOG_ID = UUID('d5dcf3b2-d166-4fd0-890d-3553bf2eca57')
 if sys.platform == 'linux':
     TEST_NOTE_ID=UUID('86983f9d-d648-44f6-b6c8-d663c0c13d22')  # linux
 elif sys.platform == 'darwin':
-    TEST_NOTE_ID=UUID('60ea094c-28ec-4994-adb7-44b773ad8f21') # MacOS
+    TEST_NOTE_ID=UUID('87ed714b-a6e0-45d5-b64f-e76bc6472c55') # MacOS
 else:
     raise ValueError("didn't create TEST_NOTE_ID for this device")
 
@@ -32,7 +32,7 @@ else:
 if sys.platform == 'linux':
     TEST_UNRELATED_TEACHER_ID=UUID('b45db8bb-0d2e-4309-8f02-502e3e453621')
 elif sys.platform == 'darwin':
-    TEST_UNRELATED_TEACHER_ID=UUID('78280aae-2a09-4e11-ab25-bad18965c95d')
+    TEST_UNRELATED_TEACHER_ID=UUID('4b9452c1-b9eb-49ed-948a-b5d0deec9947')
 else:
     raise ValueError("didn't create TEST_UNRELATED_TEACHER_ID for this device")
 
@@ -40,4 +40,4 @@ TEST_UNRELATED_PARENT_ID = UUID('d4c17e60-08de-47c7-9ef0-33ae8aa442fb')
 
 TEST_TUITION_ID_NO_LINK = UUID('80194ca6-fb6a-422a-bdb8-63e64e23e79e')
 
-TEST_ADMIN_ID = UUID('1de262fd-f2a0-4482-82ff-ce3854d83ef0')
+TEST_ADMIN_ID = UUID('639cd486-5aa5-408c-911a-726103c03d05')

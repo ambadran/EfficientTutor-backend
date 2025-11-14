@@ -31,11 +31,29 @@ class TuitionLogsAPI:
 
     def _register_routes(self):
         """Registers all the API routes for this class."""
-        self.router.add_api_route("/", self.list_tuition_logs, methods=["GET"], response_model=List[TuitionLogReadRoleBased])
-        self.router.add_api_route("/{log_id}", self.get_tuition_log, methods=["GET"], response_model=TuitionLogReadRoleBased)
-        self.router.add_api_route("/", self.create_tuition_log, methods=["POST"], status_code=status.HTTP_201_CREATED, response_model=finance_models.TuitionLogReadForTeacher)
-        self.router.add_api_route("/{log_id}/void", self.void_tuition_log, methods=["PATCH"])
-        self.router.add_api_route("/{log_id}/correction", self.correct_tuition_log, methods=["POST"], response_model=finance_models.TuitionLogReadForTeacher)
+        self.router.add_api_route(
+                "/", 
+                self.list_tuition_logs, 
+                methods=["GET"], 
+                response_model=List[TuitionLogReadRoleBased])
+        self.router.add_api_route(
+                "/{log_id}", 
+                self.get_tuition_log, 
+                methods=["GET"], 
+                response_model=TuitionLogReadRoleBased)
+        self.router.add_api_route(
+                "/", 
+                self.create_tuition_log, 
+                methods=["POST"], 
+                status_code=status.HTTP_201_CREATED, 
+                response_model=finance_models.TuitionLogReadForTeacher)
+        self.router.add_api_route(
+                "/{log_id}/void", self.void_tuition_log, methods=["PATCH"])
+        self.router.add_api_route(
+                "/{log_id}/correction", 
+                self.correct_tuition_log, 
+                methods=["POST"], 
+                response_model=finance_models.TuitionLogReadForTeacher)
 
     async def list_tuition_logs(
         self,
