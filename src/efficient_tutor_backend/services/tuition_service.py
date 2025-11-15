@@ -287,12 +287,12 @@ class TuitionService:
             self._authorize_write_access(tuition, current_user)
             
             # 3. Check that link exists
-            link_to_delete = tuition.meeting_link
-            if not link_to_delete:
+            if not tuition.meeting_link:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No meeting link found for this tuition to delete.")
             
-            # 4. Delete
-            await self.db.delete(link_to_delete)
+            # 4. Set relationship to None. The ORM's "delete-orphan" cascade will handle the deletion.
+            tuition.meeting_link = None
+            await self.db.flush()
             
             # 5. Return (will be a 204 No Content in the API)
             return

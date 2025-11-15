@@ -496,27 +496,33 @@ class TestAdminService:
     async def test_delete_admin_as_master_admin_last_master_delete_forbidden(
         self,
         admin_service: AdminService,
-        user_service: UserService,
         test_admin_orm: db_models.Admins, # The last master admin
-        test_normal_admin_orm: db_models.Admins # A normal admin that will be deleted first
+        mock_geo_service: MagicMock # Needed for create_admin
     ):
-        """Tests that a master admin cannot delete the last master admin (relies on DB trigger)."""
+        """
+        Tests that a master admin cannot delete the last master admin.
+        This test is now self-contained and does not affect other tests.
+        """
         print("\n--- Testing delete_admin as MASTER admin (Last Master Delete Forbidden) ---")
-        # ARRANGE: Ensure only one master admin remains. Delete the normal admin first.
-        # This test assumes test_admin_orm is the only master admin initially.
-        # If there are other master admins from test data, this test might fail.
-        # For a robust test, we might need to create a temporary master admin and delete others.
-        # For now, we'll assume test_admin_orm is the only master.
-
-        # Delete the normal admin first, so test_admin_orm is the only one left
-        await admin_service.delete_admin(test_normal_admin_orm.id, test_admin_orm)
-        await admin_service.db.commit()
+        # ARRANGE: Create and then delete a temporary normal admin to ensure
+        # we are in a state where we might be deleting the last master.
+        temp_admin_data = user_models.AdminCreate(
+            email="temp.deletable.admin@example.com",
+            password="password",
+            first_name="Temp",
+            last_name="Admin",
+            privileges=AdminPrivilegeType.NORMAL # This was the missing field
+        )
+        created_temp_admin = await admin_service.create_admin(temp_admin_data, test_admin_orm, "1.2.3.4")
+        await admin_service.db.flush() # Use flush to keep changes in the transaction
         
-        # ACT & ASSERT: Attempt to delete the last master admin
+        await admin_service.delete_admin(created_temp_admin.id, test_admin_orm)
+        await admin_service.db.flush() # Use flush to keep changes in the transaction
+        
+        # ACT & ASSERT: Attempt to delete the master admin (which is also self-deletion)
         with pytest.raises(HTTPException) as e:
             await admin_service.delete_admin(test_admin_orm.id, test_admin_orm)
         
-        # The error message comes from the DB trigger, so it's a 400 Bad Request
         assert e.value.status_code == 400
         assert "You cannot delete your own account." in e.value.detail
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")

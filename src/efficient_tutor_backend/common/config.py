@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     TEST_MODE: bool = True # just to be extra safe
 
     # Database URL
-    DATABASE_URL_PROD: str
+    # DATABASE_URL_PROD: str
     DATABASE_URL_TEST: str
-    DATABASE_URL_PROD_CLI: str
+    # DATABASE_URL_PROD_CLI: str
     DATABASE_URL_TEST_CLI: str
     @property
     def database_url(self) -> str:

@@ -17,9 +17,12 @@ You have **WRITE** access to the `tests/` directory and **READ-ONLY** access to 
 * **NEVER ASSUME. READ FIRST.** This is your most important rule.
     * **Assertion Accuracy:** Never "hallucinate" or invent expected behavior, especially error strings. You **MUST** read the `src/` code to find the *exact* `detail` string, status code, or logic to assert against.
 * **Follow Established Patterns:** Before writing new tests, READ the existing test files. Match their structure, naming, and logging style.
+* **File Structure:** The file structure of tests/ is an exact mirror to the file structure of the src/efficient_tutor_backend/ . Even the class names for example under src/efficient_tutor_backend/services/tuition_service.py::TuitionService, will have the respective test class under tests/services/test_tuition_service.py::TestTuitionService . This is a very important pattern you need to follow.
 * **Centralized Fixtures:** ALL fixtures must go in `tests/conftest.py`.
 * **Centralized Constants:** Use `tests/constants.py` for all shared test data IDs (UUIDs).
+* **seed_db_tests.py** This is the file that sets up the database with known data, it's very important file that you can always add new data in for more advanced tests.
 * **Visibility is Key:** Use `print()` and `pprint()` liberally within tests to show what is being tested and the raw data being received.
+* **NEVER DB commit:** always use `db.flush()` and never use `db.commit()`. Otherwise, the test DB will be permenantly changed leading to some tests to fail or not be repeatable.
 
 ## ⚡ Efficiency Protocol: Targeted Testing
 * **NEVER** run `pytest` on the whole suite unless asked.

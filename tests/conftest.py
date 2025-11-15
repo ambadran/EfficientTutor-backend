@@ -35,7 +35,8 @@ from tests.constants import (
     TEST_UNRELATED_TEACHER_ID,
     TEST_UNRELATED_PARENT_ID,
     TEST_TUITION_ID_NO_LINK,
-    TEST_ADMIN_ID
+    TEST_ADMIN_ID,
+    TEST_NORMAL_ADMIN_ID
 )
 
 # --- Application Imports ---
@@ -267,6 +268,13 @@ async def test_admin_orm(db_session: AsyncSession) -> db_models.Admins: # <-- Ch
     return admin
 
 @pytest.fixture(scope="function")
+async def test_normal_admin_orm(db_session: AsyncSession) -> db_models.Admins:
+    """Fetches the normal admin user ORM object from the seeded data."""
+    admin = await db_session.get(db_models.Admins, TEST_NORMAL_ADMIN_ID)
+    assert admin is not None, f"Test normal admin with ID {TEST_NORMAL_ADMIN_ID} not found in DB."
+    return admin
+
+@pytest.fixture(scope="function")
 async def test_teacher_orm(db_session: AsyncSession) -> db_models.Teachers: # <-- Changed type
     """Fetches the main test teacher ORM object from the test DB."""
     # --- CHANGED ---
@@ -433,46 +441,35 @@ async def test_unrelated_parent_orm(db_session: AsyncSession) -> db_models.Paren
     assert parent.id != TEST_PARENT_ID, "TEST_UNRELATED_PARENT_ID is the same as TEST_PARENT_ID"
     return parent 
 
-@pytest.fixture(scope="function")
-async def test_normal_admin_orm(db_session: AsyncSession) -> db_models.Admins:
-    """Provides a mock normal admin user ORM object for testing."""
-    normal_admin_user = db_models.Admins(
-        id=uuid.uuid4(), # Dynamic UUID for this one
-        email="normal.admin@example.com",
-        role=UserRole.ADMIN.value,
-        privileges=AdminPrivilegeType.NORMAL.value, # Corrected privilege type
-        first_name="Normal",
-        last_name="Admin",
-        timezone="UTC",
-        password="hashed_password"
-    )
-    db_session.add(normal_admin_user)
-    await db_session.flush()
-    await db_session.refresh(normal_admin_user)
-    return normal_admin_user
-
 @pytest.fixture
 def valid_student_data() -> dict:
-    """Provides a valid dictionary for creating a student."""
+    """
+    Provides a valid, JSON-serializable dictionary for creating a student,
+    mimicking a payload from a frontend client.
+    """
     return {
         "email": "pytest.student@example.com",
         "first_name": "Pytest",
         "last_name": "Student",
-        "timezone": "UTC",
-        "parent_id": TEST_PARENT_ID,
+        "parent_id": str(TEST_PARENT_ID),
+        "cost": 50.0,
+        "status": "Alpha",
+        "min_duration_mins": 60,
+        "max_duration_mins": 120,
+        "grade": 10,
         "student_subjects": [
             {
-                "subject": SubjectEnum.PHYSICS,
+                "subject": SubjectEnum.PHYSICS.value,
                 "lessons_per_week": 2,
-                "shared_with_student_ids": [TEST_STUDENT_ID],
-                "teacher_id": TEST_TEACHER_ID
+                "shared_with_student_ids": [str(TEST_STUDENT_ID)],
+                "teacher_id": str(TEST_TEACHER_ID)
             }
         ],
         "student_availability_intervals": [
             {
                 "day_of_week": 1,
-                "start_time": time(9, 0),
-                "end_time": time(17, 0),
+                "start_time": time(9, 0).isoformat(),
+                "end_time": time(17, 0).isoformat(),
                 "availability_type": "school"
             }
         ]

@@ -332,6 +332,7 @@ class ParentService(UserService):
 
         # 4. Delete the parent
         await self.db.delete(parent_to_delete)
+        await self.db.flush()
         
         log.info(f"Successfully deleted parent {parent_id}.")
         return True
@@ -391,8 +392,13 @@ class StudentService(UserService):
         try:
             # 1. Authorization and logic branching
             if current_user.role == UserRole.PARENT.value:
-                await self.db.refresh(current_user, ['students'])
-                return current_user.students
+                stmt = select(db_models.Students).options(
+                    selectinload(db_models.Students.student_subjects),
+                    selectinload(db_models.Students.student_availability_intervals)
+                ).filter(db_models.Students.parent_id == current_user.id)
+                
+                result = await self.db.execute(stmt)
+                return list(result.scalars().all())
             
             elif current_user.role == UserRole.TEACHER.value:
                 subquery = select(db_models.TuitionLogCharges.student_id).distinct().join(
@@ -798,7 +804,7 @@ class StudentService(UserService):
         
         # 2. Delete the student
         await self.db.delete(student_to_delete)
-        # No need to explicitly delete related objects due to CASCADE ON DELETE in DB schema
+        await self.db.flush()
         
         return True
 
@@ -945,6 +951,7 @@ class TeacherService(UserService):
             )
 
         await self.db.delete(teacher_to_delete)
+        await self.db.flush()
         log.info(f"Successfully deleted teacher {teacher_id}.")
         return True
 

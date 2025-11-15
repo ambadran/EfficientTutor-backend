@@ -33,6 +33,10 @@ class TestStudentService:
         assert len(students) >= 1
         assert type(students[0]) == db_models.Students
         assert any(s.id == test_student_orm.id for s in students)
+        
+        # Verify that nested relationships are loaded to prevent MissingGreenlet errors
+        assert students[0].student_subjects is not None
+        assert students[0].student_availability_intervals is not None
 
     async def test_get_all_as_parent(
         self, 
@@ -48,6 +52,10 @@ class TestStudentService:
         assert len(students) >= 1
         assert type(students[0]) == db_models.Students
         assert any(s.id == test_student_orm.id for s in students)
+
+        # Verify that nested relationships are loaded to prevent MissingGreenlet errors
+        assert students[0].student_subjects is not None
+        assert students[0].student_availability_intervals is not None
 
     async def test_get_all_as_student_forbidden(
         self, 
