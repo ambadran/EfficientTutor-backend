@@ -14,7 +14,8 @@ from factory.faker import Faker
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.database.db_enums import (
     UserRole, AdminPrivilegeType, SubjectEnum, MeetingLinkTypeEnum, 
-    NoteTypeEnum, LogStatusEnum, TuitionLogCreateTypeEnum, AvailabilityTypeEnum
+    NoteTypeEnum, LogStatusEnum, TuitionLogCreateTypeEnum, AvailabilityTypeEnum,
+    RunStatusEnum
 )
 from src.efficient_tutor_backend.common.security_utils import HashedPassword
 from tests.constants import TEST_PASSWORD_ADMIN, TEST_PASSWORD_PARENT, TEST_PASSWORD_STUDENT, TEST_PASSWORD_TEACHER
@@ -111,6 +112,15 @@ class MeetingLinkFactory(BaseFactory):
 
     class Meta:
         model = db_models.MeetingLinks
+
+class TimetableRunFactory(BaseFactory):
+    run_started_at = factory.LazyFunction(datetime.datetime.now)
+    status = RunStatusEnum.SUCCESS.value
+    input_version_hash = "test_hash"
+    solution_data = []
+
+    class Meta:
+        model = db_models.TimetableRuns
 
 class NoteFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
