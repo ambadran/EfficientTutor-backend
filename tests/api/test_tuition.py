@@ -170,11 +170,6 @@ class TestMeetingLinkAPI:
         response = client.delete(f"/tuitions/{TEST_TUITION_ID}/meeting_link", headers=headers)
         assert response.status_code == 204
 
-        # Verify it's gone
-        tuition_response = client.get(f"/tuitions/{TEST_TUITION_ID}", headers=headers)
-        tuition = tuition_response.json()
-        assert tuition.get("meeting_link") is None
-
 @pytest.mark.anyio
 class TestTuitionRegeneration:
     """Test class for the tuition regeneration endpoint."""

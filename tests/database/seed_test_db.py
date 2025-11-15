@@ -14,6 +14,7 @@ Instructions:
 
 import asyncio
 import uuid
+import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
@@ -42,6 +43,7 @@ async def clear_database(session: AsyncSession):
     print("Wiping database...")
     async with session.begin():
         # The order is important to respect foreign key constraints
+        await session.execute(text('TRUNCATE TABLE "timetable_runs" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "tuition_log_charges" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "tuition_logs" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "payment_logs" RESTART IDENTITY CASCADE'))
@@ -177,6 +179,18 @@ async def seed_data(session: AsyncSession):
         teacher=teacher,
         student=student
     )
+
+    # --- Create Timetable Run ---
+    now = datetime.datetime.now(datetime.timezone.utc)
+    solution_data = [
+        {
+            "category": "Tuition",
+            "id": str(TEST_TUITION_ID),
+            "start_time": now.isoformat(),
+            "end_time": (now + datetime.timedelta(hours=1)).isoformat()
+        }
+    ]
+    factories.TimetableRunFactory.create(solution_data=solution_data)
     
     await session.commit()
     print("Data seeding complete.")
