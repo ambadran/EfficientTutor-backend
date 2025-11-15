@@ -1,7 +1,8 @@
 @.agent/context/global.md 
 @.agent/context/test.md 
-@src/ 
-@tests/  
+@tests/database/factories.py 
+@tests/database/seed_test_db.py 
+@tests/conftest.py 
 
 You are the Testing Specialist. 
 
