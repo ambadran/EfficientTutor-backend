@@ -23,11 +23,31 @@ class PaymentLogsAPI:
 
     def _register_routes(self):
         """Registers all the API routes for this class."""
-        self.router.add_api_route("/", self.list_payment_logs, methods=["GET"], response_model=List[finance_models.PaymentLogRead])
-        self.router.add_api_route("/{log_id}", self.get_payment_log, methods=["GET"], response_model=finance_models.PaymentLogRead)
-        self.router.add_api_route("/", self.create_payment_log, methods=["POST"], status_code=status.HTTP_201_CREATED, response_model=finance_models.PaymentLogRead)
-        self.router.add_api_route("/{log_id}/void", self.void_payment_log, methods=["PATCH"])
-        self.router.add_api_route("/{log_id}/correction", self.correct_payment_log, methods=["POST"], response_model=finance_models.PaymentLogRead)
+        self.router.add_api_route(
+                "/", 
+                self.list_payment_logs, 
+                methods=["GET"], 
+                response_model=List[finance_models.PaymentLogRead])
+        self.router.add_api_route(
+                "/{log_id}", 
+                self.get_payment_log, 
+                methods=["GET"], 
+                response_model=finance_models.PaymentLogRead)
+        self.router.add_api_route(
+                "/", 
+                self.create_payment_log, 
+                methods=["POST"], 
+                status_code=status.HTTP_201_CREATED, 
+                response_model=finance_models.PaymentLogRead)
+        self.router.add_api_route(
+                "/{log_id}/void", 
+                self.void_payment_log, 
+                methods=["PATCH"])
+        self.router.add_api_route(
+                "/{log_id}/correction", 
+                self.correct_payment_log, 
+                methods=["POST"], 
+                response_model=finance_models.PaymentLogRead)
 
     async def list_payment_logs(
         self,

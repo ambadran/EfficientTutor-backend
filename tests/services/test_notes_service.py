@@ -34,14 +34,14 @@ class TestNotesService:
         note_id = test_note_orm.id
         print(f"\n--- Testing get_note_by_id as OWNER TEACHER ---")
         
-        note_dict = await notes_service.get_note_by_id_for_api(note_id, test_teacher_orm)
+        note = await notes_service.get_note_by_id_for_api(note_id, test_teacher_orm)
         
-        assert isinstance(note_dict, dict)
-        assert note_dict['id'] == str(note_id)
-        assert note_dict['teacher']['id'] == str(test_teacher_orm.id)
+        assert isinstance(note, notes_models.NoteRead)
+        assert note.id == note_id
+        assert note.teacher.id == test_teacher_orm.id
         
-        print("--- Found note (API dict) ---")
-        pprint(note_dict)
+        print("--- Found note (API Model) ---")
+        pprint(note.model_dump())
 
     async def test_get_note_by_id_as_student(
         self,
@@ -53,14 +53,14 @@ class TestNotesService:
         note_id = test_note_orm.id
         print(f"\n--- Testing get_note_by_id as STUDENT ---")
         
-        note_dict = await notes_service.get_note_by_id_for_api(note_id, test_student_orm)
+        note = await notes_service.get_note_by_id_for_api(note_id, test_student_orm)
         
-        assert isinstance(note_dict, dict)
-        assert note_dict['id'] == str(note_id)
-        assert note_dict['student']['id'] == str(test_student_orm.id)
+        assert isinstance(note, notes_models.NoteRead)
+        assert note.id == note_id
+        assert note.student.id == test_student_orm.id
 
-        print("--- Found note (API dict) ---")
-        pprint(note_dict)
+        print("--- Found note (API Model) ---")
+        pprint(note.model_dump())
 
     async def test_get_note_by_id_as_parent(
         self,
@@ -73,14 +73,14 @@ class TestNotesService:
         note_id = test_note_orm.id
         print(f"\n--- Testing get_note_by_id as PARENT ---")
         
-        note_dict = await notes_service.get_note_by_id_for_api(note_id, test_parent_orm)
+        note = await notes_service.get_note_by_id_for_api(note_id, test_parent_orm)
         
-        assert isinstance(note_dict, dict)
-        assert note_dict['id'] == str(note_id)
-        assert note_dict['student']['id'] == str(test_student_orm.id) # The student, not parent
+        assert isinstance(note, notes_models.NoteRead)
+        assert note.id == note_id
+        assert note.student.id == test_student_orm.id # The student, not parent
 
-        print("--- Found note (API dict) ---")
-        pprint(note_dict)
+        print("--- Found note (API Model) ---")
+        pprint(note.model_dump())
 
     async def test_get_note_by_id_as_unrelated_teacher(
         self,
@@ -127,9 +127,10 @@ class TestNotesService:
         assert isinstance(notes, list)
         print(f"--- Found {len(notes)} notes for Teacher {test_teacher_orm.first_name} ---")
         if len(notes) > 0:
-            assert all(n['teacher']['id'] == str(test_teacher_orm.id) for n in notes)
-            print("--- Example note Json Read ---")
-            pprint(notes[0])
+            assert isinstance(notes[0], notes_models.NoteRead)
+            assert all(n.teacher.id == test_teacher_orm.id for n in notes)
+            print("--- Example note ---")
+            pprint(notes[0].model_dump())
 
     async def test_get_all_notes_as_parent(
         self,
@@ -152,16 +153,17 @@ class TestNotesService:
         assert isinstance(notes, list)
         print(f"--- Found {len(notes)} notes for Parent {test_parent_orm.first_name}'s children ---")
         if len(notes) > 0:
+            assert isinstance(notes[0], notes_models.NoteRead)
             # 4. Check that every note's student ID is in the parent's list
             for note in notes:
-                student_id_in_note = note['student']['id']
-                print(f"Checking Note ID {note['id']} for Student ID {student_id_in_note}...")
-                assert UUID(student_id_in_note) in valid_student_ids, \
-                    f"Note {note['id']} belongs to student {student_id_in_note}, who is not in the parent's child list!"
+                student_id_in_note = note.student.id
+                print(f"Checking Note ID {note.id} for Student ID {student_id_in_note}...")
+                assert student_id_in_note in valid_student_ids, \
+                    f"Note {note.id} belongs to student {student_id_in_note}, who is not in the parent's child list!"
             
             print("--- All notes successfully validated against parent's children. ---")
-            print("--- Example note Json Read ---")
-            pprint(notes[0])
+            print("--- Example note ---")
+            pprint(notes[0].model_dump())
             
     async def test_get_all_notes_as_student(
         self,
@@ -174,8 +176,9 @@ class TestNotesService:
         assert isinstance(notes, list)
         print(f"--- Found {len(notes)} notes for Student {test_student_orm.first_name} ---")
         if len(notes) > 0:
-            assert all(n['student']['id'] == str(test_student_orm.id) for n in notes)
-            pprint(notes[0])
+            assert isinstance(notes[0], notes_models.NoteRead)
+            assert all(n.student.id == test_student_orm.id for n in notes)
+            pprint(notes[0].model_dump())
 
     ### Tests for create_note_for_api ###
 
@@ -195,16 +198,16 @@ class TestNotesService:
             note_type=NoteTypeEnum.HOMEWORK
         )
         
-        new_note_dict = await notes_service.create_note_for_api(note_data, test_teacher_orm)
-        await db_session.commit() # Save the new note
+        new_note = await notes_service.create_note_for_api(note_data, test_teacher_orm)
+        await db_session.flush() # Save the new note
         
-        assert isinstance(new_note_dict, dict)
-        assert new_note_dict['id'] is not None
-        assert new_note_dict['name'] == "Pytest Created Note"
-        assert new_note_dict['teacher']['id'] == str(test_teacher_orm.id)
+        assert isinstance(new_note, notes_models.NoteRead)
+        assert new_note.id is not None
+        assert new_note.name == "Pytest Created Note"
+        assert new_note.teacher.id == test_teacher_orm.id
         
-        print("--- Successfully created note (API dict) ---")
-        pprint(new_note_dict)
+        print("--- Successfully created note (API Model) ---")
+        pprint(new_note.model_dump())
 
     async def test_create_note_as_parent(
         self,
@@ -227,6 +230,30 @@ class TestNotesService:
         assert e.value.status_code == 403
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
 
+    async def test_create_note_with_nonexistent_student(
+        self,
+        notes_service: NotesService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Tests that creating a note with a non-existent student_id raises a 404."""
+        print(f"\n--- Testing create_note_for_api with non-existent student_id ---")
+        
+        non_existent_student_id = UUID("00000000-0000-0000-0000-000000000001") # A UUID that should not exist
+        
+        note_data = notes_models.NoteCreate(
+            student_id=non_existent_student_id,
+            name="Note for non-existent student",
+            subject=SubjectEnum.MATH,
+            note_type=NoteTypeEnum.HOMEWORK
+        )
+        
+        with pytest.raises(HTTPException) as e:
+            await notes_service.create_note_for_api(note_data, test_teacher_orm)
+        
+        assert e.value.status_code == 404
+        assert "Student not found" in e.value.detail
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
+
     ### Tests for update_note_for_api ###
 
     async def test_update_note_as_owner_teacher(
@@ -243,17 +270,17 @@ class TestNotesService:
         
         update_data = notes_models.NoteUpdate(name=new_name)
         
-        updated_note_dict = await notes_service.update_note_for_api(
+        updated_note = await notes_service.update_note_for_api(
             note_id, update_data, test_teacher_orm
         )
-        await db_session.commit()
+        await db_session.flush()
         
-        assert isinstance(updated_note_dict, dict)
-        assert updated_note_dict['id'] == str(note_id)
-        assert updated_note_dict['name'] == new_name
+        assert isinstance(updated_note, notes_models.NoteRead)
+        assert updated_note.id == note_id
+        assert updated_note.name == new_name
         
-        print("--- Successfully updated note (API dict) ---")
-        pprint(updated_note_dict)
+        print("--- Successfully updated note (API Model) ---")
+        pprint(updated_note.model_dump())
 
     async def test_update_note_as_unrelated_teacher(
         self,

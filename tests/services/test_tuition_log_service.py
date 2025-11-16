@@ -26,7 +26,7 @@ from tests.constants import (
 
 
 @pytest.mark.anyio
-class TestTuitionLogService:
+class TestTuitionLogServiceRead:
 
     ### Tests for get_tuition_log_by_id_for_api (Auth) ###
 
@@ -45,17 +45,18 @@ class TestTuitionLogService:
         
         log_dict = await tuition_log_service.get_tuition_log_by_id_for_api(log_id, test_teacher_orm)
         
-        assert isinstance(log_dict, dict)
-        assert log_dict['id'] == str(log_id)
-        assert log_dict['teacher']['id'] == str(test_teacher_orm.id)
+        assert isinstance(log_dict, finance_models.TuitionLogReadForTeacher)
+        assert log_dict.id == log_id
+        assert log_dict.teacher.id == test_teacher_orm.id
         print("--- Found log (API dict) ---")
-        pprint(log_dict)
+        pprint(log_dict.__dict__)
 
     async def test_get_log_by_id_api_as_related_parent(
         self,
         tuition_log_service: TuitionLogService,
         tuition_log_custom: db_models.TuitionLogs,
-        test_parent_orm: db_models.Users
+        test_parent_orm: db_models.Users,
+        test_tuition_orm
     ):
         """Tests that a related PARENT can fetch a log."""
         log_id = tuition_log_custom.id
@@ -65,11 +66,12 @@ class TestTuitionLogService:
         assert any(c.parent_id == test_parent_orm.id for c in tuition_log_custom.tuition_log_charges)
         
         log_dict = await tuition_log_service.get_tuition_log_by_id_for_api(log_id, test_parent_orm)
-        
-        assert isinstance(log_dict, dict)
-        assert log_dict['id'] == str(log_id)
+
+        assert isinstance(log_dict, finance_models.TuitionLogReadForParent)
+        assert log_dict.id == log_id
+        assert log_dict.tuition_id == test_tuition_orm.id
         print("--- Found log (API dict) ---")
-        pprint(log_dict)
+        pprint(log_dict.__dict__)
 
     async def test_get_log_by_id_api_as_related_student(
         self,
@@ -135,10 +137,10 @@ class TestTuitionLogService:
         
         assert isinstance(logs, list)
         print(f"--- Found {len(logs)} API logs for Teacher ---")
-        if len(logs) > 0:
-            assert isinstance(logs[0], dict)
-            assert 'charges' in logs[0] # Teacher-specific field
-            pprint(logs[0])
+        assert isinstance(logs, list)
+        assert isinstance(logs[0], finance_models.TuitionLogReadForTeacher)
+        assert isinstance(logs[0].charges, list)
+        pprint(logs[0].__dict__)
 
     async def test_get_all_logs_api_as_parent(
         self,
@@ -152,10 +154,10 @@ class TestTuitionLogService:
         
         assert isinstance(logs, list)
         print(f"--- Found {len(logs)} API logs for Parent ---")
-        if len(logs) > 0:
-            assert isinstance(logs[0], dict)
-            assert 'cost' in logs[0] # Guardian-specific field
-            pprint(logs[0])
+        assert isinstance(logs, list)
+        assert isinstance(logs[0], finance_models.TuitionLogReadForParent)
+        assert isinstance(logs[0].cost, Decimal)
+        pprint(logs[0].__dict__)
 
     async def test_get_all_logs_api_as_student(
         self,
@@ -173,9 +175,13 @@ class TestTuitionLogService:
 
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
 
+
+@pytest.mark.anyio
+class TestTuitionLogServiceWrite:
+
     ### Tests for create_tuition_log (Auth) ###
 
-    async def test_create_log_as_teacher(
+    async def test_create_scheduled_log_as_teacher(
         self,
         db_session: AsyncSession,
         tuition_log_service: TuitionLogService,
@@ -193,13 +199,43 @@ class TestTuitionLogService:
         }
         
         new_log_dict = await tuition_log_service.create_tuition_log(log_data, test_teacher_orm)
-        await db_session.commit()
+        await db_session.flush()
         
-        assert isinstance(new_log_dict, dict)
-        assert new_log_dict['id'] is not None
-        assert new_log_dict['create_type'] == "SCHEDULED"
+        assert isinstance(new_log_dict, finance_models.TuitionLogReadForTeacher)
+        assert new_log_dict.create_type.value == "SCHEDULED"
         print("--- Successfully created SCHEDULED log ---")
-        pprint(new_log_dict)
+        pprint(new_log_dict.__dict__)
+
+    async def test_create_custom_log_as_teacher(
+        self,
+        db_session: AsyncSession,
+        tuition_log_service: TuitionLogService,
+        test_teacher_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        test_tuition_orm: db_models.Tuitions
+    ):
+        """Tests that a TEACHER can create a log."""
+        print(f"\n--- Testing create_tuition_log as TEACHER ---")
+        
+        log_data = {
+            "log_type": TuitionLogCreateTypeEnum.CUSTOM.value,
+            "subject": SubjectEnum.MATH.value,
+            "start_time": datetime.now(timezone.utc).isoformat(),
+            "end_time": datetime.now(timezone.utc).isoformat(),
+            "lesson_index": 1,
+            "charges": [
+                {"student_id": str(test_student_orm.id),
+                 "cost": 91.91}
+                ]
+        }
+        
+        new_log_dict = await tuition_log_service.create_tuition_log(log_data, test_teacher_orm)
+        await db_session.flush()
+        
+        assert isinstance(new_log_dict, finance_models.TuitionLogReadForTeacher)
+        assert new_log_dict.create_type.value == "CUSTOM"
+        print("--- Successfully created CUSTOM log ---")
+        pprint(new_log_dict.__dict__)
 
     async def test_create_log_as_parent(
         self,
@@ -233,13 +269,13 @@ class TestTuitionLogService:
         # Pre-condition
         log_to_void.status = LogStatusEnum.ACTIVE.value
         db_session.add(log_to_void)
-        await db_session.commit()
+        await db_session.flush()
         
         # Act
         success = await tuition_log_service.void_tuition_log(log_to_void.id, test_teacher_orm)
         assert success is True
         
-        await db_session.commit()
+        await db_session.flush()
         await db_session.refresh(log_to_void)
         assert log_to_void.status == LogStatusEnum.VOID.value
         print("--- Successfully voided log ---")
@@ -290,7 +326,7 @@ class TestTuitionLogService:
         # Pre-condition
         old_log.status = LogStatusEnum.ACTIVE.value
         db_session.add(old_log)
-        await db_session.commit()
+        await db_session.flush()
         
         # Correction data
         correction_data = {
@@ -309,12 +345,12 @@ class TestTuitionLogService:
         new_log_dict = await tuition_log_service.correct_tuition_log(
             old_log.id, correction_data, test_teacher_orm
         )
-        await db_session.commit()
+        await db_session.flush()
         
         # Verify new log
-        assert isinstance(new_log_dict, dict)
-        assert new_log_dict['id'] != old_log.id
-        assert new_log_dict['subject'] == SubjectEnum.CHEMISTRY.value
+        assert isinstance(new_log_dict, finance_models.TuitionLogReadForTeacher)
+        assert new_log_dict.id != old_log.id
+        assert new_log_dict.subject == SubjectEnum.CHEMISTRY
         
         # Verify old log
         await db_session.refresh(old_log)

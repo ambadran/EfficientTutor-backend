@@ -1,7 +1,7 @@
 '''
 API endpoints for CRUD operations on Tuition Templates and their sub-resources.
 '''
-from typing import Annotated, Any, List, Union
+from typing import Annotated, Any, Union
 from uuid import UUID
 from fastapi import APIRouter, Depends, Response, status, HTTPException
 
@@ -11,14 +11,6 @@ from ..models import tuition as tuition_models
 from ..models import meeting_links as meeting_link_models
 from ..services.security import verify_token_and_get_user
 from ..services.tuition_service import TuitionService
-
-# Define a union type for role-based responses
-TuitionReadRoleBased = Union[
-    tuition_models.TuitionReadForTeacher,
-    tuition_models.TuitionReadForParent,
-    tuition_models.TuitionReadForStudent,
-]
-
 
 class TuitionsAPI:
     """
@@ -38,7 +30,7 @@ class TuitionsAPI:
                 "/", 
                 self.list_tuitions, 
                 methods=["GET"], 
-                response_model=List[TuitionReadRoleBased])
+                response_model=list[tuition_models.TuitionReadRoleBased])
         self.router.add_api_route(
                 "/regenerate", 
                 self.regenerate_tuitions, 
@@ -48,7 +40,7 @@ class TuitionsAPI:
                 "/{tuition_id}", 
                 self.get_tuition, 
                 methods=["GET"], 
-                response_model=TuitionReadRoleBased)
+                response_model=tuition_models.TuitionReadRoleBased)
         self.router.add_api_route(
                 "/{tuition_id}", 
                 self.update_tuition, 
@@ -77,7 +69,7 @@ class TuitionsAPI:
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
         tuition_service: Annotated[TuitionService, Depends(TuitionService)]
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Retrieves a list of all tuition templates visible to the current user.
         The response model varies based on the user's role.

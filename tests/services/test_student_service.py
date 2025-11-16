@@ -424,7 +424,7 @@ class TestStudentService:
         # 2. Act: Delete the student
         success = await student_service.delete_student(student_to_delete.id, test_parent_orm)
         assert success is True
-        await student_service.db.commit() # Commit the deletion
+        await student_service.db.flush() # flush the deletion
         
         # 3. Verify: The student should now be gone
         deleted_user = await student_service.get_user_by_id(student_to_delete.id)
@@ -448,7 +448,7 @@ class TestStudentService:
         # 2. Act: Delete the student
         success = await student_service.delete_student(student_to_delete.id, test_teacher_orm)
         assert success is True
-        await student_service.db.commit() # Commit the deletion
+        await student_service.db.flush() # flush the deletion
         
         # 3. Verify: The student should now be gone
         deleted_user = await student_service.get_user_by_id(student_to_delete.id)

@@ -1,7 +1,7 @@
 '''
 API endpoints for viewing the generated Timetable.
 '''
-from typing import Annotated, Any, List, Union
+from typing import Annotated, Any, Union
 from fastapi import APIRouter, Depends
 
 from ..database import models as db_models
@@ -9,12 +9,6 @@ from ..models import timetable as timetable_models
 from ..services.security import verify_token_and_get_user
 from ..services.timetable_service import TimeTableService
 
-# Define a union type for role-based timetable responses
-TimetableReadRoleBased = Union[
-    timetable_models.ScheduledTuitionReadForTeacher,
-    timetable_models.ScheduledTuitionReadForParent,
-    timetable_models.ScheduledTuitionReadForStudent,
-]
 
 class TimetableAPI:
     """
@@ -30,16 +24,16 @@ class TimetableAPI:
     def _register_routes(self):
         """Registers all the API routes for this class."""
         self.router.add_api_route(
-                "/", 
-                self.get_timetable,
-                methods=["GET"],
-                response_model=List[TimetableReadRoleBased])
+            "/", 
+            self.get_timetable,
+            methods=["GET"],
+            response_model=list[timetable_models.ScheduledTuitionReadRoleBased])
 
     async def get_timetable(
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
         timetable_service: Annotated[TimeTableService, Depends(TimeTableService)]
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Retrieves the generated timetable for the current user.
         - For a Teacher, returns their full schedule.

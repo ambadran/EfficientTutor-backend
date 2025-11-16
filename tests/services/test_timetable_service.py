@@ -38,7 +38,7 @@ class TestTimeTableService:
         # --- Logging ---
         print(f"--- Found solution data with {len(data)} entries ---")
         print("--- Example solution entry (raw) ---")
-        pprint(data[20])
+        # pprint(data[20])
         # --- End Logging ---
 
     ### Tests for get_all (core logic) ###

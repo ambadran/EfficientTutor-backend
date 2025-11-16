@@ -1,6 +1,7 @@
 '''
 
 '''
+from typing import Union
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
@@ -36,3 +37,10 @@ class ScheduledTuitionReadForStudent(BaseModel):
     tuition: TuitionReadForStudent # Nests the student-specific model
 
     model_config = ConfigDict(from_attributes=True)
+
+
+ScheduledTuitionReadRoleBased = Union[
+    ScheduledTuitionReadForTeacher,
+    ScheduledTuitionReadForParent,
+    ScheduledTuitionReadForStudent,
+]

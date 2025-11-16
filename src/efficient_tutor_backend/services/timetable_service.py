@@ -1,7 +1,7 @@
 '''
 
 '''
-from typing import List, Annotated, Optional
+from typing import Annotated, Optional
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
@@ -44,7 +44,7 @@ class TimeTableService:
         self.db = db
         self.tuition_service = tuition_service
 
-    async def get_all(self, current_user: db_models.Users) -> List[ScheduledTuition]:
+    async def get_all(self, current_user: db_models.Users) -> list[ScheduledTuition]:
         """
         RENAMED: Fetches the latest successful timetable and returns a list of
         scheduled tuitions relevant to the specific viewer.
@@ -88,7 +88,7 @@ class TimeTableService:
             log.error(f"Failed to parse timetable solution_data: {e}", exc_info=True)
             raise ValueError(f"Failed to parse timetable solution data.")
 
-    async def get_all_for_api(self, current_user: db_models.Users) -> List:
+    async def get_all_for_api(self, current_user: db_models.Users) -> list[timetable_models.ScheduledTuitionReadRoleBased]:
         """
         REFACTORED: Public dispatcher that returns a lean list of scheduled
         tuitions formatted correctly for the viewer's role.
@@ -223,7 +223,7 @@ class TimeTableService:
             tuition=student_tuition_model
         )
 
-    async def _get_latest_solution_data(self) -> Optional[List[dict]]:
+    async def _get_latest_solution_data(self) -> Optional[list[dict]]:
         """Fetches the 'solution_data' JSONB from the latest successful/manual run."""
         log.info("Fetching latest timetable solution from database...")
         try:

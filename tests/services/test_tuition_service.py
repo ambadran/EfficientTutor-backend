@@ -15,8 +15,9 @@ from pydantic import ValidationError
 
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.database.db_enums import MeetingLinkTypeEnum, SubjectEnum, StudentStatusEnum, AvailabilityTypeEnum
-from src.efficient_tutor_backend.models import user as user_models, tuition as tuition_models # Import user models for student creation
-from src.efficient_tutor_backend.models import meeting_links as meeting_link_models # Import user models for student creation
+from src.efficient_tutor_backend.models import user as user_models
+from src.efficient_tutor_backend.models import tuition as tuition_models 
+from src.efficient_tutor_backend.models import meeting_links as meeting_link_models 
 from src.efficient_tutor_backend.services.tuition_service import TuitionService
 from src.efficient_tutor_backend.services.user_service import UserService, StudentService # Import UserService for creating students
 # --- Import Test Constants ---
@@ -38,7 +39,8 @@ class TestTuitionServiceRead:
         """Tests fetching a single tuition template by its ID."""
         # Use the fixture to get a known tuition
         tuition = await tuition_service._get_tuition_by_id_internal(test_tuition_orm.id)
-       
+
+        assert isinstance(tuition, db_models.Tuitions)
         print(f"\n--- Found Tuition by ID ({test_tuition_orm.id}) ---")
         pprint(tuition.__dict__)
         pprint(tuition.tuition_template_charges[0].__dict__)
@@ -68,15 +70,21 @@ class TestTuitionServiceRead:
     ):
         """Tests fetching a single tuition template by its ID."""
         # Use the fixture to get a known tuition
-        tuition = await tuition_service.get_tuition_by_id_for_api(test_tuition_orm.id, test_teacher_orm)
-        tuition = await tuition_service.get_tuition_by_id_for_api(test_tuition_orm.id, test_parent_orm)
-        tuition = await tuition_service.get_tuition_by_id_for_api(test_tuition_orm.id, test_student_orm)
-       
-        print(f"\n--- Found Tuition by ID ({test_tuition_orm.id}) ---")
-        pprint(tuition)
+        tuition_for_teacher = await tuition_service.get_tuition_by_id_for_api(test_tuition_orm.id, test_teacher_orm)
+        assert isinstance(tuition_for_teacher, tuition_models.TuitionReadForTeacher)
+        assert tuition_for_teacher.id == test_tuition_orm.id
 
-        assert tuition is not None
-        assert tuition["id"] == str(test_tuition_orm.id)
+        tuition_for_parent = await tuition_service.get_tuition_by_id_for_api(test_tuition_orm.id, test_parent_orm)
+        assert isinstance(tuition_for_parent, tuition_models.TuitionReadForParent)
+        assert tuition_for_parent.id == test_tuition_orm.id
+
+        tuition_for_student = await tuition_service.get_tuition_by_id_for_api(test_tuition_orm.id, test_student_orm)
+        assert isinstance(tuition_for_student, tuition_models.TuitionReadForStudent)
+        assert tuition_for_student.id == test_tuition_orm.id
+
+        print(f"\n--- Found Tuition by ID ({test_tuition_orm.id}) ---")
+        pprint(tuition_for_teacher.__dict__)
+
 
     async def test_get_tuition_by_id_for_api_not_related(
         self,
@@ -101,7 +109,7 @@ class TestTuitionServiceRead:
 
     ### Tests for get_all_tuitions ###
 
-    async def test_get_all(
+    async def test_get_all_orm(
         self,
         tuition_service: TuitionService,
         test_teacher_orm: db_models.Users
@@ -116,6 +124,7 @@ class TestTuitionServiceRead:
         
         # --- Assertions ---
         assert isinstance(tuitions, list)
+        assert isinstance(tuitions[0], db_models.Tuitions)
         
         # --- Logging ---
         print(f"--- Found {len(tuitions)} Total Tuitions for Teacher '{test_teacher_orm.first_name} {test_teacher_orm.last_name}'---")
@@ -143,13 +152,14 @@ class TestTuitionServiceRead:
         
         # --- Assertions ---
         assert isinstance(tuitions, list)
+        assert isinstance(tuitions[0], tuition_models.TuitionReadForTeacher)
         
         # --- Logging ---
         print(f"--- Found {len(tuitions)} Total Tuitions for Teacher '{test_teacher_orm.first_name} {test_teacher_orm.last_name}'---")
         if tuitions:
-            print(f"Example Tuition Subject: {tuitions[0]["subject"]}")
+            print(f"Example Tuition Subject: {tuitions[0].subject}")
             print("--- Example Tuition Object (raw) ---")
-            pprint(tuitions[0])
+            pprint(tuitions[0].__dict__)
         else:
             print("--- No tuitions found for this teacher in the test data. ---")
         # --- End Logging ---
@@ -169,14 +179,14 @@ class TestTuitionServiceRead:
         
         # --- Assertions ---
         assert isinstance(tuitions, list)
-        # We can't know the exact count, but we know the call succeeded.
+        assert isinstance(tuitions[0], tuition_models.TuitionReadForParent)
         
         # --- Logging ---
         print(f"--- Found {len(tuitions)} Tuitions for Parent '{test_parent_orm.first_name} {test_parent_orm.last_name}' ---")
         if tuitions:
-            print(f"Example Tuition Subject: {tuitions[0]["subject"]}")
+            print(f"Example Tuition Subject: {tuitions[0].subject}")
             print("--- Example Tuition Object (raw) ---")
-            pprint(tuitions[0])
+            pprint(tuitions[0].__dict__)
         else:
             print("--- No tuitions found for this parent in the test data. ---")
         # --- End Logging ---
@@ -196,13 +206,14 @@ class TestTuitionServiceRead:
 
         # --- Assertions ---
         assert isinstance(tuitions, list)
+        assert isinstance(tuitions[0], tuition_models.TuitionReadForStudent)
         
         # --- Logging ---
         print(f"--- Found {len(tuitions)} Tuitions for Student '{test_student_orm.first_name} {test_student_orm.last_name}' ---")
         if tuitions:
-            print(f"Example Tuition Subject: {tuitions[0]["subject"]}")
+            print(f"Example Tuition Subject: {tuitions[0].subject}")
             print("--- Example Tuition Object (raw) ---")
-            pprint(tuitions[0])
+            pprint(tuitions[0].__dict__)
 
 # --- Helper Function to create students with subjects ---
 async def _create_student_with_subjects(
@@ -313,7 +324,7 @@ class TestTuitionServiceRegenerate:
         student1 = await _create_student_with_subjects(
             student_service, db_session, test_parent_orm, test_teacher_orm, student_email, [subject_data]
         )
-        await db_session.flush() # Commit student creation
+        await db_session.flush() # /ommit student creation
 
         # 2. Run regeneration
         result = await tuition_service.regenerate_all_tuitions()
@@ -815,7 +826,7 @@ async def create_test_link(
     tuition_id: UUID,
     current_user: db_models.Users
 ) -> db_models.Tuitions:
-    """Helper to create and commit a meeting link for a tuition."""
+    """Helper to create and flush a meeting link for a tuition."""
     create_data = meeting_link_models.MeetingLinkCreate(
         meeting_link_type=MeetingLinkTypeEnum.GOOGLE_MEET,
         meeting_link="https://meet.google.com/test-link"
@@ -823,7 +834,7 @@ async def create_test_link(
     await tuition_service.create_meeting_link_for_api(
         tuition_id, create_data, current_user
     )
-    await db_session.flush() # Commit this pre-condition
+    await db_session.flush() # flush this pre-condition
     
     # Re-fetch the tuition with the link eagerly loaded
     stmt = select(db_models.Tuitions).options(
@@ -869,9 +880,9 @@ class TestMeetingLinkService:
         await db_session.flush() 
         
         # Verify response
-        assert isinstance(link_dict, dict)
-        assert link_dict['tuition_id'] == str(tuition_id)
-        assert link_dict['meeting_id'] == "12345"
+        assert isinstance(link_dict, meeting_link_models.MeetingLinkRead)
+        assert link_dict.tuition_id == tuition_id
+        assert link_dict.meeting_id == "12345"
         
         # Verify DB object
         await db_session.refresh(test_tuition_orm_no_link, ['meeting_link'])
@@ -879,7 +890,7 @@ class TestMeetingLinkService:
         assert test_tuition_orm_no_link.meeting_link.meeting_password == "pass"
         
         print("--- Successfully created meeting link (API dict) ---")
-        pprint(link_dict)
+        pprint(link_dict.__dict__)
 
     async def test_create_meeting_link_as_unrelated_teacher(
         self,
@@ -957,9 +968,9 @@ class TestMeetingLinkService:
         await db_session.flush() # Send update to DB
         
         # --- Verify Response ---
-        assert isinstance(updated_link_dict, dict)
-        assert updated_link_dict['meeting_link'] == "https://meet.google.com/new-updated-link"
-        assert updated_link_dict['meeting_link_type'] == MeetingLinkTypeEnum.GOOGLE_MEET.value
+        assert isinstance(updated_link_dict, meeting_link_models.MeetingLinkRead)
+        assert str(updated_link_dict.meeting_link) == "https://meet.google.com/new-updated-link"
+        assert updated_link_dict.meeting_link_type == MeetingLinkTypeEnum.GOOGLE_MEET
         
         # --- Verify DB Object ---
         # We refresh the *existing* meeting_link object
@@ -1152,19 +1163,20 @@ class TestTuitionServiceUpdate:
         )
 
         # Act
-        updated_tuition_dict = await tuition_service.update_tuition_by_id(
+        updated_tuition = await tuition_service.update_tuition_by_id(
             tuition_id, update_data, test_teacher_orm
         )
         await db_session.flush()
 
         # Assert response
-        assert updated_tuition_dict["min_duration_minutes"] == 75
-        assert updated_tuition_dict["max_duration_minutes"] == 100
+        assert isinstance(updated_tuition, tuition_models.TuitionReadForTeacher)
+        assert updated_tuition.min_duration_minutes == 75
+        assert updated_tuition.max_duration_minutes == 100
         updated_charge_in_response = next(
-            (c for c in updated_tuition_dict["charges"] if c["student"]["id"] == str(student_id_to_update)), None
+            (c for c in updated_tuition.charges if c.student.id == student_id_to_update), None
         )
         assert updated_charge_in_response is not None
-        assert Decimal(updated_charge_in_response["cost"]) == new_cost
+        assert Decimal(updated_charge_in_response.cost) == new_cost
 
         # Assert database state
         await db_session.refresh(test_tuition_orm)
