@@ -17,12 +17,19 @@ from ..common.logger import log
 
 
 
+from ..services.user_service import UserService # Add this import
+
 class NotesService:
     """
     Service for all business logic related to student notes.
     """
-    def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)]):
+    def __init__(
+        self, 
+        db: Annotated[AsyncSession, Depends(get_db_session)],
+        user_service: Annotated[UserService, Depends(UserService)]
+    ):
         self.db = db
+        self.user_service = user_service
 
     # --- Authorization Helpers ---
 
@@ -100,7 +107,7 @@ class NotesService:
 
     # --- Public Read Methods (API-Facing) ---
     
-    async def get_note_by_id_for_api(self, note_id: UUID, current_user: db_models.Users) -> dict[str, Any]:
+    async def get_note_by_id_for_api(self, note_id: UUID, current_user: db_models.Users) -> notes_models.NoteRead:
         """
         Fetches a single note and returns it in API format,
         after verifying read authorization.
@@ -114,7 +121,7 @@ class NotesService:
             await self._authorize_read_access(note_orm, current_user)
             
             # 3. Format and return
-            return notes_models.NoteRead.model_validate(note_orm).model_dump(mode='json')
+            return notes_models.NoteRead.model_validate(note_orm)
         
         except HTTPException as http_exc:
             raise http_exc # Re-raise 404s and 403s
@@ -122,7 +129,7 @@ class NotesService:
             log.error(f"Error in get_note_by_id_for_api for note {note_id}: {e}", exc_info=True)
             raise
 
-    async def get_all_notes_for_api(self, current_user: db_models.Users) -> list[dict[str, Any]]:
+    async def get_all_notes_for_api(self, current_user: db_models.Users) -> list[notes_models.NoteRead]:
         """
         Fetches all notes visible to the current user (Teacher, Parent, or Student)
         and returns them in API format.
@@ -159,7 +166,7 @@ class NotesService:
             result = await self.db.execute(stmt)
             notes_orm = result.scalars().all()
             
-            return [notes_models.NoteRead.model_validate(note).model_dump(mode='json') for note in notes_orm]
+            return [notes_models.NoteRead.model_validate(note) for note in notes_orm]
         
         except HTTPException as http_exc:
             raise http_exc
@@ -169,7 +176,7 @@ class NotesService:
 
     # --- Public Write Methods (API-Facing) ---
     
-    async def create_note_for_api(self, data: notes_models.NoteCreate, current_user: db_models.Users) -> dict[str, Any]:
+    async def create_note_for_api(self, data: notes_models.NoteCreate, current_user: db_models.Users) -> notes_models.NoteRead:
         """
         Creates a new note. Restricted to Teachers only.
         Returns the newly created note in API format.
@@ -180,7 +187,13 @@ class NotesService:
             # 1. Authorize: Must be a Teacher
             self._authorize(current_user, [UserRole.TEACHER])
             
-            # 2. Create the ORM object
+            # 2. Validate student_id
+            student = await self.user_service.get_user_by_id(data.student_id)
+            if not student or student.role != UserRole.STUDENT.value:
+                log.warning(f"Attempted to create note with non-existent or non-student student_id: {data.student_id}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+
+            # 3. Create the ORM object
             new_note = db_models.Notes(
                 student_id=data.student_id,
                 name=data.name,
@@ -188,7 +201,7 @@ class NotesService:
                 note_type=data.note_type.value,     # Use .value
                 description=data.description,
                 url=data.url,
-                teacher_id=current_user.id        # 3. IDOR Security
+                teacher_id=current_user.id        # 4. IDOR Security
             )
             
             self.db.add(new_note)
@@ -196,7 +209,7 @@ class NotesService:
             await self.db.refresh(new_note, ['student', 'teacher']) # Load relationships
             
             # 4. Format and return
-            return notes_models.NoteRead.model_validate(new_note).model_dump(mode='json')
+            return notes_models.NoteRead.model_validate(new_note)
         
         except (ValidationError, ValueError) as e:
             log.error(f"Validation failed for creating note. Data: {data}, Error: {e}")
@@ -207,7 +220,7 @@ class NotesService:
             log.error(f"Error in create_note_for_api: {e}", exc_info=True)
             raise
 
-    async def update_note_for_api(self, note_id: UUID, data: notes_models.NoteUpdate, current_user: db_models.Users) -> dict[str, Any]:
+    async def update_note_for_api(self, note_id: UUID, data: notes_models.NoteUpdate, current_user: db_models.Users) -> notes_models.NoteRead:
         """
         Updates an existing note. Restricted to the Teacher who created it.
         Returns the updated note in API format.
@@ -236,7 +249,7 @@ class NotesService:
             await self.db.refresh(note_to_update, ['student', 'teacher'])
             
             # 5. Format and return
-            return notes_models.NoteRead.model_validate(note_to_update).model_dump(mode='json')
+            return notes_models.NoteRead.model_validate(note_to_update)
         
         except HTTPException as http_exc:
             raise http_exc

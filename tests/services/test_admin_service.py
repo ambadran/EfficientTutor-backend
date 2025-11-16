@@ -467,12 +467,12 @@ class TestAdminService:
             privileges=AdminPrivilegeType.NORMAL
         )
         created_admin_read = await admin_service.create_admin(admin_to_delete_data, test_admin_orm, "1.1.1.1")
-        await admin_service.db.commit()
+        await admin_service.db.flush()
 
         # ACT
         success = await admin_service.delete_admin(created_admin_read.id, test_admin_orm)
         assert success is True
-        await admin_service.db.commit()
+        await admin_service.db.flush()
 
         # ASSERT
         deleted_admin = await user_service.get_user_by_id(created_admin_read.id)

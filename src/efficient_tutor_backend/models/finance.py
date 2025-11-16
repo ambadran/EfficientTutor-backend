@@ -250,3 +250,17 @@ class FinancialSummaryForTeacher(BaseModel):
     total_owed_to_teacher: Decimal
     total_credit_held: Decimal
     total_lessons_given_this_month: int
+
+
+
+TuitionLogReadRoleBased = Union[
+    TuitionLogReadForTeacher,
+    TuitionLogReadForParent,
+    TuitionLogReadForStudent,
+]
+
+
+FinancialSummaryReadRoleBased = Union[
+    FinancialSummaryForParent,
+    FinancialSummaryForTeacher,
+]

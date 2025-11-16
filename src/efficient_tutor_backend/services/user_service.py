@@ -430,6 +430,7 @@ class StudentService(UserService):
         # 2. CORRECTED: Catch HTTPException and re-raise it immediately.
         except HTTPException as http_exc:
             raise http_exc
+
         except Exception as e:
             # 3. This now only catches database/unexpected errors.
             log.error(f"Database error fetching all students for user {current_user.id}: {e}", exc_info=True)

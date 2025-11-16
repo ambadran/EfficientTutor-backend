@@ -248,9 +248,9 @@ def financial_summary_service(db_session: AsyncSession) -> FinancialSummaryServi
     return FinancialSummaryService(db=db_session)
 
 @pytest.fixture(scope="function")
-async def notes_service(db_session: AsyncSession) -> NotesService:
+async def notes_service(db_session: AsyncSession, user_service: UserService) -> NotesService:
     """Provides a NotesService instance with a test session."""
-    return NotesService(db=db_session)
+    return NotesService(db=db_session, user_service=user_service)
 
 # --- 6. DATA FIXTURES ---
 # Your fixtures to fetch data are perfect.

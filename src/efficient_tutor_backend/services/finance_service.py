@@ -156,9 +156,9 @@ class TuitionLogService:
 
     # --- 3. API-Facing Read Methods (With Auth) ---
     
-    async def get_tuition_log_by_id_for_api(self, log_id: UUID, current_user: db_models.Users) -> dict[str, Any]:
+    async def get_tuition_log_by_id_for_api(self, log_id: UUID, current_user: db_models.Users) -> finance_models.TuitionLogReadRoleBased:
         """
-        NEW: API-facing method to get a single log.
+        API-facing method to get a single log.
         1. Authorizes Role
         2. Fetches Data
         3. Authorizes Object-Level Access
@@ -194,7 +194,7 @@ class TuitionLogService:
             log.error(f"Error in get_tuition_log_by_id_for_api: {e}", exc_info=True)
             raise
 
-    async def get_all_tuition_logs_for_api(self, current_user: db_models.Users) -> list[dict[str, Any]]:
+    async def get_all_tuition_logs_for_api(self, current_user: db_models.Users) -> list[finance_models.TuitionLogReadRoleBased]:
         """
         REFACTORED: API-facing method.
         1. Authorizes Role
@@ -253,7 +253,7 @@ class TuitionLogService:
         log_data: dict, 
         current_user: db_models.Users,
         corrected_from_log_id: Optional[UUID] = None
-    ) -> dict[str, Any]:
+    ) -> finance_models.TuitionLogReadForTeacher:
         """
         Creates a new tuition log. Restricted to Teachers only.
         Returns the final, JSON-serializable dictionary.
@@ -338,6 +338,8 @@ class TuitionLogService:
         self.db.add_all(new_charges)
         await self.db.flush()
         await self.db.refresh(new_log, ['teacher', 'tuition_log_charges', 'tuition'])
+        for charge in new_log.tuition_log_charges:
+            await self.db.refresh(charge, ['student'])
         return new_log
 
     async def _create_from_custom(
@@ -386,6 +388,8 @@ class TuitionLogService:
         self.db.add_all(new_charges)
         await self.db.flush()
         await self.db.refresh(new_log, ['teacher', 'tuition_log_charges'])
+        for charge in new_log.tuition_log_charges:
+            await self.db.refresh(charge, ['student'])
         return new_log
 
     async def correct_tuition_log(
@@ -393,7 +397,7 @@ class TuitionLogService:
         old_log_id: UUID, 
         new_log_data: dict[str, Any], 
         current_user: db_models.Users
-    ) -> dict[str, Any]:
+    ) -> finance_models.TuitionLogReadForTeacher:
         """
         Edits a tuition log by voiding the old one and creating a new one.
         Restricted to the Teacher owner.
@@ -505,7 +509,7 @@ class TuitionLogService:
         log: db_models.TuitionLogs, 
         earliest_date: datetime, 
         paid_status: PaidStatus
-    ) -> dict[str, Any]:
+    ) -> finance_models.TuitionLogReadForTeacher:
         """
         Private helper to build the ApiTuitionLogForTeacher model
         from a raw ORM object.
@@ -534,7 +538,7 @@ class TuitionLogService:
             charges=charges_list,
             earliest_log_date=earliest_date
         )
-        return api_model.model_dump(mode='json', exclude={'earliest_log_date'})
+        return api_model
 
     def _build_parent_api_log(
         self,
@@ -542,7 +546,7 @@ class TuitionLogService:
         earliest_date: datetime,
         paid_status: PaidStatus,
         parent_id: UUID
-    ) -> dict[str, Any]:
+    ) -> finance_models.TuitionLogReadForParent:
         """Private helper to build the ApiTuitionLogForParent model."""
         # ... (this method is correct and unchanged) ...
         my_charge = Decimal(0)
@@ -569,14 +573,14 @@ class TuitionLogService:
             ],
             earliest_log_date=earliest_date
         )
-        return api_model.model_dump(mode='json', exclude={'earliest_log_date'})
+        return api_model
 
     def _build_student_api_log(
         self,
         log: db_models.TuitionLogs,
         earliest_date: datetime,
         student_id: UUID
-    ) -> dict[str, Any]:
+    ) -> finance_models.TuitionLogReadForStudent:
         """Private helper to build the ApiTuitionLogForStudent model."""
         # ... (this method is correct and unchanged) ...
         api_model = finance_models.TuitionLogReadForStudent(
@@ -595,7 +599,7 @@ class TuitionLogService:
             ],
             earliest_log_date=earliest_date
         )
-        return api_model.model_dump(mode='json', exclude={'earliest_log_date'})
+        return api_model
 
 # --- Service 2: Payment Log Management ---
 
@@ -709,7 +713,7 @@ class PaymentLogService:
 
     # --- Public API-Facing Read Methods (With Auth) ---
 
-    async def get_payment_log_by_id_for_api(self, log_id: UUID, current_user: db_models.Users) -> dict[str, Any]:
+    async def get_payment_log_by_id_for_api(self, log_id: UUID, current_user: db_models.Users) -> finance_models.PaymentLogRead:
         """
         API-facing method to get a single log.
         Uses the new _authorize_log_viewership helper.
@@ -730,7 +734,7 @@ class PaymentLogService:
             log.error(f"Error in get_payment_log_by_id_for_api for log {log_id}: {e}", exc_info=True)
             raise
 
-    async def get_all_payment_logs_for_api(self, current_user: db_models.Users) -> list[dict[str, Any]]:
+    async def get_all_payment_logs_for_api(self, current_user: db_models.Users) -> list[finance_models.PaymentLogRead]:
         """
         REFACTORED: API-facing method to get all logs.
         The authorization logic is now handled by the get_all_payment_logs method.
@@ -750,7 +754,7 @@ class PaymentLogService:
 
     # --- Public Write Methods (With Auth) ---
 
-    async def create_payment_log(self, log_data: dict, current_user: db_models.Users, corrected_from_log_id: Optional[UUID] = None) -> dict[str, Any]:
+    async def create_payment_log(self, log_data: dict, current_user: db_models.Users, corrected_from_log_id: Optional[UUID] = None) -> finance_models.PaymentLogRead:
         """
         REVISED: Creates a new payment log. Restricted to Teachers only.
         Returns it in the API format.
@@ -769,8 +773,14 @@ class PaymentLogService:
                  log.warning(f"SECURITY: Teacher {current_user.id} tried to create a payment log for {input_model.teacher_id}.")
                  raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only create payment logs for yourself.")
 
+            # 4. Validate parent_id
+            parent = await self.user_service.get_user_by_id(input_model.parent_id)
+            if not parent or parent.role != UserRole.PARENT.value:
+                log.warning(f"Attempted to create payment log with non-existent or non-parent parent_id: {input_model.parent_id}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent not found.")
+
             # --- START OF FIX ---
-            # 4. Create the ORM object directly, don't call a non-existent db method
+            # 5. Create the ORM object directly, don't call a non-existent db method
             new_log_object = db_models.PaymentLogs(
                 parent_id=input_model.parent_id,
                 teacher_id=input_model.teacher_id,
@@ -827,7 +837,7 @@ class PaymentLogService:
             log.error(f"Database error voiding payment log {log_id}: {e}", exc_info=True)
             raise
 
-    async def correct_payment_log(self, old_log_id: UUID, new_log_data: dict, current_user: db_models.Users) -> dict[str, Any]:
+    async def correct_payment_log(self, old_log_id: UUID, new_log_data: dict, current_user: db_models.Users) -> finance_models.PaymentLogRead:
         """
         Edits a log by voiding the old one and creating a new one. Restricted to Teachers.
         Returns the new, API-formatted log.
@@ -846,7 +856,7 @@ class PaymentLogService:
 
     # --- API Formatting Method ---
         
-    def _format_payment_log_for_api(self, log: db_models.PaymentLogs) -> dict[str, Any]:
+    def _format_payment_log_for_api(self, log: db_models.PaymentLogs) -> finance_models.PaymentLogRead:
         """Formats a single payment log for the API."""
         if type(log) != db_models.PaymentLogs:
             raise TypeError(f"log must be type {db_models.PaymentLogs}, instead got {type(log)}")
@@ -866,7 +876,7 @@ class PaymentLogService:
             currency=parent.currency
         )
         
-        return api_model.model_dump(mode='json')
+        return api_model
 
 # --- Service 3: Financial Summary ---
 
@@ -876,7 +886,7 @@ class FinancialSummaryService:
     def __init__(self, db: Annotated[AsyncSession, Depends(get_db_session)]):
         self.db = db
 
-    async def get_financial_summary_for_api(self, current_user: db_models.Users) -> dict[str, Any]:
+    async def get_financial_summary_for_api(self, current_user: db_models.Users) -> finance_models.FinancialSummaryReadRoleBased:
         """
         Public API-facing dispatcher for financial summaries.
         Returns a JSON-serializable dictionary.
@@ -894,7 +904,7 @@ class FinancialSummaryService:
                 log.warning(f"SECURITY: User {current_user.id} tried to get financial summary. ")
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User role not authorized for financial summaries.")
             
-            return summary_model.model_dump(mode='json')
+            return summary_model
             
         except HTTPException as http_exc:
             raise http_exc # Re-raise auth errors

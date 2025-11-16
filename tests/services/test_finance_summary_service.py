@@ -96,13 +96,14 @@ class TestFinancialSummaryService:
         """
         print(f"\n--- Testing get_financial_summary_for_api as TEACHER ---")
         
-        summary_dict = await financial_summary_service.get_financial_summary_for_api(test_teacher_orm)
+        summary = await financial_summary_service.get_financial_summary_for_api(test_teacher_orm)
         
-        assert isinstance(summary_dict, dict)
-        assert 'total_owed_to_teacher' in summary_dict  # Check for a teacher-specific key
+        assert isinstance(summary, finance_models.FinancialSummaryForTeacher)
+        # Check for a teacher-specific key
+        assert summary.total_owed_to_teacher is not None
         
         print("--- API-formatted dict for Teacher ---")
-        pprint(summary_dict)
+        pprint(summary.__dict__)
 
     async def test_get_summary_api_as_parent(
         self,
@@ -115,13 +116,14 @@ class TestFinancialSummaryService:
         """
         print(f"\n--- Testing get_financial_summary_for_api as PARENT ---")
         
-        summary_dict = await financial_summary_service.get_financial_summary_for_api(test_parent_orm)
+        summary = await financial_summary_service.get_financial_summary_for_api(test_parent_orm)
         
-        assert isinstance(summary_dict, dict)
-        assert 'total_due' in summary_dict  # Check for a parent-specific key
+        assert isinstance(summary, finance_models.FinancialSummaryForParent)
+        # Check for a parent-specific key
+        assert summary.total_due is not None
         
         print("--- API-formatted dict for Parent ---")
-        pprint(summary_dict)
+        pprint(summary.__dict__)
 
     async def test_get_summary_api_as_student(
         self,
@@ -139,3 +141,5 @@ class TestFinancialSummaryService:
         assert e.value.status_code == 403
         
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
+
+

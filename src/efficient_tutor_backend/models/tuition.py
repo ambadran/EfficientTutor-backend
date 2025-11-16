@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
+from typing import Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -113,3 +114,10 @@ class TuitionUpdate(BaseModel):
                 raise ValueError('max_duration_minutes cannot be less than min_duration_minutes')
         return self
 
+
+# Define a union type for role-based responses
+TuitionReadRoleBased = Union[
+    TuitionReadForTeacher,
+    TuitionReadForParent,
+    TuitionReadForStudent,
+]

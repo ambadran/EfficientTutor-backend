@@ -269,12 +269,12 @@ class TestParentService:
             last_name="Me",
         )
         created_parent = await parents_service.create_parent(parent_to_delete_data, "1.1.1.1")
-        await parents_service.db.commit()
+        await parents_service.db.flush()
 
         # ACT
         success = await parents_service.delete_parent(created_parent.id, test_teacher_orm)
         assert success is True
-        await parents_service.db.commit()
+        await parents_service.db.flush()
 
         # ASSERT
         deleted_user = await user_service.get_user_by_id(created_parent.id)
@@ -295,7 +295,7 @@ class TestParentService:
             last_name="Myself",
         )
         created_parent_read = await parents_service.create_parent(parent_to_delete_data, "2.2.2.2")
-        await parents_service.db.commit()
+        await parents_service.db.flush()
         
         # Fetch the ORM object to use as the 'current_user'
         parent_orm = await user_service.get_user_by_id(created_parent_read.id)
@@ -303,7 +303,7 @@ class TestParentService:
         # ACT
         success = await parents_service.delete_parent(parent_orm.id, parent_orm)
         assert success is True
-        await parents_service.db.commit()
+        await parents_service.db.flush()
 
         # ASSERT
         deleted_user = await user_service.get_user_by_id(parent_orm.id)

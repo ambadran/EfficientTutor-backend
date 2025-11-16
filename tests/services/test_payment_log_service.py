@@ -22,7 +22,7 @@ from tests.constants import (
 
 
 @pytest.mark.anyio
-class TestPaymentLogService:
+class TestPaymentLogServiceRead:
 
     ### Tests for get_all_payment_logs_for_api (and its underlying auth) ###
 
@@ -38,11 +38,10 @@ class TestPaymentLogService:
         
         assert isinstance(logs, list)
         print(f"--- Found {len(logs)} API logs for Teacher ---")
-        if len(logs) > 0:
-            assert isinstance(logs[0], dict)
-            assert 'parent_name' in logs[0] # Check for teacher-specific field
-            print("--- Example API log (raw dict) ---")
-            pprint(logs[0])
+        assert isinstance(logs[0], finance_models.PaymentLogRead)
+        assert test_teacher_orm.first_name in logs[0].teacher_name
+        print("--- Example API log (raw dict) ---")
+        pprint(logs[0].__dict__)
 
     async def test_get_all_logs_api_as_parent(
         self,
@@ -56,11 +55,10 @@ class TestPaymentLogService:
         
         assert isinstance(logs, list)
         print(f"--- Found {len(logs)} API logs for Parent ---")
-        if len(logs) > 0:
-            assert isinstance(logs[0], dict)
-            assert 'teacher_name' in logs[0] # Check for parent-specific field
-            print("--- Example API log (raw dict) ---")
-            pprint(logs[0])
+        assert isinstance(logs[0], finance_models.PaymentLogRead)
+        assert test_parent_orm.first_name in logs[0].parent_name
+        print("--- Example API log (raw dict) ---")
+        pprint(logs[0].__dict__)
 
     async def test_get_all_logs_api_as_student(
         self,
@@ -91,12 +89,12 @@ class TestPaymentLogService:
         # This assumes the test_teacher_orm is the teacher associated with payment_log_orm
         assert payment_log_orm.teacher_id == test_teacher_orm.id, "Test data mismatch"
         
-        log_dict = await payment_log_service.get_payment_log_by_id_for_api(log_id, test_teacher_orm)
+        log = await payment_log_service.get_payment_log_by_id_for_api(log_id, test_teacher_orm)
         
-        assert isinstance(log_dict, dict)
-        assert log_dict['id'] == str(log_id)
+        assert isinstance(log, finance_models.PaymentLogRead)
+        assert log.id == log_id
         print("--- Found log (API dict) ---")
-        pprint(log_dict)
+        pprint(log.__dict__)
 
     async def test_get_log_by_id_api_as_parent(
         self,
@@ -111,12 +109,12 @@ class TestPaymentLogService:
         # This assumes the test_parent_orm is the parent associated with payment_log_orm
         assert payment_log_orm.parent_id == test_parent_orm.id, "Test data mismatch"
         
-        log_dict = await payment_log_service.get_payment_log_by_id_for_api(log_id, test_parent_orm)
+        log = await payment_log_service.get_payment_log_by_id_for_api(log_id, test_parent_orm)
         
-        assert isinstance(log_dict, dict)
-        assert log_dict['id'] == str(log_id)
+        assert isinstance(log, finance_models.PaymentLogRead)
+        assert log.id == log_id
         print("--- Found log (API dict) ---")
-        pprint(log_dict)
+        pprint(log.__dict__)
 
     async def test_get_log_by_id_api_as_student(
         self,
@@ -133,6 +131,10 @@ class TestPaymentLogService:
         
         assert e.value.status_code == 403
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
+
+
+@pytest.mark.anyio
+class TestPaymentLogServiceWrite:
 
     ### Tests for create_payment_log (Teacher only) ###
 
@@ -154,17 +156,17 @@ class TestPaymentLogService:
             "notes": "Test payment from pytest"
         }
         
-        new_log_dict = await payment_log_service.create_payment_log(log_data, test_teacher_orm)
-        await db_session.commit() # Commit the creation
+        new_log = await payment_log_service.create_payment_log(log_data, test_teacher_orm)
+        await db_session.flush() # flush the creation
         
-        assert new_log_dict is not None
-        assert isinstance(new_log_dict, dict)
-        assert new_log_dict['id'] is not None
-        assert new_log_dict['amount_paid'] == "100.00"
-        assert new_log_dict['parent_name'] == f"{test_parent_orm.first_name} {test_parent_orm.last_name}"
+        assert new_log is not None
+        assert isinstance(new_log, finance_models.PaymentLogRead)
+        assert new_log.id is not None
+        assert new_log.amount_paid == Decimal("100.00")
+        assert new_log.parent_name == f"{test_parent_orm.first_name} {test_parent_orm.last_name}"
         
         print(f"--- Successfully created payment log (API dict) ---")
-        pprint(new_log_dict)
+        pprint(new_log.__dict__)
 
     async def test_create_payment_log_as_parent(
         self,
@@ -198,7 +200,7 @@ class TestPaymentLogService:
         # Pre-condition
         log_to_void.status = LogStatusEnum.ACTIVE.value
         db_session.add(log_to_void)
-        await db_session.commit()
+        await db_session.flush()
         await db_session.refresh(log_to_void)
         assert log_to_void.status == LogStatusEnum.ACTIVE.value
         
@@ -206,7 +208,7 @@ class TestPaymentLogService:
         success = await payment_log_service.void_payment_log(log_to_void.id, test_teacher_orm)
         assert success is True
         
-        await db_session.commit() # Commit the void
+        await db_session.flush() # flush the void
         
         # Verify
         await db_session.refresh(log_to_void)
@@ -245,7 +247,7 @@ class TestPaymentLogService:
         # Pre-condition
         old_log.status = LogStatusEnum.ACTIVE.value
         db_session.add(old_log)
-        await db_session.commit()
+        await db_session.flush()
         await db_session.refresh(old_log)
         
         # Correction data
@@ -258,25 +260,25 @@ class TestPaymentLogService:
         }
         
         # Act
-        new_log_dict = await payment_log_service.correct_payment_log(
+        new_log = await payment_log_service.correct_payment_log(
             old_log.id, correction_data, test_teacher_orm
         )
         
-        await db_session.commit() # Commit the correction
+        await db_session.flush() # flush the correction
         
         # Verify new log (from returned dict)
-        assert isinstance(new_log_dict, dict)
-        assert new_log_dict['id'] != old_log.id
-        assert new_log_dict['amount_paid'] == "999.00"
-        assert new_log_dict['corrected_from_log_id'] == str(old_log.id)
+        assert isinstance(new_log, finance_models.PaymentLogRead)
+        assert new_log.id != old_log.id
+        assert new_log.amount_paid == Decimal("999.00")
+        assert new_log.corrected_from_log_id == old_log.id
         
         # Verify old log (from DB)
         await db_session.refresh(old_log)
         assert old_log.status == LogStatusEnum.VOID.value
         
-        print(f"--- Successfully corrected log. Old ID: {old_log.id}, New ID: {new_log_dict['id']} ---")
+        print(f"--- Successfully corrected log. Old ID: {old_log.id}, New ID: {new_log.id} ---")
         print("--- New log (API dict) ---")
-        pprint(new_log_dict)
+        pprint(new_log)
 
     async def test_correct_payment_log_as_parent(
         self,
@@ -295,5 +297,30 @@ class TestPaymentLogService:
             )
         
         assert e.value.status_code == 403
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
+
+    async def test_create_payment_log_with_nonexistent_parent(
+        self,
+        payment_log_service: PaymentLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Tests that creating a payment log with a non-existent parent_id raises a 404."""
+        print(f"\n--- Testing create_payment_log with non-existent parent_id ---")
+        
+        non_existent_parent_id = UUID("00000000-0000-0000-0000-000000000001") # A UUID that should not exist
+        
+        log_data = {
+            "parent_id": non_existent_parent_id,
+            "teacher_id": test_teacher_orm.id,
+            "amount_paid": Decimal("50.00"),
+            "payment_date": datetime.now(timezone.utc).isoformat(),
+            "notes": "Attempt to create with non-existent parent"
+        }
+        
+        with pytest.raises(HTTPException) as e:
+            await payment_log_service.create_payment_log(log_data, test_teacher_orm)
+        
+        assert e.value.status_code == 404
+        assert "Parent not found" in e.value.detail
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
 

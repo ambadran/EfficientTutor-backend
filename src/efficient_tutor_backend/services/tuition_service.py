@@ -153,7 +153,7 @@ class TuitionService:
 
     # --- 4. API-Facing Read Methods (With Auth) ---
 
-    async def get_tuition_by_id_for_api(self, tuition_id: UUID, current_user: db_models.Users) -> dict[str, Any]:
+    async def get_tuition_by_id_for_api(self, tuition_id: UUID, current_user: db_models.Users) -> tuition_models.TuitionReadRoleBased:
         """
         Fetches a single tuition by ID, formats it for the API,
         and verifies the user is authorized to read it.
@@ -170,7 +170,7 @@ class TuitionService:
             log.error(f"Error in get_tuition_by_id_for_api for tuition {tuition_id}: {e}", exc_info=True)
             raise
 
-    async def get_all_tuitions_for_api(self, current_user: db_models.Users) -> list[dict[str, Any]]:
+    async def get_all_tuitions_for_api(self, current_user: db_models.Users) -> tuition_models.TuitionReadRoleBased:
         """
         REFACTORED: API-facing method. Fetches all relevant tuitions
         and formats them into the correct API response.
@@ -189,121 +189,8 @@ class TuitionService:
             raise
 
     # --- 5. API-Facing Write Methods (With Auth) ---
-    
-    async def create_meeting_link_for_api(self, tuition_id: UUID, data: meeting_link_models.MeetingLinkCreate, current_user: db_models.Users) -> dict[str, Any]:
-        """
-        Creates a new meeting link for a tuition.
-        Restricted to the Teacher who owns the tuition.
-        """
-        log.info(f"User {current_user.id} attempting to create meeting link for tuition {tuition_id}.")
-        try:
-            # 1. Fetch parent tuition
-            tuition = await self._get_tuition_by_id_internal(tuition_id)
-            
-            # 2. Authorize
-            self._authorize_write_access(tuition, current_user)
-            
-            # 3. Check for existing link (1-to-1)
-            if tuition.meeting_link:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A meeting link for this tuition already exists.")
-            
-            # 4. Create new link
-            new_link = db_models.MeetingLinks(
-                tuition_id=tuition_id,
-                meeting_link_type=data.meeting_link_type.value, # Use .value
-                meeting_link=str(data.meeting_link), # Cast HttpUrl to str
-                meeting_id=data.meeting_id,
-                meeting_password=data.meeting_password
-            )
-            self.db.add(new_link)
-            await self.db.flush()
-            
-            # 5. Format and return
-            return meeting_link_models.MeetingLinkRead.model_validate(new_link).model_dump(mode='json')
 
-        except HTTPException as http_exc:
-            raise http_exc
-        except Exception as e:
-            log.error(f"Error in create_meeting_link_for_api for tuition {tuition_id}: {e}", exc_info=True)
-            raise
-
-    async def update_meeting_link_for_api(self, tuition_id: UUID, data: meeting_link_models.MeetingLinkUpdate, current_user: db_models.Users) -> dict[str, Any]:
-        """
-        Updates an existing meeting link for a tuition.
-        Restricted to the Teacher who owns the tuition.
-        """
-        log.info(f"User {current_user.id} attempting to update meeting link for tuition {tuition_id}.")
-        try:
-            # 1. Fetch parent tuition
-            tuition = await self._get_tuition_by_id_internal(tuition_id)
-            
-            # 2. Authorize
-            self._authorize_write_access(tuition, current_user)
-            
-            # 3. Check that link exists
-            link_to_update = tuition.meeting_link
-            if not link_to_update:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No meeting link found for this tuition to update.")
-                
-            # 4. Apply updates
-            update_data = data.model_dump(exclude_unset=True)
-            if not update_data:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields provided to update.")
-            
-            # 5. Apply updates manually, converting enums/HttpUrl
-            for key, value in update_data.items():
-                if value is None:
-                    setattr(link_to_update, key, None)
-                elif key == 'meeting_link_type':
-                    setattr(link_to_update, key, value.value) # Use .value
-                elif key == 'meeting_link':
-                    setattr(link_to_update, key, str(value)) # Cast HttpUrl to str
-                else:
-                    setattr(link_to_update, key, value)
-                
-            self.db.add(link_to_update)
-            await self.db.flush()
-            
-            # 5. Format and return
-            return meeting_link_models.MeetingLinkRead.model_validate(link_to_update).model_dump(mode='json')
-            
-        except HTTPException as http_exc:
-            raise http_exc
-        except Exception as e:
-            log.error(f"Error in update_meeting_link_for_api for tuition {tuition_id}: {e}", exc_info=True)
-            raise
-
-    async def delete_meeting_link(self, tuition_id: UUID, current_user: db_models.Users) -> None:
-        """
-        Deletes a meeting link from a tuition.
-        Restricted to the Teacher who owns the tuition.
-        """
-        log.info(f"User {current_user.id} attempting to delete meeting link for tuition {tuition_id}.")
-        try:
-            # 1. Fetch parent tuition
-            tuition = await self._get_tuition_by_id_internal(tuition_id)
-            
-            # 2. Authorize
-            self._authorize_write_access(tuition, current_user)
-            
-            # 3. Check that link exists
-            if not tuition.meeting_link:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No meeting link found for this tuition to delete.")
-            
-            # 4. Set relationship to None. The ORM's "delete-orphan" cascade will handle the deletion.
-            tuition.meeting_link = None
-            await self.db.flush()
-            
-            # 5. Return (will be a 204 No Content in the API)
-            return
-
-        except HTTPException as http_exc:
-            raise http_exc
-        except Exception as e:
-            log.error(f"Error in delete_meeting_link for tuition {tuition_id}: {e}", exc_info=True)
-            raise
-
-    async def update_tuition_by_id(self, tuition_id: UUID, update_data: tuition_models.TuitionUpdate, current_user: db_models.Users) -> dict[str, Any]:
+    async def update_tuition_by_id(self, tuition_id: UUID, update_data: tuition_models.TuitionUpdate, current_user: db_models.Users) -> tuition_models.TuitionReadForTeacher:
         """
         Updates the editable fields of a tuition (durations and student costs).
         Restricted to the Teacher who owns the tuition.
@@ -379,10 +266,122 @@ class TuitionService:
             log.error(f"Error in update_tuition_by_id for tuition {tuition_id}: {e}", exc_info=True)
             raise
 
+    async def create_meeting_link_for_api(self, tuition_id: UUID, data: meeting_link_models.MeetingLinkCreate, current_user: db_models.Users) -> meeting_link_models.MeetingLinkRead:
+        """
+        Creates a new meeting link for a tuition.
+        Restricted to the Teacher who owns the tuition.
+        """
+        log.info(f"User {current_user.id} attempting to create meeting link for tuition {tuition_id}.")
+        try:
+            # 1. Fetch parent tuition
+            tuition = await self._get_tuition_by_id_internal(tuition_id)
+            
+            # 2. Authorize
+            self._authorize_write_access(tuition, current_user)
+            
+            # 3. Check for existing link (1-to-1)
+            if tuition.meeting_link:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A meeting link for this tuition already exists.")
+            
+            # 4. Create new link
+            new_link = db_models.MeetingLinks(
+                tuition_id=tuition_id,
+                meeting_link_type=data.meeting_link_type.value, # Use .value
+                meeting_link=str(data.meeting_link), # Cast HttpUrl to str
+                meeting_id=data.meeting_id,
+                meeting_password=data.meeting_password
+            )
+            self.db.add(new_link)
+            await self.db.flush()
+            
+            # 5. Format and return
+            return meeting_link_models.MeetingLinkRead.model_validate(new_link)
+
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Error in create_meeting_link_for_api for tuition {tuition_id}: {e}", exc_info=True)
+            raise
+
+    async def update_meeting_link_for_api(self, tuition_id: UUID, data: meeting_link_models.MeetingLinkUpdate, current_user: db_models.Users) -> meeting_link_models.MeetingLinkRead:
+        """
+        Updates an existing meeting link for a tuition.
+        Restricted to the Teacher who owns the tuition.
+        """
+        log.info(f"User {current_user.id} attempting to update meeting link for tuition {tuition_id}.")
+        try:
+            # 1. Fetch parent tuition
+            tuition = await self._get_tuition_by_id_internal(tuition_id)
+            
+            # 2. Authorize
+            self._authorize_write_access(tuition, current_user)
+            
+            # 3. Check that link exists
+            link_to_update = tuition.meeting_link
+            if not link_to_update:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No meeting link found for this tuition to update.")
+                
+            # 4. Apply updates
+            update_data = data.model_dump(exclude_unset=True)
+            if not update_data:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields provided to update.")
+            
+            # 5. Apply updates manually, converting enums/HttpUrl
+            for key, value in update_data.items():
+                if value is None:
+                    setattr(link_to_update, key, None)
+                elif key == 'meeting_link_type':
+                    setattr(link_to_update, key, value.value) # Use .value
+                elif key == 'meeting_link':
+                    setattr(link_to_update, key, str(value)) # Cast HttpUrl to str
+                else:
+                    setattr(link_to_update, key, value)
+                
+            self.db.add(link_to_update)
+            await self.db.flush()
+            
+            # 5. Format and return
+            return meeting_link_models.MeetingLinkRead.model_validate(link_to_update)            
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Error in update_meeting_link_for_api for tuition {tuition_id}: {e}", exc_info=True)
+            raise
+
+    async def delete_meeting_link(self, tuition_id: UUID, current_user: db_models.Users) -> bool:
+        """
+        Deletes a meeting link from a tuition.
+        Restricted to the Teacher who owns the tuition.
+        """
+        log.info(f"User {current_user.id} attempting to delete meeting link for tuition {tuition_id}.")
+        try:
+            # 1. Fetch parent tuition
+            tuition = await self._get_tuition_by_id_internal(tuition_id)
+            
+            # 2. Authorize
+            self._authorize_write_access(tuition, current_user)
+            
+            # 3. Check that link exists
+            if not tuition.meeting_link:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No meeting link found for this tuition to delete.")
+            
+            # 4. Set relationship to None. The ORM's "delete-orphan" cascade will handle the deletion.
+            tuition.meeting_link = None
+            await self.db.flush()
+            
+            # 5. Return (will be a 204 No Content in the API)
+            #TODO: implement an actual check here.
+            return True
+
+        except HTTPException as http_exc:
+            raise http_exc
+        except Exception as e:
+            log.error(f"Error in delete_meeting_link for tuition {tuition_id}: {e}", exc_info=True)
+            raise
 
     # --- 6. Internal Formatters ---
 
-    def _format_tuition_for_api(self, tuition_orm: db_models.Tuitions, current_user: db_models.Users) -> dict[str, Any]:
+    def _format_tuition_for_api(self, tuition_orm: db_models.Tuitions, current_user: db_models.Users) -> tuition_models.TuitionReadRoleBased:
         """
         Dispatcher that formats a single ORM object into the correct
         Pydantic API model based on the viewer's role.
@@ -397,7 +396,7 @@ class TuitionService:
             # This case should be impossible if get_all_tuitions_for_api is used
             raise HTTPException(status_code=403, detail="Unauthorized role.")
 
-    def _format_for_teacher_api(self, tuition_orm: db_models.Tuitions) -> dict:
+    def _format_for_teacher_api(self, tuition_orm: db_models.Tuitions) -> tuition_models.TuitionReadForTeacher:
         """Formats a tuition for a Teacher's view."""
         
         # Manually build the detailed charge list
@@ -418,9 +417,9 @@ class TuitionService:
             meeting_link=tuition_orm.meeting_link, # Pydantic will auto-validate
             charges=charges_list
         )
-        return api_model.model_dump(mode='json')
+        return api_model
         
-    def _format_for_parent_api(self, tuition_orm: db_models.Tuitions, parent_id: UUID) -> dict:
+    def _format_for_parent_api(self, tuition_orm: db_models.Tuitions, parent_id: UUID) -> tuition_models.TuitionReadForParent:
         """Formats a tuition for a Parent's view."""
         
         # Find the specific charge for this parent
@@ -445,9 +444,9 @@ class TuitionService:
             charge=parent_charge,
             attendee_names=attendee_names
         )
-        return api_model.model_dump(mode='json')
+        return api_model
 
-    def _format_for_student_api(self, tuition_orm: db_models.Tuitions, student_id: UUID) -> dict:
+    def _format_for_student_api(self, tuition_orm: db_models.Tuitions, student_id: UUID) -> tuition_models.TuitionReadForStudent:
         """Formats a tuition for a Student's view."""
         
         attendee_names = [
@@ -464,7 +463,7 @@ class TuitionService:
             meeting_link=tuition_orm.meeting_link,
             attendee_names=attendee_names
         )
-        return api_model.model_dump(mode='json')
+        return api_model
 
     # --- 7. Regeneration Logic (BUG FIX) ---
 
