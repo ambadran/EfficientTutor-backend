@@ -12,6 +12,8 @@ from src.efficient_tutor_backend.database.db_enums import MeetingLinkTypeEnum
 from src.efficient_tutor_backend.services.security import JWTHandler
 from tests.constants import TEST_TEACHER_ID, TEST_STUDENT_ID, TEST_TUITION_ID, TEST_TUITION_ID_NO_LINK
 
+from pprint import pp as pprint
+
 # Helper to create auth headers
 def auth_headers_for_user(user: db_models.Users) -> dict:
     """Creates a JWT token for the given user and returns auth headers."""
@@ -31,6 +33,7 @@ class TestTuitionAPIGET:
         response = client.get("/tuitions/", headers=headers)
         assert response.status_code == 200
         tuitions = response.json()
+        pprint(tuitions)
         assert isinstance(tuitions, list)
         assert len(tuitions) > 0
         # The response should be a list of TuitionReadForTeacher models
@@ -74,6 +77,7 @@ class TestTuitionAPIGET:
         response = client.get(f"/tuitions/{TEST_TUITION_ID}", headers=headers)
         assert response.status_code == 200
         tuition = response.json()
+        pprint(tuition)
         assert tuition["id"] == str(TEST_TUITION_ID)
         assert "charges" in tuition
         assert "student" in tuition["charges"][0]
@@ -149,6 +153,7 @@ class TestMeetingLinkAPI:
         response = client.post(f"/tuitions/{tuition_id_to_use}/meeting_link", headers=headers, json=link_data)
         assert response.status_code == 201
         new_link = meeting_link_models.MeetingLinkRead(**response.json())
+        pprint(new_link.model_dump())
         assert str(new_link.meeting_link) == link_data["meeting_link"]
 
     async def test_update_meeting_link_success(

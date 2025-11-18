@@ -7,6 +7,8 @@ from src.efficient_tutor_backend.services.security import JWTHandler
 from src.efficient_tutor_backend.models import timetable as timetable_models
 from tests.constants import TEST_TUITION_ID, TEST_STUDENT_ID
 
+from pprint import pp as pprint
+
 # Helper to create auth headers
 def auth_headers_for_user(user: db_models.Users) -> dict:
     """Creates a JWT token for the given user and returns auth headers."""
@@ -39,6 +41,8 @@ class TestTimetableAPI:
 
         # Validate the structure of the first item
         timetable_entry = timetable_models.ScheduledTuitionReadForTeacher(**response_data[0])
+
+        pprint(timetable_entry.model_dump())
         
         # Assert that the tuition ID from the response matches our test tuition
         assert timetable_entry.tuition.id == TEST_TUITION_ID

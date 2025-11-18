@@ -21,14 +21,21 @@ class GeoService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(f"{self.IP_API_URL}{ip_address}")
                 response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
-                data = await response.json()
+                data = response.json()
 
             if data.get("status") == "fail":
-                log.warning(f"Geolocation lookup failed for IP {ip_address}: {data.get('message')}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Could not determine location for IP address: {ip_address}. Reason: {data.get('message', 'Unknown error')}"
-                )
+                message = data.get('message', 'Unknown error')
+                if "reserved range" in message.lower():
+                    log.warning(f"Geolocation lookup failed for IP {ip_address} due to 'Reserved Range'.")
+                    timezone = None 
+                    country_code = None
+                    currency = None
+                else:
+                    log.warning(f"Geolocation lookup failed for IP {ip_address}: {message}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Could not determine location for IP address: {ip_address}. Reason: {message}"
+                    )
 
             timezone = data.get("timezone")
             country_code = data.get("countryCode")
@@ -41,11 +48,11 @@ class GeoService:
 
 
             if not timezone or not country_code:
-                log.warning(f"Incomplete geolocation data for IP {ip_address}: {data}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Could not determine timezone or country for IP address: {ip_address}"
-                )
+                log.warning(f"Incomplete geolocation data for IP {ip_address}: {data}. Using default timezone 'UTC' and currency 'USD'.")
+                timezone = None
+                country_code = None
+                currency = None
+
 
             # Use countryinfo to get currency in a separate thread to avoid blocking
             def get_currency_sync(code: str) -> list:
@@ -55,8 +62,7 @@ class GeoService:
             
             if not currencies:
                 log.warning(f"Could not determine currency for country code: {country_code}")
-                # Default to USD if currency cannot be determined
-                currency = "USD" 
+                currency = None
             else:
                 currency = currencies[0] # Take the first currency if multiple are listed
 
@@ -67,7 +73,7 @@ class GeoService:
             log.error(f"HTTP request failed for geolocation service for IP {ip_address}: {e}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Geolocation service is currently unavailable."
+                detail="Geolocation service is currently unavailable. Please Try Again!"
             )
         except httpx.HTTPStatusError as e:
             log.error(f"Geolocation service returned an error for IP {ip_address}: {e.response.status_code} - {e.response.text}", exc_info=True)

@@ -44,6 +44,7 @@ class TestTuitionServiceRead:
         print(f"\n--- Found Tuition by ID ({test_tuition_orm.id}) ---")
         pprint(tuition.__dict__)
         pprint(tuition.tuition_template_charges[0].__dict__)
+        pprint(tuition.meeting_link.__dict__)
 
         assert tuition is not None
         assert tuition.id == test_tuition_orm.id
@@ -85,7 +86,6 @@ class TestTuitionServiceRead:
         print(f"\n--- Found Tuition by ID ({test_tuition_orm.id}) ---")
         pprint(tuition_for_teacher.__dict__)
 
-
     async def test_get_tuition_by_id_for_api_not_related(
         self,
         tuition_service: TuitionService,
@@ -105,7 +105,6 @@ class TestTuitionServiceRead:
         assert e.value.status_code == 403
         
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
-
 
     ### Tests for get_all_tuitions ###
 
