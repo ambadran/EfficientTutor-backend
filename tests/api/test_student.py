@@ -7,6 +7,8 @@ from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.security import JWTHandler
 from src.efficient_tutor_backend.models import user as user_models
 
+from pprint import pp as pprint
+
 # Helper to create auth headers
 def auth_headers_for_user(user: db_models.Users) -> dict:
     """Creates a JWT token for the given user and returns auth headers."""
@@ -35,6 +37,7 @@ class TestStudentAPIGET:
         assert student_data.id == student_id
         assert student_data.email == test_student_orm.email
         print(f"Successfully fetched student {student_id}")
+        pprint(student_data.model_dump())
 
     async def test_get_student_by_id_not_found(
         self,
@@ -70,6 +73,7 @@ class TestStudentAPIGET:
         student_ids = [student['id'] for student in response_data]
         assert str(test_student_orm.id) in student_ids
         print("Parent successfully fetched their list of children.")
+        pprint(response_data)
 
     async def test_get_all_students_as_teacher_success(
         self,
@@ -86,6 +90,7 @@ class TestStudentAPIGET:
         response_data = response.json()
         assert isinstance(response_data, list)
         print("Teacher successfully fetched their list of students.")
+        pprint(response_data)
 
     async def test_get_all_students_as_admin_forbidden(
         self,
@@ -116,14 +121,15 @@ class TestStudentAPIPOST:
         headers = auth_headers_for_user(test_teacher_orm)
         payload = valid_student_data
         
-        print(f"Teacher {test_teacher_orm.email} creating student {payload['email']}.")
+        print(f"Teacher {test_teacher_orm.email} creating student {payload['first_name']}.")
         response = client.post("/students/", headers=headers, json=payload)
 
         assert response.status_code == 201, response.json()
         created_student = user_models.StudentRead(**response.json())
-        assert created_student.email == payload["email"]
+        assert created_student.first_name == payload["first_name"]
         assert str(created_student.parent_id) == payload["parent_id"]
         print("Teacher successfully created student.")
+        pprint(created_student.model_dump())
 
     async def test_create_student_as_parent_success(
         self,
@@ -141,9 +147,10 @@ class TestStudentAPIPOST:
 
         assert response.status_code == 201, response.json()
         created_student = user_models.StudentRead(**response.json())
-        assert created_student.email == payload["email"]
+        assert created_student.first_name == payload["first_name"]
         assert created_student.parent_id == test_parent_orm.id
         print("Parent successfully created their own child.")
+        pprint(created_student.model_dump())
 
     async def test_create_student_as_parent_for_other_parent_forbidden(
         self,

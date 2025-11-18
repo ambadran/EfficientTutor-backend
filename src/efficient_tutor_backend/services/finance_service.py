@@ -442,6 +442,7 @@ class TuitionLogService:
         # 3. Perform the action
         log_obj.status = LogStatusEnum.VOID.value
         self.db.add(log_obj)
+        await self.db.flush()
         return True
 
     # --- 5. Internal Formatters & Helpers ---
@@ -830,6 +831,7 @@ class PaymentLogService:
             
             log_obj.status = LogStatusEnum.VOID.value
             self.db.add(log_obj)
+            await self.db.flush()
             return True
         except HTTPException as http_exc:
             raise http_exc # Re-raise 404s

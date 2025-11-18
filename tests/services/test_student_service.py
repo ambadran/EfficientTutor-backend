@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from datetime import time
 from decimal import Decimal
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # --- Import models and services ---
 from src.efficient_tutor_backend.database import models as db_models
@@ -15,7 +16,7 @@ from pprint import pp as pprint
 
 
 @pytest.mark.anyio
-class TestStudentService:
+class TestStudentServiceREAD:
 
     # --- Tests for get_all ---
 
@@ -29,6 +30,8 @@ class TestStudentService:
         students = await student_service.get_all(current_user=test_teacher_orm)
        
         print(f"Found {len(students)} students for teacher '{test_teacher_orm.first_name} {test_teacher_orm.last_name}':\n{[student.first_name for student in students]}")
+
+        pprint(students[0].__dict__)
 
         assert len(students) >= 1
         assert type(students[0]) == db_models.Students
@@ -48,6 +51,8 @@ class TestStudentService:
         students = await student_service.get_all(current_user=test_parent_orm)
 
         print(f"Found {len(students)} students for Parent '{test_parent_orm.first_name} {test_parent_orm.last_name}':\n{[student.first_name for student in students]}")
+
+        pprint(students[0].__dict__)
         
         assert len(students) >= 1
         assert type(students[0]) == db_models.Students
@@ -68,10 +73,14 @@ class TestStudentService:
         
         assert e.value.status_code == 403
 
+@pytest.mark.anyio
+class TestStudentServiceWRITE:
+
     # --- Tests for create_student ---
 
     async def test_create_student_as_teacher_happy_path(
         self,
+        db_session: AsyncSession,
         student_service: StudentService,
         test_teacher_orm: db_models.Users,
         valid_student_data: dict
@@ -79,14 +88,17 @@ class TestStudentService:
         """Tests successful student creation by a Teacher."""
         print("\n--- Testing create_student as TEACHER (Happy Path) ---")
         
+        # valid_student_data no longer contains 'email', so we can use it directly
         create_model = user_models.StudentCreate(**valid_student_data)
         
         new_student = await student_service.create_student(create_model, test_teacher_orm)
         
         assert isinstance(new_student, user_models.StudentRead)
-        assert new_student.email == create_model.email
+        assert new_student.email is not None # Email should be auto-generated
+        assert "@" in new_student.email # Basic email format check
         assert new_student.first_name == "Pytest"
         assert new_student.parent_id == TEST_PARENT_ID
+        assert new_student.generated_password is not None # Generated password should be present
         
         # Verify relational data
         assert len(new_student.student_subjects) == 1
@@ -96,31 +108,54 @@ class TestStudentService:
         assert len(new_student.student_availability_intervals) == 1
         assert new_student.student_availability_intervals[0].day_of_week == 1
 
-        # Check the underlying DB object for generated password
+        await db_session.flush()
+
         db_student = await student_service.get_user_by_id(new_student.id)
-        assert db_student.generated_password is not None
+        assert db_student.first_name == "Pytest"
+        assert db_student.parent_id == TEST_PARENT_ID
+        assert db_student.generated_password is not None # Generated password should be present
 
         print("--- Successfully created student (API model) ---")
         pprint(new_student.model_dump())
 
     async def test_create_student_as_parent_happy_path(
         self,
+        db_session: AsyncSession,
         student_service: StudentService,
         test_parent_orm: db_models.Users,
         valid_student_data: dict
     ):
         """Tests successful student creation by a Parent."""
         print("\n--- Testing create_student as PARENT (Happy Path) ---")
-        
-        # Ensure the parent is creating their own child
-        valid_student_data["parent_id"] = test_parent_orm.id
-        valid_student_data["email"] = "pytest.student.parent@example.com" # different email to avoid conflict
+
+        # valid_student_data no longer contains 'email', so we can use it directly
         create_model = user_models.StudentCreate(**valid_student_data)
         
         new_student = await student_service.create_student(create_model, test_parent_orm)
         
         assert isinstance(new_student, user_models.StudentRead)
-        assert new_student.email == create_model.email
+        assert new_student.email is not None # Email should be auto-generated
+        assert "@" in new_student.email # Basic email format check
+        assert new_student.first_name == "Pytest"
+        assert new_student.parent_id == TEST_PARENT_ID
+        assert new_student.generated_password is not None # Generated password should be present
+
+         # Verify relational data
+        assert len(new_student.student_subjects) == 1
+        assert new_student.student_subjects[0].subject == SubjectEnum.PHYSICS
+        assert new_student.student_subjects[0].shared_with_student_ids == [TEST_STUDENT_ID]
+        
+        assert len(new_student.student_availability_intervals) == 1
+        assert new_student.student_availability_intervals[0].day_of_week == 1
+
+        await db_session.flush()
+
+        db_student = await student_service.get_user_by_id(new_student.id)
+        assert db_student.first_name == "Pytest"
+        assert db_student.parent_id == TEST_PARENT_ID
+        assert db_student.generated_password is not None # Generated password should be present
+
+
         print("--- Successfully created student (API model) ---")
         pprint(new_student.model_dump())
 
@@ -165,26 +200,6 @@ class TestStudentService:
         assert e.value.status_code == 403
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
 
-    async def test_create_student_duplicate_email(
-        self,
-        student_service: StudentService,
-        test_teacher_orm: db_models.Users,
-        test_student_orm: db_models.Users,
-        valid_student_data: dict
-    ):
-        """Tests that creating a student with an existing email fails."""
-        print("\n--- Testing create_student with duplicate email ---")
-        
-        valid_student_data["email"] = test_student_orm.email  # Use an existing email
-        create_model = user_models.StudentCreate(**valid_student_data)
-        
-        with pytest.raises(HTTPException) as e:
-            await student_service.create_student(create_model, test_teacher_orm)
-            
-        assert e.value.status_code == 400
-        assert "Email already registered" in e.value.detail
-        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
-
     async def test_create_student_non_existent_parent(
         self,
         student_service: StudentService,
@@ -216,19 +231,21 @@ class TestStudentService:
         
         valid_student_data["student_subjects"] = []
         valid_student_data["student_availability_intervals"] = []
-        valid_student_data["email"] = "minimal.student@example.com"
         
         create_model = user_models.StudentCreate(**valid_student_data)
         
         new_student = await student_service.create_student(create_model, test_teacher_orm)
         
         assert isinstance(new_student, user_models.StudentRead)
-        assert new_student.email == "minimal.student@example.com"
         assert len(new_student.student_subjects) == 0
         assert len(new_student.student_availability_intervals) == 0
         
         print("--- Successfully created student with minimal data ---")
         pprint(new_student.model_dump())
+
+
+@pytest.mark.anyio
+class TestStudentServiceUPDATE:
 
     # --- Tests for update_student ---
 
@@ -403,6 +420,9 @@ class TestStudentService:
             )
         
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+@pytest.mark.anyio
+class TestStudentServiceDELETE:
 
     # --- Tests for delete_student ---
 

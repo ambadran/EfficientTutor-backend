@@ -46,7 +46,7 @@ class AdminFactory(BaseFactory):
     first_name = Faker("first_name")
     last_name = Faker("last_name")
     role = UserRole.ADMIN.value
-    privileges = AdminPrivilegeType.MASTER.value
+    privileges = AdminPrivilegeType.NORMAL.value
     timezone = "UTC"
     password = HashedPassword.get_hash(TEST_PASSWORD_ADMIN)
 
@@ -64,7 +64,6 @@ class TeacherFactory(BaseFactory):
     password = HashedPassword.get_hash(TEST_PASSWORD_TEACHER)
 
     class Meta:
-
         model = db_models.Teachers
 
 class ParentFactory(BaseFactory):
