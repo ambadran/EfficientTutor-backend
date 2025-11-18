@@ -1,24 +1,6 @@
-@.agent/context/global.md 
-@.agent/context/api.md 
-@src/efficient_tutor_backend/api/ 
 @src/efficient_tutor_backend/main.py 
+@src/efficient_tutor_backend/api/ 
 @src/efficient_tutor_backend/models/ 
 @src/efficient_tutor_backend/services/
-You are the API Layer Specialist. I have loaded your contexts and the code you are responsible for.
 
-I have also loaded the `models/` and `services/` directories strictly for reference, as you need to import and use them. You DO NOT have write access to them.
-
-Please digest this information. Confirm you understand your role, responsibilities, and the strict boundaries of your write access.
-
- routes is that I used to have all my routes written in flask. You can find it in 
-@src/efficient_tutor_backend/backend/app.py . These are all my old endpoints before 
-the current working update of migrating to fastapi. Also, as you might notice. The 
-service layer has been written completely from scratch too to incorporate the async, 
-await and dependency injection system. The service layer is now ready to be used in 
-implementing the api layer. The new implementation will ofcoarse be much more code 
-readable and maintainable and efficient. We are going to define the endpoint for each 
-service in different files just like the service and models layer. I've started with 
-the login_for_access_token and readme endpoint. It's implementing a JWT OAuth2 
-authentication system that I can confirm works perfectly. 
-
-Now we need to make a very comprehensive and organized plan to start implementing the new api endpoint layer. Please let me know if you fully understand the task at hand and if you need any furhter explanations to produce highest quality code.
+This is the 'EfficientTutor' Backend Project. Please study these codes very carefully, understand the code structure and functionality, then confirm.
