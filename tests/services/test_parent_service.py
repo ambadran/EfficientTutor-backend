@@ -16,7 +16,7 @@ from pprint import pp as pprint
 
 
 @pytest.mark.anyio
-class TestParentService:
+class TestParentServiceREAD:
 
     # --- Tests for get_all ---
 
@@ -30,8 +30,12 @@ class TestParentService:
         parents = await parents_service.get_all(current_user=test_teacher_orm)
 
         print(f"Found {len(parents)} parents for teacher '{test_teacher_orm.first_name} {test_teacher_orm.last_name}':\n{[parent.first_name for parent in parents]}")
+
+        pprint(parents[0].__dict__)
         
         assert len(parents) >= 1
+        assert isinstance(parents, list)
+        assert isinstance(parents[0], db_models.Parents)
         assert any(p.id == test_parent_orm.id for p in parents)
 
     async def test_get_all_as_parent_forbidden(
@@ -55,6 +59,9 @@ class TestParentService:
             await parents_service.get_all(current_user=test_student_orm)
         
         assert e.value.status_code == 403
+
+@pytest.mark.anyio
+class TestParentServiceWRITE:
 
     # --- Tests for create_parent ---
 
@@ -133,6 +140,9 @@ class TestParentService:
         assert exc_info.value.status_code == 400
         assert "Email already registered" in exc_info.value.detail
         print(f"--- Correctly raised HTTPException: {exc_info.value.status_code} ---")
+
+@pytest.mark.anyio
+class TestParentServiceUPDATE:
 
     # --- Tests for update_parent ---
 
@@ -250,6 +260,9 @@ class TestParentService:
                 current_user=test_teacher_orm
             )
         assert e.value.status_code == 404
+
+@pytest.mark.anyio
+class TestParentServiceDELETE:
 
     # --- Tests for delete_parent ---
 

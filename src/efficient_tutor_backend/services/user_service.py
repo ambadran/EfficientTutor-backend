@@ -447,7 +447,7 @@ class StudentService(UserService):
         - Auto-generates a password.
         - Creates all related subject and availability records.
         """
-        log.info(f"User {current_user.id} attempting to create student {student_data.email}.")
+        log.info(f"User {current_user.id} attempting to create student {student_data.first_name} {student_data.last_name}.")
 
         # 1. Authorization
         if current_user.role not in [UserRole.TEACHER.value, UserRole.PARENT.value]:
@@ -463,21 +463,22 @@ class StudentService(UserService):
                 detail="Parents can only create students for themselves."
             )
 
-        # 2. Check for existing user
-        existing_user = await self.get_user_by_email(student_data.email)
-        if existing_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered."
-            )
-
-        # 3. Validate parent
+        # 2. Validate parent
         parent = await self.get_user_by_id(student_data.parent_id)
         if not parent or parent.role != UserRole.PARENT.value:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Parent with id {student_data.parent_id} not found."
             )
+
+        # 3. Generate unique email
+        # Using parent's email domain and a unique identifier
+        parent_email_domain = parent.email.split('@')[1]
+        generated_email = f"{student_data.first_name.lower()}.{student_data.last_name.lower()}.{secrets.token_hex(2)}@{parent_email_domain}"
+        
+        # Ensure the generated email is truly unique (highly unlikely to collide, but good practice)
+        while await self.get_user_by_email(generated_email):
+            generated_email = f"{student_data.first_name.lower()}.{student_data.last_name.lower()}.{secrets.token_hex(4)}@{parent_email_domain}"
 
         # 4. Generate password
         plain_password = secrets.token_urlsafe(6) # 8 characters
@@ -486,7 +487,7 @@ class StudentService(UserService):
         # 5. Create the Student ORM object
         new_student = db_models.Students(
             id=uuid.uuid4(), # Explicitly generate UUID for the primary key
-            email=student_data.email,
+            email=generated_email, # Use generated email
             password=hashed_password,
             first_name=student_data.first_name,
             last_name=student_data.last_name,
@@ -594,6 +595,7 @@ class StudentService(UserService):
             min_duration_mins=new_student.min_duration_mins,
             max_duration_mins=new_student.max_duration_mins,
             grade=new_student.grade,
+            generated_password=new_student.generated_password, # Include generated password
             student_subjects=student_subjects_read,
             student_availability_intervals=[
                 user_models.StudentAvailabilityIntervalRead.model_validate(interval)

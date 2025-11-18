@@ -1,15 +1,7 @@
 """
 Standalone script to seed the test database with deterministic data.
-
-Run this script directly to wipe and repopulate the test database.
-It will print the UUIDs of the created objects, which should be copied
-into `tests/constants.py` to ensure tests are pointing to the correct data.
-
-Instructions:
-1. Make sure your .env file is configured for the TEST database.
-2. Run the script: `uv run python -m tests.seed_test_db`
-3. Copy the printed UUIDs and other constants into `tests/constants.py`.
-4. Set the passwords in `tests/constants.py` to the values printed below.
+This script orchestrates the seeding process by reading data definitions
+from the `tests/database/data/` directory.
 """
 
 import asyncio
@@ -20,22 +12,20 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 import os
 
-# Temporarily set the TEST_MODE environment variable
+# --- Setup & Imports ---
 os.environ["TEST_MODE"] = "True"
 
-# Now, import from the application
 from src.efficient_tutor_backend.common.config import settings
 from src.efficient_tutor_backend.database import models as db_models
 from tests.database import factories
-from datetime import time
-from src.efficient_tutor_backend.database.db_enums import (
-    SubjectEnum, AvailabilityTypeEnum, TuitionLogCreateTypeEnum, AdminPrivilegeType
-)
-from tests.constants import (
-    TEST_ADMIN_ID, TEST_NORMAL_ADMIN_ID, TEST_TEACHER_ID, TEST_UNRELATED_TEACHER_ID, TEST_PARENT_ID, TEST_UNRELATED_PARENT_ID,
-    TEST_STUDENT_ID, TEST_TUITION_ID, TEST_TUITION_ID_NO_LINK, TEST_NOTE_ID,
-    TEST_TUITION_LOG_ID_SCHEDULED, TEST_TUITION_LOG_ID_CUSTOM, TEST_PAYMENT_LOG_ID
-)
+from tests.constants import TEST_TUITION_ID
+
+# --- Import Data Definitions ---
+from .data.users import USERS_DATA
+from .data.tuitions import TUITIONS_DATA
+from .data.student_details import STUDENT_DETAILS_DATA
+from .data.logs import LOGS_DATA
+from .data.misc import MISC_DATA
 
 
 async def clear_database(session: AsyncSession):
@@ -58,140 +48,87 @@ async def clear_database(session: AsyncSession):
     print("Database wiped.")
 
 async def seed_data(session: AsyncSession):
-    """Seeds the database with a known set of data."""
+    """Seeds the database by processing data definition files."""
     print("Seeding data...")
-
-    # Set the session for factory-boy
     factories.test_db_session = session
 
-    # --- Create Admins ---
-    factories.AdminFactory.create(id=TEST_ADMIN_ID) # Master admin (default)
-    factories.AdminFactory.create(
-        id=TEST_NORMAL_ADMIN_ID,
-        email="normal.admin@example.com",
-        first_name="Normal",
-        last_name="Admin",
-        privileges=AdminPrivilegeType.NORMAL.value
-    )
+    # In-memory stores for created objects to resolve dependencies
+    created_users = {}
+    created_tuitions = {}
+    created_logs = {}
 
-    # --- Create Users ---
-    teacher = factories.TeacherFactory.create(id=TEST_TEACHER_ID)
-    unrelated_teacher = factories.TeacherFactory.create(
-        id=TEST_UNRELATED_TEACHER_ID, 
-        email="unrelated.teacher@example.com"
-    )
-    
-    parent = factories.ParentFactory.create(
-        id=TEST_PARENT_ID, 
-        email="test.parent@example.com"
-    )
-    unrelated_parent = factories.ParentFactory.create(
-        id=TEST_UNRELATED_PARENT_ID, 
-        email="unrelated.parent@example.com"
-    )
-    factories.StudentFactory.create(
-        email="unrelated.student@example.com",
-        parent=unrelated_parent
-    )
+    # --- Process Data Files in Dependency Order ---
 
-    student = factories.StudentFactory.create(
-        id=TEST_STUDENT_ID,
-        email="test.student@example.com",
-        parent=parent
-    )
+    # 1. Users
+    for user_data in USERS_DATA:
+        data = user_data.copy()
+        factory = getattr(factories, data.pop("factory"))
+        if "parent_id" in data:
+            data["parent"] = created_users[data.pop("parent_id")]
+        user = factory.create(**data)
+        created_users[user.id] = user
 
-    # --- Create initial data for the student to satisfy test pre-conditions ---
-    factories.StudentSubjectFactory.create(
-        student=student,
-        teacher=teacher,
-        subject=SubjectEnum.PHYSICS.value
-    )
-    factories.StudentAvailabilityIntervalFactory.create(
-        student=student,
-        day_of_week=1,
-        start_time=time(9, 0),
-        end_time=time(17, 0),
-        availability_type=AvailabilityTypeEnum.SCHOOL.value
-    )
+    # 2. Tuitions
+    for tuition_data in TUITIONS_DATA:
+        data = tuition_data.copy()
+        factory = getattr(factories, data.pop("factory"))
+        if "teacher_id" in data:
+            data["teacher"] = created_users[data.pop("teacher_id")]
+        if "tuition_id" in data:
+            data["tuition"] = created_tuitions[data.pop("tuition_id")]
+        if "student_id" in data:
+            data["student"] = created_users[data.pop("student_id")]
+        if "parent_id" in data:
+            data["parent"] = created_users[data.pop("parent_id")]
+        item = factory.create(**data)
+        if data.get("id"):
+             created_tuitions[data["id"]] = item
 
-    # --- Create Tuitions ---
-    tuition = factories.TuitionFactory.create(
-        id=TEST_TUITION_ID,
-        teacher=teacher
-    )
-    
-    tuition_no_link = factories.TuitionFactory.create(
-        id=TEST_TUITION_ID_NO_LINK,
-        teacher=teacher 
-    )
 
-    # --- Create Objects for Fixtures ---
+    # 3. Student Details
+    for detail_data in STUDENT_DETAILS_DATA:
+        data = detail_data.copy()
+        factory = getattr(factories, data.pop("factory"))
+        if "student_id" in data:
+            data["student"] = created_users[data.pop("student_id")]
+        if "teacher_id" in data:
+            data["teacher"] = created_users[data.pop("teacher_id")]
+        factory.create(**data)
 
-    # For `test_tuition_orm`
-    factories.MeetingLinkFactory.create(tuition=tuition)
-    factories.TuitionTemplateChargeFactory.create(
-        tuition=tuition,
-        student=student,
-        parent=parent
-    )
-    factories.TuitionTemplateChargeFactory.create(
-        tuition=tuition_no_link,
-        student=student,
-        parent=parent
-    )
+    # 4. Logs
+    for log_data in LOGS_DATA:
+        data = log_data.copy()
+        factory = getattr(factories, data.pop("factory"))
+        if "tuition_id" in data:
+            data["tuition"] = created_tuitions[data.pop("tuition_id")]
+        if "teacher_id" in data:
+            data["teacher"] = created_users[data.pop("teacher_id")]
+        if "student_id" in data:
+            data["student"] = created_users[data.pop("student_id")]
+        if "parent_id" in data:
+            data["parent"] = created_users[data.pop("parent_id")]
+        if "tuition_log_id" in data:
+            data["tuition_log"] = created_logs[data.pop("tuition_log_id")]
+        item = factory.create(**data)
+        if data.get("id"):
+            created_logs[item.id] = item
 
-    # For `tuition_log_scheduled`
-    log_scheduled = factories.TuitionLogFactory.create(
-        id=TEST_TUITION_LOG_ID_SCHEDULED,
-        create_type=TuitionLogCreateTypeEnum.SCHEDULED.value,
-        tuition=tuition,
-        teacher=teacher
-    )
-    factories.TuitionLogChargeFactory.create(
-        tuition_log=log_scheduled,
-        student=student,
-        parent=parent
-    )
+    # 5. Miscellaneous
+    for misc_data in MISC_DATA:
+        data = misc_data.copy()
+        factory = getattr(factories, data.pop("factory"))
 
-    # For `tuition_log_custom`
-    log_custom = factories.TuitionLogFactory.create(
-        id=TEST_TUITION_LOG_ID_CUSTOM,
-        create_type=TuitionLogCreateTypeEnum.CUSTOM.value,
-        tuition=tuition,
-        teacher=teacher
-    )
-    factories.TuitionLogChargeFactory.create(
-        tuition_log=log_custom,
-        student=student,
-        parent=parent
-    )
+        if factory == factories.TimetableRunFactory:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            data["solution_data"] = [{"category": "Tuition", "id": str(TEST_TUITION_ID), "start_time": now.isoformat(), "end_time": (now + datetime.timedelta(hours=1)).isoformat()}]
+        
+        if "teacher_id" in data:
+            data["teacher"] = created_users[data.pop("teacher_id")]
+        if "student_id" in data:
+            data["student"] = created_users[data.pop("student_id")]
 
-    # For `payment_log_orm`
-    factories.PaymentLogFactory.create(
-        id=TEST_PAYMENT_LOG_ID,
-        parent=parent,
-        teacher=teacher
-    )
+        factory.create(**data)
 
-    # For `test_note_orm`
-    factories.NoteFactory.create(
-        id=TEST_NOTE_ID,
-        teacher=teacher,
-        student=student
-    )
-
-    # --- Create Timetable Run ---
-    now = datetime.datetime.now(datetime.timezone.utc)
-    solution_data = [
-        {
-            "category": "Tuition",
-            "id": str(TEST_TUITION_ID),
-            "start_time": now.isoformat(),
-            "end_time": (now + datetime.timedelta(hours=1)).isoformat()
-        }
-    ]
-    factories.TimetableRunFactory.create(solution_data=solution_data)
-    
     await session.commit()
     print("Data seeding complete.")
 
@@ -199,26 +136,18 @@ async def seed_data(session: AsyncSession):
 async def main():
     """Main function to connect, wipe, and seed the database."""
     if not settings.TEST_MODE:
-        raise ConnectionRefusedError(
-            "Seeding script must be run with TEST_MODE=True in your environment "
-            "to prevent accidental deletion of production data."
-        )
+        raise ConnectionRefusedError("Seeding script must be run with TEST_MODE=True.")
 
     engine = create_async_engine(settings.database_url, echo=False)
-    AsyncSessionLocal = sessionmaker(
-        bind=engine, class_=AsyncSession, expire_on_commit=False
-    )
+    AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
     async with AsyncSessionLocal() as session:
         await clear_database(session)
         await seed_data(session)
 
     await engine.dispose()
-    print("\nDatabase seeding complete. All constants are now managed in tests/constants.py")
+    print("\nDatabase seeding complete. All data is now defined in `tests/database/data/`.")
 
 
 if __name__ == "__main__":
-    # to run this script use
-    # `uv run python -m tests.database.seed_test_db`
-    # it's supposed to delete all the data of the database and introduced the data definined here.
     asyncio.run(main())

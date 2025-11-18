@@ -448,7 +448,6 @@ def valid_student_data() -> dict:
     mimicking a payload from a frontend client.
     """
     return {
-        "email": "pytest.student@example.com",
         "first_name": "Pytest",
         "last_name": "Student",
         "parent_id": str(TEST_PARENT_ID),

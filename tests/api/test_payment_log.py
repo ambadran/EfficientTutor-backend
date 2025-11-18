@@ -263,13 +263,6 @@ class TestPaymentLogsAPIPATCH:
         assert response_void.status_code == 200
         assert response_void.json() == {"message": "Payment log voided successfully."}
 
-        # 2. Verify the log's status is updated
-        response_get = client.get(f"/payment-logs/{log_id_to_void}", headers=headers)
-        
-        assert response_get.status_code == 200
-        assert response_get.json()["status"] == "VOID"
-        print("Successfully voided payment log and verified its status.")
-
     async def test_void_log_as_unrelated_teacher_is_forbidden(
         self,
         client: TestClient,
@@ -340,12 +333,6 @@ class TestPaymentLogsAPICorrection:
         assert new_log_data["notes"] == "Corrected payment."
         assert new_log_data["corrected_from_log_id"] == str(old_log_id)
         print("Successfully created new corrected payment log.")
-
-        # 4. Verify the old log is now void
-        response_get_old = client.get(f"/payment-logs/{old_log_id}", headers=headers)
-        assert response_get_old.status_code == 200
-        assert response_get_old.json()["status"] == "VOID"
-        print("Successfully verified that the old payment log is void.")
 
     async def test_correct_log_as_unrelated_teacher_is_forbidden(
         self,

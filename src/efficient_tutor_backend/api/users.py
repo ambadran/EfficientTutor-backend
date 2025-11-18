@@ -17,6 +17,25 @@ def to_pydantic_list(orm_list: list, model):
     return [model.model_validate(item) for item in orm_list]
 
 
+class UserAPI:
+    """Endpoints for general user actions."""
+    def __init__(self):
+        self.router = APIRouter(tags=["Users"])
+        self._register_routes()
+
+    def _register_routes(self):
+        self.router.add_api_route("/users/me", self.read_users_me, methods=["GET"], response_model=user_models.UserRead)
+
+    async def read_users_me(
+        self,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)]
+    ):
+        """
+        Returns the profile information for the currently authenticated user.
+        """
+        return current_user
+
+
 class AdminsAPI:
     """CRUD endpoints for Admin users."""
     def __init__(self):
@@ -110,7 +129,6 @@ class ParentsAPI:
 
     async def delete(self, parent_id: UUID, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], parent_service: Annotated[ParentService, Depends(ParentService)]):
         await parent_service.delete_parent(parent_id, current_user)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 class StudentsAPI:
@@ -191,7 +209,6 @@ class StudentsAPI:
     ):
         await student_service.delete_student(student_id, current_user)
         await tuition_service.regenerate_all_tuitions() # Call regenerate
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 class TeachersAPI:
@@ -239,16 +256,17 @@ class TeachersAPI:
 
     async def delete(self, teacher_id: UUID, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], teacher_service: Annotated[TeacherService, Depends(TeacherService)]):
         await teacher_service.delete_teacher(teacher_id, current_user)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # Instantiate and combine routers
+user_api = UserAPI()
 admins_api = AdminsAPI()
 parents_api = ParentsAPI()
 students_api = StudentsAPI()
 teachers_api = TeachersAPI()
 
 router = APIRouter()
+router.include_router(user_api.router)
 router.include_router(admins_api.router)
 router.include_router(parents_api.router)
 router.include_router(students_api.router)

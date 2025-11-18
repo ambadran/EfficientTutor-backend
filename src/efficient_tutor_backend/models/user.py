@@ -86,6 +86,7 @@ class StudentRead(UserRead):
     min_duration_mins: int
     max_duration_mins: int
     grade: Optional[int] = None
+    generated_password: Optional[str] = None # New field
     
     # New relational fields
     student_subjects: List[StudentSubjectRead] = Field(default_factory=list)
@@ -120,7 +121,6 @@ class StudentCreate(BaseModel):
     Password is not included as it will be auto-generated.
     """
     # Fields from UserCreate, minus password
-    email: str
     first_name: str
     last_name: str
 
