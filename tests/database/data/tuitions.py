@@ -25,6 +25,10 @@ TUITIONS_DATA = [
     {
         "factory": "MeetingLinkFactory",
         "tuition_id": TEST_TUITION_ID,
+        "meeting_link_type": "GOOGLE_MEET",
+        "meeting_link": "https://meet.google.com/abc-defg-hij",
+        "meeting_id": "abc-defg-hij",
+        "meeting_password": None,
     },
     # --- Template Charges (dependent on Tuitions, Students, Parents) ---
     {

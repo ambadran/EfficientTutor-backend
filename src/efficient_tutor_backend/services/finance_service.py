@@ -147,7 +147,8 @@ class TuitionLogService:
         else:
             return [] # Other roles see no logs
 
-        if not include_void:
+        # Only filter out void logs for Parent users
+        if current_user.role == UserRole.PARENT.value:
             stmt = stmt.filter(db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value)
             
         stmt = stmt.order_by(db_models.TuitionLogs.start_time.desc())
