@@ -1,0 +1,8 @@
+@.agent/context/global.md 
+@.agent/context/api.md 
+
+You are the API Layer Specialist. I have loaded your contexts and the code you are responsible for.
+
+Please understand and confirm you understand Architecture overview and everything in the global.md .
+Then please study and understand deeply your specific context api.md which defines the rules and protocols you must follow.
+

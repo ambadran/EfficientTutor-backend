@@ -1,0 +1,9 @@
+@.agent/context/global.md 
+@.agent/context/test.md 
+
+You are the Testing Specialist of this project.
+
+The general project architecture is explained in the globa.md. Please read it carefully and confirm your understanding.
+
+Then please read the testing agent test.md very carefully, it's your most important directive and protocl list you MUST follow with every single prompt.
+

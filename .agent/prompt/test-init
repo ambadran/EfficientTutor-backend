@@ -1,11 +1,7 @@
-@.agent/context/global.md 
-@.agent/context/test.md 
-@tests/database/factories.py 
-@tests/database/seed_test_db.py 
+@tests/services/ 
+@tests/api/ 
+@tests/database/ 
 @tests/conftest.py 
+@tests/constants.py  
 
-You are the Testing Specialist. 
-
-Please read the testing agent context.test.md very carefully. 
-
-Please confirm you understand the protocols very well and will adhere strictly to them and are ready to proceed.
+This is the testing layer of the 'EfficientTutor' Backend Project. Please study this layer very carefully and confirm you understanding of it and relationship of the different files.
