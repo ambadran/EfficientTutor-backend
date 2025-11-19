@@ -20,7 +20,7 @@ from tests.constants import (
 
 
 @pytest.mark.anyio
-class TestNotesService:
+class TestNotesServiceReadbyID:
 
     ### Tests for get_note_by_id_for_api ###
 
@@ -113,6 +113,8 @@ class TestNotesService:
         assert e.value.status_code == 404
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
 
+@pytest.mark.anyio
+class TestNotesServiceReadAll:
 
     ### Tests for get_all_notes_for_api ###
 
@@ -180,6 +182,9 @@ class TestNotesService:
             assert all(n.student.id == test_student_orm.id for n in notes)
             pprint(notes[0].model_dump())
 
+@pytest.mark.anyio
+class TestNotesServiceCreate:
+
     ### Tests for create_note_for_api ###
 
     async def test_create_note_as_teacher(
@@ -198,18 +203,31 @@ class TestNotesService:
             note_type=NoteTypeEnum.HOMEWORK
         )
         
-        new_note = await notes_service.create_note_for_api(note_data, test_teacher_orm)
-        await db_session.flush() # Save the new note
+        # ACT
+        new_note_read = await notes_service.create_note_for_api(note_data, test_teacher_orm)
+        await db_session.flush() # Save the new note to the transaction
         
-        assert isinstance(new_note, notes_models.NoteRead)
-        assert new_note.id is not None
-        assert new_note.name == "Pytest Created Note"
-        assert new_note.teacher.id == test_teacher_orm.id
+        # ASSERT: Check the returned Pydantic model
+        assert isinstance(new_note_read, notes_models.NoteRead)
+        assert new_note_read.id is not None
+        assert new_note_read.name == "Pytest Created Note"
+        assert new_note_read.teacher.id == test_teacher_orm.id
+        assert new_note_read.student.id == TEST_STUDENT_ID
         
         print("--- Successfully created note (API Model) ---")
-        pprint(new_note.model_dump())
+        pprint(new_note_read.model_dump())
 
-    async def test_create_note_as_parent(
+        # ASSERT: Verify the data in the database directly
+        db_note = await db_session.get(db_models.Notes, new_note_read.id)
+        assert db_note is not None
+        assert db_note.name == "Pytest Created Note"
+        assert db_note.subject == SubjectEnum.MATH.value
+        assert db_note.note_type == NoteTypeEnum.HOMEWORK.value
+        assert db_note.teacher_id == test_teacher_orm.id
+        assert db_note.student_id == TEST_STUDENT_ID
+        print(f"--- Successfully verified note {db_note.id} in database ---")
+
+    async def test_create_note_as_parent_forbidden(
         self,
         notes_service: NotesService,
         test_parent_orm: db_models.Users
@@ -228,6 +246,28 @@ class TestNotesService:
             await notes_service.create_note_for_api(note_data, test_parent_orm)
         
         assert e.value.status_code == 403
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_create_note_as_student_forbidden(
+        self,
+        notes_service: NotesService,
+        test_student_orm: db_models.Users
+    ):
+        """Tests that a STUDENT is FORBIDDEN from creating a note."""
+        print(f"\n--- Testing create_note_for_api as STUDENT ---")
+
+        note_data = notes_models.NoteCreate(
+            student_id=TEST_STUDENT_ID,
+            name="Pytest Created Note by Student",
+            subject=SubjectEnum.MATH,
+            note_type=NoteTypeEnum.HOMEWORK
+        )
+        
+        with pytest.raises(HTTPException) as e:
+            await notes_service.create_note_for_api(note_data, test_student_orm)
+        
+        assert e.value.status_code == 403
+        assert e.value.detail == "You do not have permission to perform this action."
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
 
     async def test_create_note_with_nonexistent_student(
@@ -254,6 +294,9 @@ class TestNotesService:
         assert "Student not found" in e.value.detail
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
 
+@pytest.mark.anyio
+class TestNotesServiceUpdate:
+
     ### Tests for update_note_for_api ###
 
     async def test_update_note_as_owner_teacher(
@@ -268,19 +311,31 @@ class TestNotesService:
         new_name = f"Updated by Pytest {datetime.now()}"
         print(f"\n--- Testing update_note_for_api as OWNER TEACHER ---")
         
-        update_data = notes_models.NoteUpdate(name=new_name)
+        update_data = notes_models.NoteUpdate(
+                name=new_name, 
+                subject= "Physics", 
+                description="Updated description.")
         
-        updated_note = await notes_service.update_note_for_api(
+        # ACT
+        updated_note_read = await notes_service.update_note_for_api(
             note_id, update_data, test_teacher_orm
         )
         await db_session.flush()
         
-        assert isinstance(updated_note, notes_models.NoteRead)
-        assert updated_note.id == note_id
-        assert updated_note.name == new_name
+        # ASSERT: Check the returned Pydantic model
+        assert isinstance(updated_note_read, notes_models.NoteRead)
+        assert updated_note_read.id == note_id
+        assert updated_note_read.name == new_name
+        assert updated_note_read.description == "Updated description."
         
         print("--- Successfully updated note (API Model) ---")
-        pprint(updated_note.model_dump())
+        pprint(updated_note_read.model_dump())
+
+        # ASSERT: Verify the data in the database directly
+        await db_session.refresh(test_note_orm) # Refresh the note object itself
+        assert test_note_orm.name == new_name
+        assert test_note_orm.description == "Updated description."
+        print(f"--- Successfully verified updated note {test_note_orm.id} in database ---")
 
     async def test_update_note_as_unrelated_teacher(
         self,
@@ -300,6 +355,50 @@ class TestNotesService:
         
         assert e.value.status_code == 403
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_update_note_as_parent_forbidden(
+        self,
+        notes_service: NotesService,
+        test_parent_orm: db_models.Users,
+        test_note_orm: db_models.Notes
+    ):
+        """Tests that a PARENT is FORBIDDEN from updating a note."""
+        print(f"\n--- Testing update_note_for_api as PARENT ---")
+        
+        update_data = notes_models.NoteUpdate(name="Forbidden update by parent")
+        
+        with pytest.raises(HTTPException) as e:
+            await notes_service.update_note_for_api(
+                test_note_orm.id, update_data, test_parent_orm
+            )
+        
+        assert e.value.status_code == 403
+        assert e.value.detail == "You do not have permission to modify or delete this note."
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_update_note_as_student_forbidden(
+        self,
+        notes_service: NotesService,
+        test_student_orm: db_models.Users,
+        test_note_orm: db_models.Notes
+    ):
+        """Tests that a STUDENT is FORBIDDEN from updating a note."""
+        print(f"\n--- Testing update_note_for_api as STUDENT ---")
+        
+        update_data = notes_models.NoteUpdate(name="Forbidden update by student")
+        
+        with pytest.raises(HTTPException) as e:
+            await notes_service.update_note_for_api(
+                test_note_orm.id, update_data, test_student_orm
+            )
+        
+        assert e.value.status_code == 403
+        assert e.value.detail == "You do not have permission to modify or delete this note."
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+
+@pytest.mark.anyio
+class TestNotesServiceDelete:
 
     ### Tests for delete_note ###
 
