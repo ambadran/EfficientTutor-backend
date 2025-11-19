@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from ..database.engine import get_db_session
 from ..database import models as db_models
-from ..database.db_enums import UserRole
+from ..database.db_enums import UserRole, SubjectEnum, NoteTypeEnum
 from ..models import notes as notes_models
 from ..common.logger import log
 
@@ -242,7 +242,11 @@ class NotesService:
             
             # 4. Apply updates
             for key, value in update_data.items():
-                setattr(note_to_update, key, value)
+                # Handle enums by getting their value before setting the attribute
+                if key in ['subject', 'note_type'] and value is not None:
+                    setattr(note_to_update, key, value.value)
+                else:
+                    setattr(note_to_update, key, value)
             
             self.db.add(note_to_update)
             await self.db.flush()

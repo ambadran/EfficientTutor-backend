@@ -161,10 +161,19 @@ class TestMeetingLinkAPI:
     ):
         """Test updating an existing meeting link."""
         headers = auth_headers_for_user(test_teacher_orm)
-        update_data = {"meeting_link": "https://meet.google.com/updated-link"}
-        response = client.patch(f"/tuitions/{TEST_TUITION_ID}/meeting_link", headers=headers, json=update_data)
+
+        update_data = {
+                "meeting_link": "https://meet.google.com/updated-linklkjasdj"
+                }
+
+        response = client.patch(
+                f"/tuitions/{TEST_TUITION_ID}/meeting_link", 
+                headers=headers, 
+                json=update_data)
+
         assert response.status_code == 200
         updated_link = meeting_link_models.MeetingLinkRead(**response.json())
+        pprint(updated_link.model_dump())
         assert str(updated_link.meeting_link) == update_data["meeting_link"]
 
     async def test_delete_meeting_link_success(
