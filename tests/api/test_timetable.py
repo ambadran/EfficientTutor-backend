@@ -1,6 +1,5 @@
 import pytest
 from fastapi.testclient import TestClient
-from typing import List
 
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.security import JWTHandler

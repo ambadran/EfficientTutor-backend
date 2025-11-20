@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import List
 
 # Enums not auto-generated and not from database but used throughout the app
 class PaidStatus(str, Enum):
@@ -16,7 +15,7 @@ class FixedActivityCategoryEnum(Enum):
     MEAL = 'Meal'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -27,7 +26,7 @@ class GymTypeEnum(Enum):
     LEG = 'LEG'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -37,7 +36,7 @@ class LogStatusEnum(Enum):
     VOID = 'VOID'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -50,7 +49,7 @@ class MealTypeEnum(Enum):
     DINNER = 'DINNER'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -61,7 +60,7 @@ class RunStatusEnum(Enum):
     MANUAL = 'MANUAL'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -76,7 +75,7 @@ class SessionCategoryEnum(Enum):
     CALENDAREVENT = 'CalendarEvent'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -86,7 +85,7 @@ class SleepTypeEnum(Enum):
     NAP = 'NAP'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -99,7 +98,7 @@ class StudentStatusEnum(Enum):
     HIM = 'HIM'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -113,7 +112,7 @@ class SubjectEnum(Enum):
     GEOGRAPHY = 'Geography'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -123,7 +122,7 @@ class TuitionLogCreateTypeEnum(Enum):
     CUSTOM = 'CUSTOM'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -135,7 +134,7 @@ class UserRole(Enum):
     TEACHER = 'teacher'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
@@ -147,7 +146,7 @@ class WorkTypeEnum(Enum):
     TUITION = 'TUITION'
 
     @classmethod
-    def get_values(cls) -> List[str]:
+    def get_values(cls) -> list[str]:
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 

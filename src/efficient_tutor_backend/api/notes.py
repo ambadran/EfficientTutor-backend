@@ -1,7 +1,7 @@
 '''
 API endpoints for managing Notes.
 '''
-from typing import Annotated, Any, List
+from typing import Annotated, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, status, Response
 
@@ -27,7 +27,7 @@ class NotesAPI:
                 "/", 
                 self.list_notes, 
                 methods=["GET"], 
-                response_model=List[notes_models.NoteRead])
+                response_model=list[notes_models.NoteRead])
 
         self.router.add_api_route(
                 "/{note_id}", 
@@ -58,7 +58,7 @@ class NotesAPI:
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
         notes_service: Annotated[NotesService, Depends(NotesService)]
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Retrieves a list of all notes visible to the current user.
         """

@@ -2,7 +2,7 @@
 
 '''
 import secrets
-from typing import Optional, Annotated, List
+from typing import Optional, Annotated
 import uuid # Added this import
 from uuid import UUID
 from fastapi import Depends, HTTPException, status

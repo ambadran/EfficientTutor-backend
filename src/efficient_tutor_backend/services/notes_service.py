@@ -1,7 +1,7 @@
 '''
 
 '''
-from typing import List, Optional, Annotated, Any
+from typing import Optional, Annotated, Any
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import select, update, delete

@@ -1,7 +1,7 @@
 '''
 API endpoints for CRUD operations on User resources (Admins, Parents, Students, Teachers).
 '''
-from typing import Annotated, List
+from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, status, Response, HTTPException
 
@@ -49,7 +49,7 @@ class AdminsAPI:
                 "/", 
                 self.get_all,
                 methods=["GET"], 
-                response_model=List[user_models.AdminRead])
+                response_model=list[user_models.AdminRead])
         self.router.add_api_route(
                 "/{admin_id}",
                 self.get_by_id, 
@@ -97,7 +97,7 @@ class ParentsAPI:
                 "/", 
                 self.get_all,
                 methods=["GET"], 
-                response_model=List[user_models.ParentRead])
+                response_model=list[user_models.ParentRead])
         self.router.add_api_route(
                 "/{parent_id}", 
                 self.get_by_id,
@@ -150,7 +150,7 @@ class StudentsAPI:
                 "/", 
                 self.get_all,
                 methods=["GET"],
-                response_model=List[user_models.StudentRead])
+                response_model=list[user_models.StudentRead])
         self.router.add_api_route(
                 "/{student_id}", 
                 self.get_by_id, 
@@ -175,6 +175,7 @@ class StudentsAPI:
         tuition_service: Annotated[TuitionService, Depends(TuitionService)] # Inject TuitionService
     ):
         new_student = await student_service.create_student(student_data, current_user)
+        #TODO: should be moved to the (to-be) made update tuition endpoints, triggered by admins only.
         await tuition_service.regenerate_all_tuitions() # Call regenerate
         return new_student
 
@@ -224,7 +225,7 @@ class TeachersAPI:
                 "/", 
                 self.get_all, 
                 methods=["GET"], 
-                response_model=List[user_models.TeacherRead])
+                response_model=list[user_models.TeacherRead])
         self.router.add_api_route(
                 "/{teacher_id}", 
                 self.get_by_id, 

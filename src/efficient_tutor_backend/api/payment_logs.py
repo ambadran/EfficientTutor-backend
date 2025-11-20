@@ -1,7 +1,7 @@
 '''
 API endpoints for managing Payment Logs.
 '''
-from typing import Annotated, List, Any
+from typing import Annotated, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, status
 
@@ -27,7 +27,7 @@ class PaymentLogsAPI:
                 "/", 
                 self.list_payment_logs, 
                 methods=["GET"], 
-                response_model=List[finance_models.PaymentLogRead])
+                response_model=list[finance_models.PaymentLogRead])
         self.router.add_api_route(
                 "/{log_id}", 
                 self.get_payment_log, 
@@ -53,7 +53,7 @@ class PaymentLogsAPI:
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
         payment_log_service: Annotated[PaymentLogService, Depends(PaymentLogService)]
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Retrieves a list of all payment logs relevant to the current user.
         """
