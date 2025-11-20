@@ -2,7 +2,7 @@
 
 from datetime import time
 from decimal import Decimal
-from typing import Optional, List
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,7 +26,7 @@ class StudentSubjectRead(BaseModel):
     subject: SubjectEnum
     lessons_per_week: int
     teacher_id: UUID
-    shared_with_student_ids: List[UUID] = Field(default_factory=list) # List of student IDs this subject is shared with
+    shared_with_student_ids: list[UUID] = Field(default_factory=list) # list of student IDs this subject is shared with
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -89,8 +89,8 @@ class StudentRead(UserRead):
     generated_password: Optional[str] = None # New field
     
     # New relational fields
-    student_subjects: List[StudentSubjectRead] = Field(default_factory=list)
-    student_availability_intervals: List[StudentAvailabilityIntervalRead] = Field(default_factory=list)
+    student_subjects: list[StudentSubjectRead] = Field(default_factory=list)
+    student_availability_intervals: list[StudentAvailabilityIntervalRead] = Field(default_factory=list)
 
 
 # --- New Student-Specific Write Models (for relational data) ---
@@ -103,7 +103,7 @@ class StudentSubjectWrite(BaseModel):
     subject: SubjectEnum
     teacher_id: UUID
     lessons_per_week: int = 1
-    shared_with_student_ids: List[UUID] = Field(default_factory=list)
+    shared_with_student_ids: list[UUID] = Field(default_factory=list)
 
 class StudentAvailabilityIntervalWrite(BaseModel):
     """
@@ -132,8 +132,8 @@ class StudentCreate(BaseModel):
     max_duration_mins: int = 90
     grade: Optional[int] = None
     
-    student_subjects: List[StudentSubjectWrite] = Field(default_factory=list)
-    student_availability_intervals: List[StudentAvailabilityIntervalWrite] = Field(default_factory=list)
+    student_subjects: list[StudentSubjectWrite] = Field(default_factory=list)
+    student_availability_intervals: list[StudentAvailabilityIntervalWrite] = Field(default_factory=list)
 
 class StudentUpdate(BaseModel):
     """
@@ -153,8 +153,8 @@ class StudentUpdate(BaseModel):
     grade: Optional[int] = None
     
     # For nested lists, we typically replace the entire list on update
-    student_subjects: Optional[List[StudentSubjectWrite]] = None
-    student_availability_intervals: Optional[List[StudentAvailabilityIntervalWrite]] = None
+    student_subjects: Optional[list[StudentSubjectWrite]] = None
+    student_availability_intervals: Optional[list[StudentAvailabilityIntervalWrite]] = None
 
 class ParentCreate(BaseModel):
     """

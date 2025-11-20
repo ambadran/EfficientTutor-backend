@@ -1,7 +1,7 @@
 '''
 API endpoints for managing Tuition Logs.
 '''
-from typing import Annotated, Any, List, Union
+from typing import Annotated, Any, Union
 from uuid import UUID
 from fastapi import APIRouter, Depends, status
 
@@ -27,7 +27,7 @@ class TuitionLogsAPI:
             "/", 
             self.list_tuition_logs, 
             methods=["GET"], 
-            response_model=List[finance_models.TuitionLogReadRoleBased])
+            response_model=list[finance_models.TuitionLogReadRoleBased])
         self.router.add_api_route(
             "/{log_id}", 
             self.get_tuition_log, 
@@ -54,7 +54,7 @@ class TuitionLogsAPI:
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
         tuition_log_service: Annotated[TuitionLogService, Depends(TuitionLogService)]
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Retrieves a list of all tuition logs relevant to the current user.
         The response model varies based on the user's role.
