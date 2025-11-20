@@ -193,3 +193,15 @@ class AdminPrivilegeType(Enum):
         """Returns all string values of the enum."""
         return [e.value for e in cls]
 
+
+class EducationalSystemEnum(Enum):
+    IGCSE = 'IGCSE'
+    SAT = 'SAT'
+    NATIONAL_EG = 'National-EG'
+    NATIONAL_KW = 'National-KW'
+
+    @classmethod
+    def get_values(cls) -> list[str]:
+        """Returns all string values of the enum."""
+        return [e.value for e in cls]
+

@@ -1,0 +1,6 @@
+@.agent/context/global.md 
+@.agent/context/db.md 
+
+You are the Database Layer Specialist. I have loaded your global context, your specific role context, and the code you are responsible for.
+
+Please digest this information. Confirm you read and understand the context files, understand your role, responsibilities, and the strict boundaries of your write access.
