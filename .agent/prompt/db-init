@@ -1,12 +1,6 @@
-@.agent/context/global.md 
-@.agent/context/db.md 
 @src/efficient_tutor_backend/database/ 
 @src/efficient_tutor_backend/common/ 
 @src/efficient_tutor_backend/models/ 
 
-
-I have also loaded pydantic validation `models/` layer strictly for reference so you know how we want to output the data and read it. You DO NOT have write access to it.
-
-You are the Database Layer Specialist. I have loaded your global context, your specific role context, and the code you are responsible for.
-
-Please digest this information. Confirm you read and understand the context files, understand your role, responsibilities, and the strict boundaries of your write access.
+This is the 'EfficientTutor' backend project. I've loaded the database layer, as well as the pydantic model validation layer.
+Please digest this code and understand it very well.

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Time, DateTime, Double, Enum, ForeignKeyConstraint, Identity, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Table, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Time, DateTime, Double, Enum, ForeignKeyConstraint, Identity, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Table, Text, UniqueConstraint, Uuid, text, Date
 from sqlalchemy.dialects.postgresql import JSONB, OID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 import datetime
@@ -9,6 +9,7 @@ import uuid
 
 class Base(DeclarativeBase):
     pass
+
 
 
 class ActivityOverlapRules(Base):
@@ -215,6 +216,7 @@ class Teachers(Users):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     currency: Mapped[str] = mapped_column(Text, server_default=text("'EGP'::text"))
+    birth_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
     payment_logs: Mapped[list['PaymentLogs']] = relationship(
         'PaymentLogs', 
         back_populates='teacher',
@@ -232,6 +234,8 @@ class Teachers(Users):
         foreign_keys='[Notes.teacher_id]'
     )
     student_subjects: Mapped[list['StudentSubjects']] = relationship('StudentSubjects', back_populates='teacher')
+    teacher_specialties: Mapped[list['TeacherSpecialties']] = relationship('TeacherSpecialties', back_populates='teacher', cascade='all, delete-orphan')
+
 
 
 class Admins(Users):
@@ -545,5 +549,21 @@ class StudentAvailabilityIntervals(Base):
 
     student: Mapped['Students'] = relationship('Students', back_populates='student_availability_intervals')
 
+
+class TeacherSpecialties(Base):
+    __tablename__ = 'teacher_specialties'
+    __table_args__ = (
+        ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='CASCADE', name='teacher_specialties_teacher_id_fkey'),
+        PrimaryKeyConstraint('id', name='teacher_specialties_pkey'),
+        UniqueConstraint('teacher_id', 'subject', 'educational_system', name='teacher_specialties_teacher_id_subject_educational_system_key'),
+        Index('idx_teacher_specialties_teacher_id', 'teacher_id')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    teacher_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('teachers.id', ondelete='CASCADE'))
+    subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
+    educational_system: Mapped[str] = mapped_column(Enum('IGCSE', 'SAT', 'National-EG', 'National-KW', name='educational_system_enum'))
+
+    teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='teacher_specialties')
 
 
