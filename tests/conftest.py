@@ -279,7 +279,12 @@ async def test_teacher_orm(db_session: AsyncSession) -> db_models.Teachers: # <-
     """Fetches the main test teacher ORM object from the test DB."""
     # --- CHANGED ---
     # Get the specific 'Teachers' class, not the base 'Users' class
-    teacher = await db_session.get(db_models.Teachers, TEST_TEACHER_ID)
+    stmt = select(db_models.Teachers).options(
+        selectinload(db_models.Teachers.teacher_specialties)
+    ).filter(db_models.Teachers.id == TEST_TEACHER_ID)
+    
+    result = await db_session.execute(stmt)
+    teacher = result.scalars().first()
     # ---------------
     
     assert teacher is not None, f"Test teacher with ID {TEST_TEACHER_ID} not found in DB."

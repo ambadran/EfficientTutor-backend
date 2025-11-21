@@ -28,10 +28,15 @@ class TestUserService:
 
         print(type(user))
         pprint(user.__dict__)
+        pprint(user.teacher_specialties)
         
         assert user is not None
         assert user.id == test_teacher_orm.id
         assert user.email == test_teacher_orm.email
+        assert user.teacher_specialties is not None
+        assert isinstance(user.teacher_specialties, list)
+        assert len(user.teacher_specialties) > 0
+        assert isinstance(user.teacher_specialties[0], db_models.TeacherSpecialties)
 
     async def test_get_parent_user_by_id(
         self, 
@@ -80,9 +85,15 @@ class TestUserService:
 
         print(type(user))
         pprint(user.__dict__)
+        pprint(user.teacher_specialties)
         
         assert user is not None
         assert user.id == test_teacher_orm.id
+        assert user.email == test_teacher_orm.email
+        assert user.teacher_specialties is not None
+        assert isinstance(user.teacher_specialties, list)
+        assert len(user.teacher_specialties) > 0
+        assert isinstance(user.teacher_specialties[0], db_models.TeacherSpecialties)
 
     async def test_get_parent_user_by_email(
         self, 

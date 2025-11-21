@@ -56,7 +56,9 @@ class UserService:
                     selectinload(db_models.Students.student_availability_intervals)
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
-                stmt = select(db_models.Teachers).filter(db_models.Teachers.id == base_user.id)
+                stmt = select(db_models.Teachers).options(
+                    selectinload(db_models.Teachers.teacher_specialties)
+                ).filter(db_models.Teachers.id == base_user.id)
             elif base_user.role == UserRole.ADMIN.value:
                 stmt = select(db_models.Admins).filter(db_models.Admins.id == base_user.id)
             else: # Other role
@@ -99,7 +101,9 @@ class UserService:
                     selectinload(db_models.Students.student_availability_intervals)
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
-                stmt = select(db_models.Teachers).filter(db_models.Teachers.id == base_user.id)
+                stmt = select(db_models.Teachers).options(
+                    selectinload(db_models.Teachers.teacher_specialties)
+                ).filter(db_models.Teachers.id == base_user.id)
             elif base_user.role == UserRole.ADMIN.value:
                 stmt = select(db_models.Admins).filter(db_models.Admins.id == base_user.id)
             else:
@@ -155,7 +159,9 @@ class UserService:
                 final_users.extend((await self.db.execute(stmt)).scalars().all())
 
             if role_map[UserRole.TEACHER.value]:
-                stmt = select(db_models.Teachers).filter(db_models.Teachers.id.in_(role_map[UserRole.TEACHER.value]))
+                stmt = select(db_models.Teachers).options(
+                    selectinload(db_models.Teachers.teacher_specialties)
+                ).filter(db_models.Teachers.id.in_(role_map[UserRole.TEACHER.value]))
                 final_users.extend((await self.db.execute(stmt)).scalars().all())
 
             if role_map[UserRole.ADMIN.value]:
@@ -831,7 +837,9 @@ class TeacherService(UserService):
                 detail="You do not have permission to view this list."
             )
         
-        stmt = select(db_models.Teachers).order_by(db_models.Teachers.first_name)
+        stmt = select(db_models.Teachers).options(
+            selectinload(db_models.Teachers.teacher_specialties)
+        ).order_by(db_models.Teachers.first_name)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -868,10 +876,21 @@ class TeacherService(UserService):
             currency=location_info["currency"],
             role=UserRole.TEACHER.value
         )
+        
+        # Create and associate specialty objects
+        for specialty_data in teacher_data.teacher_specialties:
+            new_specialty = db_models.TeacherSpecialties(
+                teacher=new_teacher,
+                subject=specialty_data.subject.value,
+                educational_system=specialty_data.educational_system.value
+            )
+            self.db.add(new_specialty)
 
         self.db.add(new_teacher)
         await self.db.flush()
-        await self.db.refresh(new_teacher)
+        
+        # Refresh to load relationships, including the new specialties
+        await self.db.refresh(new_teacher, ['teacher_specialties'])
 
         return user_models.TeacherRead.model_validate(new_teacher)
 
@@ -904,6 +923,24 @@ class TeacherService(UserService):
             )
 
         update_dict = update_data.model_dump(exclude_unset=True)
+
+        # Handle specialties update (delete and replace)
+        if 'teacher_specialties' in update_dict:
+            # By clearing the collection, the ORM's "delete-orphan" cascade
+            # will automatically delete the old specialties upon flush.
+            teacher_to_update.teacher_specialties.clear()
+            
+            # Create and append the new specialty objects
+            for specialty_data in update_data.teacher_specialties:
+                new_specialty = db_models.TeacherSpecialties(
+                    subject=specialty_data.subject.value,
+                    educational_system=specialty_data.educational_system.value
+                )
+                teacher_to_update.teacher_specialties.append(new_specialty)
+
+            # Remove from update_dict to avoid iterating over it again
+            del update_dict['teacher_specialties']
+
         for key, value in update_dict.items():
             if key == "password" and value:
                 setattr(teacher_to_update, key, HashedPassword.get_hash(value))
@@ -912,7 +949,7 @@ class TeacherService(UserService):
 
         self.db.add(teacher_to_update)
         await self.db.flush()
-        await self.db.refresh(teacher_to_update)
+        await self.db.refresh(teacher_to_update, ['teacher_specialties'])
 
         return user_models.TeacherRead.model_validate(teacher_to_update)
 

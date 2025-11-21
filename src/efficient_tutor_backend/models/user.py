@@ -12,7 +12,8 @@ from ..database.db_enums import (
     UserRole, 
     StudentStatusEnum, 
     SubjectEnum,
-    AdminPrivilegeType
+    AdminPrivilegeType,
+    EducationalSystemEnum
 )
 
 # --- New Student-Specific Read Models (for relational data) ---
@@ -68,11 +69,23 @@ class ParentRead(UserRead):
     """
     currency: str
 
+class TeacherSpecialtyRead(BaseModel):
+    """
+    Pydantic model for reading a teacher's specialty.
+    Corresponds to db_models.TeacherSpecialties.
+    """
+    id: UUID
+    subject: SubjectEnum
+    educational_system: EducationalSystemEnum
+
+    model_config = ConfigDict(from_attributes=True)
+
 class TeacherRead(UserRead):
     """
     Pydantic model for reading a Teacher.
     """
     currency: str
+    teacher_specialties: list[TeacherSpecialtyRead] = Field(default_factory=list)
 
 
 class StudentRead(UserRead):
@@ -179,6 +192,13 @@ class ParentUpdate(BaseModel):
     timezone: Optional[str] = None
     currency: Optional[str] = None
 
+class TeacherSpecialtyWrite(BaseModel):
+    """
+    Pydantic model for creating/updating a teacher's specialty.
+    """
+    subject: SubjectEnum
+    educational_system: EducationalSystemEnum
+
 
 class TeacherCreate(BaseModel):
     """
@@ -190,6 +210,7 @@ class TeacherCreate(BaseModel):
     password: str
     first_name: str
     last_name: str
+    teacher_specialties: list[TeacherSpecialtyWrite] = Field(default_factory=list)
 
 
 class TeacherUpdate(BaseModel):
@@ -203,6 +224,7 @@ class TeacherUpdate(BaseModel):
     last_name: Optional[str] = None
     timezone: Optional[str] = None
     currency: Optional[str] = None
+    teacher_specialties: Optional[list[TeacherSpecialtyWrite]] = None
 
 
 class AdminRead(UserRead):
@@ -237,3 +259,4 @@ class AdminUpdate(BaseModel):
     last_name: Optional[str] = None
     timezone: Optional[str] = None
     privileges: Optional[AdminPrivilegeType] = None
+
