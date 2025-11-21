@@ -560,7 +560,7 @@ class TeacherSpecialties(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    teacher_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('teachers.id', ondelete='CASCADE'))
+    teacher_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
     educational_system: Mapped[str] = mapped_column(Enum('IGCSE', 'SAT', 'National-EG', 'National-KW', name='educational_system_enum'))
 

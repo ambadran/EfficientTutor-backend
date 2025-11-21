@@ -1,10 +1,3 @@
-"""
-Defines factory-boy factories for creating test data.
-
-These factories are used by the `seed_test_db.py` script to populate the
-test database with a known, deterministic set of data.
-"""
-
 import factory
 import uuid
 import datetime
@@ -15,7 +8,7 @@ from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.database.db_enums import (
     UserRole, AdminPrivilegeType, SubjectEnum, MeetingLinkTypeEnum, 
     NoteTypeEnum, LogStatusEnum, TuitionLogCreateTypeEnum, AvailabilityTypeEnum,
-    RunStatusEnum
+    RunStatusEnum, EducationalSystemEnum
 )
 from src.efficient_tutor_backend.common.security_utils import HashedPassword
 from tests.constants import TEST_PASSWORD_ADMIN, TEST_PASSWORD_PARENT, TEST_PASSWORD_STUDENT, TEST_PASSWORD_TEACHER
@@ -200,3 +193,11 @@ class StudentAvailabilityIntervalFactory(BaseFactory):
     class Meta:
         model = db_models.StudentAvailabilityIntervals
 
+class TeacherSpecialtyFactory(BaseFactory):
+    id = factory.LazyFunction(uuid.uuid4)
+    subject = SubjectEnum.MATH.value
+    educational_system = EducationalSystemEnum.IGCSE.value
+    teacher = factory.SubFactory(TeacherFactory)
+
+    class Meta:
+        model = db_models.TeacherSpecialties

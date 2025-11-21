@@ -9,15 +9,14 @@ from unittest.mock import MagicMock
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import UserService, TeacherService
 from src.efficient_tutor_backend.models import user as user_models
-from src.efficient_tutor_backend.database.db_enums import UserRole
+from src.efficient_tutor_backend.database.db_enums import UserRole, SubjectEnum, EducationalSystemEnum
 from src.efficient_tutor_backend.common.security_utils import HashedPassword
 
 from pprint import pp as pprint
 
 
 @pytest.mark.anyio
-class TestTeacherService:
-
+class TestTeacherServiceRead:
 
     # --- Tests for get_all ---
 
@@ -28,16 +27,29 @@ class TestTeacherService:
         test_teacher_orm: db_models.Teachers # Ensure at least one teacher exists
     ):
         """Tests that an ADMIN can get all teachers."""
-        # Create a mock admin user
-        teachers = await teacher_service.get_all(current_user=test_admin_orm)
+        teachers_orm = await teacher_service.get_all(current_user=test_admin_orm)
         
-        assert len(teachers) >= 1
-        assert any(t.id == test_teacher_orm.id for t in teachers)
-        assert all(isinstance(t, db_models.Teachers) for t in teachers)
+        assert len(teachers_orm) >= 1
+        assert any(t.id == test_teacher_orm.id for t in teachers_orm)
+        assert all(isinstance(t, db_models.Teachers) for t in teachers_orm)
 
-        print(f"\nFound {len(teachers)} Teacher users")
+        print(f"\nFound {len(teachers_orm)} Teacher users")
         print("Example Teacher user:")
-        pprint(teachers[0].__dict__)
+        pprint(teachers_orm[0].__dict__)
+
+        # Convert ORM to Pydantic models for the actual API response check
+        teachers_read = [user_models.TeacherRead.model_validate(t) for t in teachers_orm]
+
+        assert len(teachers_read) >= 1
+        assert all(isinstance(t, user_models.TeacherRead) for t in teachers_read)
+        
+        # Assert that teacher_specialties are loaded and are not empty
+        first_teacher_with_specialties = next((t for t in teachers_read if t.teacher_specialties), None)
+        assert first_teacher_with_specialties is not None
+        assert isinstance(first_teacher_with_specialties.teacher_specialties, list)
+        assert len(first_teacher_with_specialties.teacher_specialties) > 0
+        assert isinstance(first_teacher_with_specialties.teacher_specialties[0], user_models.TeacherSpecialtyRead)
+        pprint(first_teacher_with_specialties.teacher_specialties)
 
     async def test_get_all_as_teacher_forbidden(
         self,
@@ -66,6 +78,9 @@ class TestTeacherService:
         assert "You do not have permission to view this list." in e.value.detail
 
 
+@pytest.mark.anyio
+class TestTeacherServiceCreate:
+
     # --- Tests for create_teacher ---
 
     async def test_create_teacher_happy_path(
@@ -82,7 +97,17 @@ class TestTeacherService:
             first_name="New",
             last_name="Teacher",
             timezone="UTC", # This will be overridden by geo_service
-            currency="USD"  # This will be overridden by geo_service
+            currency="USD",  # This will be overridden by geo_service
+            teacher_specialties=[
+                user_models.TeacherSpecialtyWrite(
+                    subject=SubjectEnum.MATH,
+                    educational_system=EducationalSystemEnum.NATIONAL_EG
+                ),
+                user_models.TeacherSpecialtyWrite(
+                    subject=SubjectEnum.PHYSICS,
+                    educational_system=EducationalSystemEnum.IGCSE
+                )
+            ]
         )
         ip_address = "1.2.3.4" # Dummy IP for testing
 
@@ -98,6 +123,20 @@ class TestTeacherService:
         assert created_teacher.is_first_sign_in is True
         assert created_teacher.timezone == "America/New_York" # Assert against mocked value
         assert created_teacher.currency == "USD" # Assert against mocked value
+        
+        # New assertions for teacher_specialties
+        assert created_teacher.teacher_specialties is not None
+        assert isinstance(created_teacher.teacher_specialties, list)
+        assert len(created_teacher.teacher_specialties) == 2
+        assert isinstance(created_teacher.teacher_specialties[0], user_models.TeacherSpecialtyRead)
+        
+        created_specialties_subjects = {s.subject for s in created_teacher.teacher_specialties}
+        created_specialties_systems = {s.educational_system for s in created_teacher.teacher_specialties}
+        
+        assert SubjectEnum.MATH in created_specialties_subjects
+        assert SubjectEnum.PHYSICS in created_specialties_subjects
+        assert EducationalSystemEnum.NATIONAL_EG in created_specialties_systems
+        assert EducationalSystemEnum.IGCSE in created_specialties_systems
 
         # 2. Verify the user exists in the database
         db_user = await user_service.get_user_by_id(created_teacher.id)
@@ -106,6 +145,9 @@ class TestTeacherService:
         assert isinstance(db_user, db_models.Teachers)
         assert db_user.timezone == "America/New_York" # Assert against mocked value
         assert db_user.currency == "USD" # Assert against mocked value
+        assert db_user.teacher_specialties is not None
+        assert len(db_user.teacher_specialties) == 2
+        assert isinstance(db_user.teacher_specialties[0], db_models.TeacherSpecialties)
 
         # 3. Verify the password was hashed correctly
         assert HashedPassword.verify(teacher_data.password, db_user.password) is True
@@ -143,6 +185,9 @@ class TestTeacherService:
         assert "Email already registered" in exc_info.value.detail   
         print(f"--- Correctly raised HTTPException: {exc_info.value.status_code} ---")
 
+
+@pytest.mark.anyio
+class TestTeacherServiceUpdate:
 
     # --- Tests for update_teacher ---
 
@@ -313,5 +358,76 @@ class TestTeacherService:
         assert "Teacher not found." in e.value.detail
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
 
+    async def test_update_teacher_specialties(
+        self,
+        teacher_service: TeacherService,
+        db_session, # Use db_session to refresh the ORM object
+        test_teacher_orm: db_models.Teachers,
+    ):
+        """
+        Tests that a teacher's specialties can be updated,
+        and that the update replaces existing specialties.
+        """
+        print("\n--- Testing update_teacher_specialties ---")
+
+        # Arrange: Initial specialties are loaded via test_teacher_orm fixture.
+        # Verify initial state
+        initial_specialties = test_teacher_orm.teacher_specialties
+        assert len(initial_specialties) > 0, "Pre-condition: Teacher must have initial specialties."
+        print(f"Initial specialties: {initial_specialties}")
+
+        # Act: Define new specialties for update
+        new_specialties_data = [
+            user_models.TeacherSpecialtyWrite(
+                subject=SubjectEnum.BIOLOGY,
+                educational_system=EducationalSystemEnum.IGCSE
+            ),
+            user_models.TeacherSpecialtyWrite(
+                subject=SubjectEnum.CHEMISTRY,
+                educational_system=EducationalSystemEnum.SAT
+            )
+        ]
+        update_payload = user_models.TeacherUpdate(
+            teacher_specialties=new_specialties_data
+        )
+
+        updated_teacher_read = await teacher_service.update_teacher(
+            teacher_id=test_teacher_orm.id,
+            update_data=update_payload,
+            current_user=test_teacher_orm # Can update own specialties
+        )
+        await db_session.flush() # Ensure changes are written to the session
+
+        # Assert 1: Check the returned Pydantic model
+        assert isinstance(updated_teacher_read, user_models.TeacherRead)
+        assert updated_teacher_read.id == test_teacher_orm.id
+        assert updated_teacher_read.teacher_specialties is not None
+        assert len(updated_teacher_read.teacher_specialties) == 2
+        assert isinstance(updated_teacher_read.teacher_specialties[0], user_models.TeacherSpecialtyRead)
+
+        updated_subjects = {s.subject for s in updated_teacher_read.teacher_specialties}
+        updated_systems = {s.educational_system for s in updated_teacher_read.teacher_specialties}
+
+        assert SubjectEnum.BIOLOGY in updated_subjects
+        assert EducationalSystemEnum.IGCSE in updated_systems
+        assert SubjectEnum.CHEMISTRY in updated_subjects
+        assert EducationalSystemEnum.SAT in updated_systems
+
+        # Assert 2: Verify database state (old specialties removed, new ones added)
+        # Refresh the ORM object to get the latest state from the database
+        await db_session.refresh(test_teacher_orm, ['teacher_specialties'])
+        assert len(test_teacher_orm.teacher_specialties) == 2
+        assert isinstance(test_teacher_orm.teacher_specialties[0], db_models.TeacherSpecialties)
+
+        db_specialties = {(s.subject, s.educational_system) for s in test_teacher_orm.teacher_specialties}
+        expected_specialties = {(s.subject.value, s.educational_system.value) for s in new_specialties_data}
+
+        assert db_specialties == expected_specialties
+
+        print("--- Successfully updated teacher specialties ---")
+        pprint(updated_teacher_read.model_dump())
 
 
+@pytest.mark.anyio
+class TestTeacherServiceDelete:
+    pass

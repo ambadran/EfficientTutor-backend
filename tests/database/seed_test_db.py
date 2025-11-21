@@ -22,6 +22,7 @@ from tests.constants import TEST_TUITION_ID
 
 # --- Import Data Definitions ---
 from .data.users import USERS_DATA
+from .data.teacher_specialties import TEACHER_SPECIALTIES_DATA
 from .data.tuitions import TUITIONS_DATA
 from .data.student_details import STUDENT_DETAILS_DATA
 from .data.logs import LOGS_DATA
@@ -43,6 +44,7 @@ async def clear_database(session: AsyncSession):
         await session.execute(text('TRUNCATE TABLE "tuitions" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "student_subjects" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "student_availability_intervals" RESTART IDENTITY CASCADE'))
+        await session.execute(text('TRUNCATE TABLE "teacher_specialties" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "users" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "admins" RESTART IDENTITY CASCADE'))
     print("Database wiped.")
@@ -68,7 +70,15 @@ async def seed_data(session: AsyncSession):
         user = factory.create(**data)
         created_users[user.id] = user
 
-    # 2. Tuitions
+    # 2. Teacher Specialties
+    for specialty_data in TEACHER_SPECIALTIES_DATA:
+        data = specialty_data.copy()
+        factory = getattr(factories, data.pop("factory"))
+        if "teacher_id" in data:
+            data["teacher"] = created_users[data.pop("teacher_id")]
+        factory.create(**data)
+
+    # 3. Tuitions
     for tuition_data in TUITIONS_DATA:
         data = tuition_data.copy()
         factory = getattr(factories, data.pop("factory"))
@@ -85,7 +95,7 @@ async def seed_data(session: AsyncSession):
              created_tuitions[data["id"]] = item
 
 
-    # 3. Student Details
+    # 4. Student Details
     for detail_data in STUDENT_DETAILS_DATA:
         data = detail_data.copy()
         factory = getattr(factories, data.pop("factory"))
@@ -95,7 +105,7 @@ async def seed_data(session: AsyncSession):
             data["teacher"] = created_users[data.pop("teacher_id")]
         factory.create(**data)
 
-    # 4. Logs
+    # 5. Logs
     for log_data in LOGS_DATA:
         data = log_data.copy()
         factory = getattr(factories, data.pop("factory"))
@@ -113,7 +123,7 @@ async def seed_data(session: AsyncSession):
         if data.get("id"):
             created_logs[item.id] = item
 
-    # 5. Miscellaneous
+    # 6. Miscellaneous
     for misc_data in MISC_DATA:
         data = misc_data.copy()
         factory = getattr(factories, data.pop("factory"))
