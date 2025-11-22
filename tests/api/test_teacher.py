@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from uuid import uuid4
 
 from src.efficient_tutor_backend.database import models as db_models
+from src.efficient_tutor_backend.database.db_enums import SubjectEnum, EducationalSystemEnum
 from src.efficient_tutor_backend.services.security import JWTHandler
 from src.efficient_tutor_backend.models import user as user_models
 
@@ -33,6 +34,13 @@ class TestTeacherAPIGET:
         
         assert teacher_data.id == teacher_id
         assert teacher_data.email == test_teacher_orm.email
+        
+        # Verify that teacher_specialties are loaded correctly
+        assert teacher_data.teacher_specialties is not None
+        assert isinstance(teacher_data.teacher_specialties, list)
+        assert len(teacher_data.teacher_specialties) > 0
+        assert isinstance(teacher_data.teacher_specialties[0], user_models.TeacherSpecialtyRead)
+
         print(f"Successfully fetched teacher {teacher_id}")
 
     async def test_get_teacher_by_id_not_found(
@@ -63,6 +71,16 @@ class TestTeacherAPIGET:
         assert response.status_code == 200, response.json()
         response_data = response.json()
         assert isinstance(response_data, list)
+
+        # Validate the pydantic model and the presence of teacher_specialties
+        teachers_read = [user_models.TeacherRead(**t) for t in response_data]
+        
+        first_teacher_with_specialties = next((t for t in teachers_read if t.teacher_specialties), None)
+        assert first_teacher_with_specialties is not None
+        assert isinstance(first_teacher_with_specialties.teacher_specialties, list)
+        assert len(first_teacher_with_specialties.teacher_specialties) > 0
+        assert isinstance(first_teacher_with_specialties.teacher_specialties[0], user_models.TeacherSpecialtyRead)
+
         print("Successfully fetched teachers list as an admin.")
 
     async def test_get_all_teachers_as_teacher_forbidden(
@@ -113,6 +131,49 @@ class TestTeacherAPIGET:
 class TestTeacherAPIPATCH:
     """Test class for PATCH endpoints of the Teachers API."""
 
+    async def test_update_teacher_specialties_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test a teacher successfully updating their teacher_specialties."""
+        teacher_id = test_teacher_orm.id
+        headers = auth_headers_for_user(test_teacher_orm)
+        
+        new_specialties_data = [
+            user_models.TeacherSpecialtyWrite(
+                subject=SubjectEnum.BIOLOGY,
+                educational_system=EducationalSystemEnum.IGCSE
+            ),
+            user_models.TeacherSpecialtyWrite(
+                subject=SubjectEnum.CHEMISTRY,
+                educational_system=EducationalSystemEnum.SAT
+            )
+        ]
+        
+        update_payload = {"teacher_specialties": [s.model_dump(mode='json') for s in new_specialties_data]}
+
+        print(f"Attempting to update teacher {teacher_id}'s specialties as self.")
+        response = client.patch(f"/teachers/{teacher_id}", headers=headers, json=update_payload)
+
+        assert response.status_code == 200, response.json()
+        updated_data = user_models.TeacherRead(**response.json())
+        
+        assert updated_data.id == teacher_id
+        assert updated_data.teacher_specialties is not None
+        assert isinstance(updated_data.teacher_specialties, list)
+        assert len(updated_data.teacher_specialties) == 2
+        
+        updated_subjects = {s.subject for s in updated_data.teacher_specialties}
+        updated_systems = {s.educational_system for s in updated_data.teacher_specialties}
+        
+        assert SubjectEnum.BIOLOGY in updated_subjects
+        assert EducationalSystemEnum.IGCSE in updated_systems
+        assert SubjectEnum.CHEMISTRY in updated_subjects
+        assert EducationalSystemEnum.SAT in updated_systems
+        
+        print("Teacher successfully updated their teacher_specialties.")
+
     async def test_update_teacher_by_self_success(
         self,
         client: TestClient,
@@ -130,6 +191,11 @@ class TestTeacherAPIPATCH:
         updated_data = user_models.TeacherRead(**response.json())
         assert updated_data.id == teacher_id
         assert updated_data.first_name == "UpdatedTeacherName"
+        
+        # Ensure the specialties are still present after the update
+        assert updated_data.teacher_specialties is not None
+        assert isinstance(updated_data.teacher_specialties, list)
+
         print("Teacher successfully updated their own profile.")
 
     async def test_update_teacher_by_admin_success(
@@ -149,6 +215,11 @@ class TestTeacherAPIPATCH:
         assert response.status_code == 200, response.json()
         updated_data = user_models.TeacherRead(**response.json())
         assert updated_data.last_name == "AdminUpdated"
+        
+        # Ensure the specialties are still present after the update
+        assert updated_data.teacher_specialties is not None
+        assert isinstance(updated_data.teacher_specialties, list)
+
         print("Admin successfully updated teacher profile.")
 
     async def test_update_teacher_by_other_teacher_forbidden(

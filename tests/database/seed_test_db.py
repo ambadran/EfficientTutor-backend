@@ -144,7 +144,10 @@ async def seed_data(session: AsyncSession):
 
 
 async def main():
-    """Main function to connect, wipe, and seed the database."""
+    """Main function to connect, wipe, and seed the database.
+    Run this script by:
+    `python3 -m tests.database.seed_test_db`
+    """
     if not settings.TEST_MODE:
         raise ConnectionRefusedError("Seeding script must be run with TEST_MODE=True.")
 

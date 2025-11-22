@@ -546,7 +546,8 @@ class StudentService(UserService):
                 student=new_student,
                 subject=subject_data.subject.value,
                 lessons_per_week=subject_data.lessons_per_week,
-                teacher_id=subject_data.teacher_id # Assign the teacher
+                teacher_id=subject_data.teacher_id, # Assign the teacher
+                educational_system=subject_data.educational_system.value
             )
             # Handle M2M relationship for shared subjects
             for shared_student_id in subject_data.shared_with_student_ids:
@@ -583,6 +584,7 @@ class StudentService(UserService):
                 subject=sub.subject,
                 lessons_per_week=sub.lessons_per_week,
                 teacher_id=sub.teacher_id,
+                educational_system=sub.educational_system,
                 shared_with_student_ids=[s.id for s in sub.shared_with_student]
             ))
 
@@ -727,7 +729,8 @@ class StudentService(UserService):
                 new_subject = db_models.StudentSubjects(
                     subject=subject_data.subject.value,
                     lessons_per_week=subject_data.lessons_per_week,
-                    teacher_id=subject_data.teacher_id # Assign the teacher
+                    teacher_id=subject_data.teacher_id, # Assign the teacher
+                    educational_system=subject_data.educational_system.value
                 )
                 for shared_student_id in subject_data.shared_with_student_ids:
                     shared_student = shared_students_map.get(shared_student_id)
@@ -751,6 +754,7 @@ class StudentService(UserService):
                 subject=sub.subject,
                 lessons_per_week=sub.lessons_per_week,
                 teacher_id=sub.teacher_id,
+                educational_system=sub.educational_system,
                 shared_with_student_ids=[s.id for s in sub.shared_with_student]
             ))
 
