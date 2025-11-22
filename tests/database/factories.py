@@ -174,6 +174,7 @@ class StudentSubjectFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     subject = SubjectEnum.PHYSICS.value
     lessons_per_week = 2
+    educational_system = EducationalSystemEnum.IGCSE.value
 
     student = factory.SubFactory(StudentFactory)
     teacher = factory.SubFactory(TeacherFactory)

@@ -505,7 +505,7 @@ class StudentSubjects(Base):
         ForeignKeyConstraint(['student_id'], ['students.id'], ondelete='CASCADE', name='student_subjects_student_id_fkey'),
         ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='SET NULL', name='student_subjects_teacher_id_fkey'),
         PrimaryKeyConstraint('id', name='student_subjects_pkey'),
-        UniqueConstraint('student_id', 'subject', 'teacher_id', name='student_subjects_student_id_subject_teacher_id_key'),
+        UniqueConstraint('student_id', 'subject', 'teacher_id', 'educational_system', name='student_subjects_student_id_subject_teacher_id_educat_key'),
         Index('idx_student_subjects_student_id', 'student_id')
     )
 
@@ -514,6 +514,7 @@ class StudentSubjects(Base):
     subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
     lessons_per_week: Mapped[int] = mapped_column(Integer, server_default=text('1'))
     teacher_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    educational_system: Mapped[str] = mapped_column(Enum('IGCSE', 'SAT', 'National-EG', 'National-KW', name='educational_system_enum'))
 
     shared_with_student: Mapped[list['Students']] = relationship('Students', secondary='student_subject_sharings', back_populates='student_subject')
     student: Mapped['Students'] = relationship('Students', back_populates='student_subjects')

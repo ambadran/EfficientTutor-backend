@@ -46,7 +46,8 @@ from src.efficient_tutor_backend.database.engine import get_db_session
 from src.efficient_tutor_backend.database.db_enums import (
         SubjectEnum,
         UserRole,
-        AdminPrivilegeType
+        AdminPrivilegeType,
+        EducationalSystemEnum
         )
 
 from src.efficient_tutor_backend.database import models as db_models
@@ -466,7 +467,8 @@ def valid_student_data() -> dict:
                 "subject": SubjectEnum.PHYSICS.value,
                 "lessons_per_week": 2,
                 "shared_with_student_ids": [str(TEST_STUDENT_ID)],
-                "teacher_id": str(TEST_TEACHER_ID)
+                "teacher_id": str(TEST_TEACHER_ID),
+                "educational_system": EducationalSystemEnum.IGCSE.value
             }
         ],
         "student_availability_intervals": [

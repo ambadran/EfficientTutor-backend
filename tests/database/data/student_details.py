@@ -2,7 +2,7 @@
 Test data for student-specific details like subjects and availability.
 """
 from tests.constants import TEST_STUDENT_ID, TEST_TEACHER_ID
-from src.efficient_tutor_backend.database.db_enums import SubjectEnum, AvailabilityTypeEnum
+from src.efficient_tutor_backend.database.db_enums import SubjectEnum, AvailabilityTypeEnum, EducationalSystemEnum
 from datetime import time
 
 STUDENT_DETAILS_DATA = [
@@ -11,6 +11,7 @@ STUDENT_DETAILS_DATA = [
         "student_id": TEST_STUDENT_ID,
         "teacher_id": TEST_TEACHER_ID,
         "subject": SubjectEnum.PHYSICS.value,
+        "educational_system": EducationalSystemEnum.IGCSE.value,
     },
     {
         "factory": "StudentAvailabilityIntervalFactory",

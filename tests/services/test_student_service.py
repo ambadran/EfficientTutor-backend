@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import StudentService
 from src.efficient_tutor_backend.models import user as user_models
-from src.efficient_tutor_backend.database.db_enums import UserRole, SubjectEnum
+from src.efficient_tutor_backend.database.db_enums import UserRole, SubjectEnum, EducationalSystemEnum
 from tests.constants import TEST_TEACHER_ID, TEST_PARENT_ID, TEST_STUDENT_ID, TEST_UNRELATED_TEACHER_ID
 
 from pprint import pp as pprint
@@ -370,6 +370,7 @@ class TestStudentServiceUPDATE:
 
         new_subjects = [
             user_models.StudentSubjectWrite(subject=SubjectEnum.CHEMISTRY,
+                                            educational_system=EducationalSystemEnum.SAT,
                                             lessons_per_week=3,
                                             teacher_id=TEST_UNRELATED_TEACHER_ID)
         ]
@@ -392,6 +393,7 @@ class TestStudentServiceUPDATE:
         # 3. ASSERT
         assert len(updated_student.student_subjects) == 1
         assert updated_student.student_subjects[0].subject == SubjectEnum.CHEMISTRY
+        assert updated_student.student_subjects[0].educational_system == EducationalSystemEnum.SAT
         assert updated_student.student_subjects[0].lessons_per_week == 3
         assert updated_student.student_subjects[0].teacher_id == TEST_UNRELATED_TEACHER_ID
         

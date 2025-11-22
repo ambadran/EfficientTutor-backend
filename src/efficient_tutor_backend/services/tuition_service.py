@@ -597,10 +597,10 @@ class TuitionService:
             log.error(f"A critical error occurred during tuition regeneration: {e}", exc_info=True)
             raise
 
-    def _generate_deterministic_id(self, subject: str, lesson_index: int, teacher_id: UUID, student_ids: list[UUID]) -> UUID:
+    def _generate_deterministic_id(self, subject: str, educational_system: str, lesson_index: int, teacher_id: UUID, student_ids: list[UUID]) -> UUID:
         """
         Creates a stable, deterministic UUID for a tuition based on its core properties.
         """
-        id_string = f"{subject}:{lesson_index}:{teacher_id}:{','.join(map(str, sorted(student_ids)))}"
+        id_string = f"{subject}:{educational_system}:{lesson_index}:{teacher_id}:{','.join(map(str, sorted(student_ids)))}"
         hasher = hashlib.sha256(id_string.encode('utf-8'))
         return UUID(bytes=hasher.digest()[:16])

@@ -14,7 +14,13 @@ from sqlalchemy.exc import IntegrityError
 from pydantic import ValidationError
 
 from src.efficient_tutor_backend.database import models as db_models
-from src.efficient_tutor_backend.database.db_enums import MeetingLinkTypeEnum, SubjectEnum, StudentStatusEnum, AvailabilityTypeEnum
+from src.efficient_tutor_backend.database.db_enums import (
+        MeetingLinkTypeEnum, 
+        SubjectEnum, 
+        StudentStatusEnum, 
+        AvailabilityTypeEnum,
+        EducationalSystemEnum
+        )
 from src.efficient_tutor_backend.models import user as user_models
 from src.efficient_tutor_backend.models import tuition as tuition_models 
 from src.efficient_tutor_backend.models import meeting_links as meeting_link_models 
@@ -240,7 +246,10 @@ async def _create_student_with_subjects(
         student_subjects=subjects_data,
         student_availability_intervals=[
             user_models.StudentAvailabilityIntervalWrite(
-                day_of_week=1, start_time=time(9, 0), end_time=time(10, 0), availability_type=AvailabilityTypeEnum.SCHOOL
+                day_of_week=1, 
+                start_time=time(9, 0), 
+                end_time=time(10, 0), 
+                availability_type=AvailabilityTypeEnum.SCHOOL
             )
         ]
     )
@@ -316,6 +325,7 @@ class TestTuitionServiceRegenerate:
         student_email = "student1@example.com"
         subject_data = user_models.StudentSubjectWrite(
             subject=SubjectEnum.MATH,
+            educational_system=EducationalSystemEnum.SAT,
             lessons_per_week=1,
             teacher_id=test_teacher_orm.id,
             shared_with_student_ids=[]
@@ -385,6 +395,7 @@ class TestTuitionServiceRegenerate:
             student_service, db_session, test_parent_orm, test_teacher_orm, student1_email, [
                 user_models.StudentSubjectWrite(
                     subject=SubjectEnum.PHYSICS,
+                    educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1,
                     teacher_id=test_teacher_orm.id,
                     shared_with_student_ids=[] # Will be updated by student2
@@ -399,6 +410,7 @@ class TestTuitionServiceRegenerate:
             student_service, db_session, test_parent_orm, test_teacher_orm, student2_email, [
                 user_models.StudentSubjectWrite(
                     subject=SubjectEnum.PHYSICS,
+                    educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1,
                     teacher_id=test_teacher_orm.id,
                     shared_with_student_ids=[student1.id] # Student2 shares with Student1
@@ -470,19 +482,51 @@ class TestTuitionServiceRegenerate:
         # 1. Create students and subjects
         # Student A: Math (Teacher 1), Physics (Teacher 1, shared with B)
         student_a = await _create_student_with_subjects(
-            student_service, db_session, test_parent_orm, test_teacher_orm, "student_a@example.com", [
-                user_models.StudentSubjectWrite(subject=SubjectEnum.MATH, lessons_per_week=1, teacher_id=test_teacher_orm.id, shared_with_student_ids=[]),
-                user_models.StudentSubjectWrite(subject=SubjectEnum.PHYSICS, lessons_per_week=1, teacher_id=test_teacher_orm.id, shared_with_student_ids=[]),
-            ], cost=Decimal("10.00")
+            student_service, 
+            db_session, 
+            test_parent_orm, 
+            test_teacher_orm, 
+            "student_a@example.com", 
+            [
+                user_models.StudentSubjectWrite(
+                    subject=SubjectEnum.MATH, 
+                    educational_system=EducationalSystemEnum.SAT,
+                    lessons_per_week=1, 
+                    teacher_id=test_teacher_orm.id, 
+                    shared_with_student_ids=[]),
+                user_models.StudentSubjectWrite(
+                    subject=SubjectEnum.PHYSICS, 
+                    educational_system=EducationalSystemEnum.SAT,
+                    lessons_per_week=1, 
+                    teacher_id=test_teacher_orm.id, 
+                    shared_with_student_ids=[]),
+            ], 
+            cost=Decimal("10.00")
         )
         await db_session.refresh(student_a, ['student_subjects'])
 
         # Student B: Physics (Teacher 1, shared with A), Chemistry (Teacher 2)
         student_b = await _create_student_with_subjects(
-            student_service, db_session, test_parent_orm, test_teacher_orm, "student_b@example.com", [
-                user_models.StudentSubjectWrite(subject=SubjectEnum.PHYSICS, lessons_per_week=1, teacher_id=test_teacher_orm.id, shared_with_student_ids=[student_a.id]),
-                user_models.StudentSubjectWrite(subject=SubjectEnum.CHEMISTRY, lessons_per_week=1, teacher_id=test_unrelated_teacher_orm.id, shared_with_student_ids=[]),
-            ], cost=Decimal("12.00")
+            student_service, 
+            db_session, 
+            test_parent_orm, 
+            test_teacher_orm, 
+            "student_b@example.com", 
+            [
+                user_models.StudentSubjectWrite(
+                    subject=SubjectEnum.PHYSICS, 
+                    educational_system=EducationalSystemEnum.SAT,
+                    lessons_per_week=1, 
+                    teacher_id=test_teacher_orm.id, 
+                    shared_with_student_ids=[student_a.id]),
+                user_models.StudentSubjectWrite(
+                    subject=SubjectEnum.CHEMISTRY, 
+                    educational_system=EducationalSystemEnum.SAT,
+                    lessons_per_week=1, 
+                    teacher_id=test_unrelated_teacher_orm.id, 
+                    shared_with_student_ids=[]),
+            ], 
+            cost=Decimal("12.00")
         )
         await db_session.refresh(student_b, ['student_subjects'])
 
@@ -495,9 +539,20 @@ class TestTuitionServiceRegenerate:
 
         # Student C: Math (Teacher 1, unique)
         student_c = await _create_student_with_subjects(
-            student_service, db_session, test_parent_orm, test_teacher_orm, "student_c@example.com", [
-                user_models.StudentSubjectWrite(subject=SubjectEnum.MATH, lessons_per_week=1, teacher_id=test_teacher_orm.id, shared_with_student_ids=[]),
-            ], cost=Decimal("15.00")
+            student_service, 
+            db_session, 
+            test_parent_orm, 
+            test_teacher_orm, 
+            "student_c@example.com", 
+            [
+                user_models.StudentSubjectWrite(
+                    subject=SubjectEnum.MATH, 
+                    educational_system=EducationalSystemEnum.SAT,
+                    lessons_per_week=1, 
+                    teacher_id=test_teacher_orm.id, 
+                    shared_with_student_ids=[]),
+            ], 
+            cost=Decimal("15.00")
         )
         await db_session.flush()
 
@@ -566,6 +621,7 @@ class TestTuitionServiceRegenerate:
         student_email = "student_link@example.com"
         subject_data = user_models.StudentSubjectWrite(
             subject=SubjectEnum.IT,
+            educational_system=EducationalSystemEnum.SAT,
             lessons_per_week=1,
             teacher_id=test_teacher_orm.id,
             shared_with_student_ids=[]
@@ -659,6 +715,7 @@ class TestTuitionServiceRegenerate:
         student_email = "student_charge@example.com"
         subject_data = user_models.StudentSubjectWrite(
             subject=SubjectEnum.GEOGRAPHY,
+            educational_system=EducationalSystemEnum.SAT,
             lessons_per_week=1,
             teacher_id=test_teacher_orm.id,
             shared_with_student_ids=[]
@@ -738,6 +795,7 @@ class TestTuitionServiceRegenerate:
             student_service, db_session, test_parent_orm, test_teacher_orm, student_email, [
                 user_models.StudentSubjectWrite(
                     subject=SubjectEnum.BIOLOGY,
+                    educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1,
                     teacher_id=test_teacher_orm.id,
                     shared_with_student_ids=[]
