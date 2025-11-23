@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Import the new, simple read models
 from .user import UserRead, ParentRead
-from ..database.db_enums import SubjectEnum
+from ..database.db_enums import SubjectEnum, EducationalSystemEnum
 from .meeting_links import MeetingLinkRead
 
 # --- API Read Models (Output) ---
@@ -34,6 +34,7 @@ class TuitionReadForTeacher(BaseModel):
     """
     id: UUID
     subject: SubjectEnum
+    educational_system: EducationalSystemEnum
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
@@ -51,6 +52,7 @@ class TuitionReadForParent(BaseModel):
     """
     id: UUID
     subject: SubjectEnum
+    educational_system: EducationalSystemEnum
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
@@ -69,6 +71,7 @@ class TuitionReadForStudent(BaseModel):
     """
     id: UUID
     subject: SubjectEnum
+    educational_system: EducationalSystemEnum
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int

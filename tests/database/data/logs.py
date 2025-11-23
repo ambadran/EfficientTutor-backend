@@ -5,7 +5,7 @@ from tests.constants import (
     TEST_TUITION_LOG_ID_SCHEDULED, TEST_TUITION_LOG_ID_CUSTOM, TEST_PAYMENT_LOG_ID,
     TEST_TUITION_ID, TEST_TEACHER_ID, TEST_STUDENT_ID, TEST_PARENT_ID
 )
-from src.efficient_tutor_backend.database.db_enums import TuitionLogCreateTypeEnum
+from src.efficient_tutor_backend.database.db_enums import TuitionLogCreateTypeEnum, EducationalSystemEnum
 
 LOGS_DATA = [
     # --- Tuition Logs ---
@@ -15,6 +15,7 @@ LOGS_DATA = [
         "create_type": TuitionLogCreateTypeEnum.SCHEDULED.value,
         "tuition_id": TEST_TUITION_ID,
         "teacher_id": TEST_TEACHER_ID,
+        "educational_system": EducationalSystemEnum.IGCSE.value,
     },
     {
         "factory": "TuitionLogFactory",
@@ -22,6 +23,7 @@ LOGS_DATA = [
         "create_type": TuitionLogCreateTypeEnum.CUSTOM.value,
         "tuition_id": TEST_TUITION_ID,
         "teacher_id": TEST_TEACHER_ID,
+        "educational_system": EducationalSystemEnum.IGCSE.value,
     },
     # --- Tuition Log Charges (dependent on TuitionLogs) ---
     {

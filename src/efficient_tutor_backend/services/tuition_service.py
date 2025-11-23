@@ -411,6 +411,7 @@ class TuitionService:
         api_model = tuition_models.TuitionReadForTeacher(
             id=tuition_orm.id,
             subject=tuition_orm.subject,
+            educational_system=tuition_orm.educational_system,
             lesson_index=tuition_orm.lesson_index,
             min_duration_minutes=tuition_orm.min_duration_minutes,
             max_duration_minutes=tuition_orm.max_duration_minutes,
@@ -437,6 +438,7 @@ class TuitionService:
         api_model = tuition_models.TuitionReadForParent(
             id=tuition_orm.id,
             subject=tuition_orm.subject,
+            educational_system=tuition_orm.educational_system,
             lesson_index=tuition_orm.lesson_index,
             min_duration_minutes=tuition_orm.min_duration_minutes,
             max_duration_minutes=tuition_orm.max_duration_minutes,
@@ -457,6 +459,7 @@ class TuitionService:
         api_model = tuition_models.TuitionReadForStudent(
             id=tuition_orm.id,
             subject=tuition_orm.subject,
+            educational_system=tuition_orm.educational_system,
             lesson_index=tuition_orm.lesson_index,
             min_duration_minutes=tuition_orm.min_duration_minutes,
             max_duration_minutes=tuition_orm.max_duration_minutes,
@@ -512,22 +515,23 @@ class TuitionService:
             new_tuitions = []
             new_charges = []
             new_meeting_links = []
-            # Use a set to track students already assigned to a group for a specific subject/teacher
-            # to avoid creating duplicate tuitions. Key: (student_id, subject, teacher_id)
+            # Use a set to track students already assigned to a group for a specific subject/teacher/system
+            # to avoid creating duplicate tuitions. Key: (student_id, subject, teacher_id, educational_system)
             processed_students = set()
 
             for ss in all_student_subjects:
-                process_key = (ss.student_id, ss.subject, ss.teacher_id)
+                process_key = (ss.student_id, ss.subject, ss.teacher_id, ss.educational_system)
                 if process_key in processed_students:
-                    continue # This student has already been added to a group for this subject/teacher
+                    continue # This student has already been added to a group for this subject/teacher/system
 
                 # This is a new group. The group consists of the main student
                 # plus all students they share this subject with.
                 group_students = [ss.student] + ss.shared_with_student
                 
-                # The teacher and subject are the same for the whole group
+                # The teacher, subject and educational_system are the same for the whole group
                 teacher_id = ss.teacher_id
                 subject_name = ss.subject
+                educational_system = ss.educational_system
                 
                 if not teacher_id:
                     log.warning(f"Skipping group for subject '{subject_name}' because teacher_id is missing for student {ss.student_id}.")
@@ -537,6 +541,7 @@ class TuitionService:
                 student_ids_in_group = sorted([s.id for s in group_students])
                 tuition_id = self._generate_deterministic_id(
                     subject=subject_name,
+                    educational_system=educational_system,
                     lesson_index=1, # lesson_index is always 1 for templates
                     teacher_id=teacher_id,
                     student_ids=student_ids_in_group
@@ -548,6 +553,7 @@ class TuitionService:
                     id=tuition_id,
                     teacher_id=teacher_id,
                     subject=subject_name,
+                    educational_system=educational_system,
                     lesson_index=1,
                     min_duration_minutes=ss.student.min_duration_mins,
                     max_duration_minutes=ss.student.max_duration_mins,
@@ -567,7 +573,7 @@ class TuitionService:
                         cost=cost_to_use
                     ))
                     # Mark this student as processed for this specific subject/teacher combo
-                    processed_students.add((student_in_group.id, subject_name, teacher_id))
+                    processed_students.add((student_in_group.id, subject_name, teacher_id, educational_system))
 
                 # 5. Check if a link existed for this deterministic ID and restore it
                 if tuition_id in old_links_dict:
