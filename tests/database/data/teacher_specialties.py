@@ -45,6 +45,48 @@ TEACHER_SPECIALTIES_DATA = [
         "subject": SubjectEnum.PHYSICS.value,
         "educational_system": EducationalSystemEnum.SAT.value,
     },
+    {
+        "factory": "TeacherSpecialtyFactory",
+        "teacher_id": TEST_TEACHER_ID,
+        "subject": SubjectEnum.MATH.value,
+        "educational_system": EducationalSystemEnum.SAT.value,
+    },
+    {
+        "factory": "TeacherSpecialtyFactory",
+        "teacher_id": TEST_TEACHER_ID,
+        "subject": SubjectEnum.PHYSICS.value,
+        "educational_system": EducationalSystemEnum.SAT.value,
+    },
+    {
+        "factory": "TeacherSpecialtyFactory",
+        "teacher_id": TEST_TEACHER_ID,
+        "subject": SubjectEnum.CHEMISTRY.value,
+        "educational_system": EducationalSystemEnum.SAT.value,
+    },
+    {
+        "factory": "TeacherSpecialtyFactory",
+        "teacher_id": TEST_TEACHER_ID,
+        "subject": SubjectEnum.BIOLOGY.value,
+        "educational_system": EducationalSystemEnum.SAT.value,
+    },
+    {
+        "factory": "TeacherSpecialtyFactory",
+        "teacher_id": TEST_TEACHER_ID,
+        "subject": SubjectEnum.IT.value,
+        "educational_system": EducationalSystemEnum.SAT.value,
+    },
+    {
+        "factory": "TeacherSpecialtyFactory",
+        "teacher_id": TEST_TEACHER_ID,
+        "subject": SubjectEnum.GEOGRAPHY.value,
+        "educational_system": EducationalSystemEnum.SAT.value,
+    },
+    {
+        "factory": "TeacherSpecialtyFactory",
+        "teacher_id": TEST_UNRELATED_TEACHER_ID,
+        "subject": SubjectEnum.CHEMISTRY.value,
+        "educational_system": EducationalSystemEnum.SAT.value,
+    },
 
 
 ]

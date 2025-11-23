@@ -6,6 +6,7 @@ from tests.constants import (
     TEST_TUITION_ID, TEST_TUITION_ID_NO_LINK, TEST_TEACHER_ID,
     TEST_STUDENT_ID, TEST_PARENT_ID
 )
+from src.efficient_tutor_backend.database.db_enums import EducationalSystemEnum
 
 # This list will be processed in order by the seeder.
 # We define Tuitions first, then their dependent objects.
@@ -15,11 +16,13 @@ TUITIONS_DATA = [
         "factory": "TuitionFactory",
         "id": TEST_TUITION_ID,
         "teacher_id": TEST_TEACHER_ID,
+        "educational_system": EducationalSystemEnum.IGCSE.value,
     },
     {
         "factory": "TuitionFactory",
         "id": TEST_TUITION_ID_NO_LINK,
         "teacher_id": TEST_TEACHER_ID,
+        "educational_system": EducationalSystemEnum.IGCSE.value,
     },
     # --- Meeting Links (dependent on Tuitions) ---
     {

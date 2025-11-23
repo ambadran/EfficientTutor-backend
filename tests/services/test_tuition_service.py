@@ -27,7 +27,7 @@ from src.efficient_tutor_backend.models import meeting_links as meeting_link_mod
 from src.efficient_tutor_backend.services.tuition_service import TuitionService
 from src.efficient_tutor_backend.services.user_service import UserService, StudentService # Import UserService for creating students
 # --- Import Test Constants ---
-from tests.constants import TEST_TEACHER_ID, TEST_STUDENT_ID, TEST_PARENT_ID
+from tests.constants import TEST_TEACHER_ID, TEST_STUDENT_ID, TEST_PARENT_ID, TEST_UNRELATED_TEACHER_ID
 
 from pprint import pp as pprint
 
@@ -354,6 +354,7 @@ class TestTuitionServiceRegenerate:
         pprint(charge.__dict__)
 
         assert tuition.subject == SubjectEnum.MATH.value
+        assert tuition.educational_system == EducationalSystemEnum.SAT.value
         assert tuition.teacher_id == test_teacher_orm.id
         assert tuition.lesson_index == 1
         assert tuition.min_duration_minutes == student1.min_duration_mins
@@ -443,6 +444,7 @@ class TestTuitionServiceRegenerate:
         charge_student2 = next((c for c in charges if c.student_id == student2.id), None)
 
         assert tuition.subject == SubjectEnum.PHYSICS.value
+        assert tuition.educational_system == EducationalSystemEnum.SAT.value
         assert tuition.teacher_id == test_teacher_orm.id
         assert tuition.lesson_index == 1
 
@@ -565,18 +567,18 @@ class TestTuitionServiceRegenerate:
         charges = (await db_session.execute(select(db_models.TuitionTemplateCharges))).scalars().all()
 
         # Expected Tuitions:
-        # 1. Math (Teacher 1, Student A)
-        # 2. Physics (Teacher 1, Student A & B)
-        # 3. Chemistry (Teacher 2, Student B)
-        # 4. Math (Teacher 1, Student C)
+        # 1. Math (Teacher 1, Student A) - SAT
+        # 2. Physics (Teacher 1, Student A & B) - SAT
+        # 3. Chemistry (Teacher 2, Student B) - SAT
+        # 4. Math (Teacher 1, Student C) - SAT
         assert len(tuitions) == 4
         assert len(charges) == 5 # Student A (Math), Student A (Physics), Student B (Physics), Student B (Chemistry), Student C (Math)
 
         # Verify Tuitions
-        tuition_math_a = next(t for t in tuitions if t.subject == SubjectEnum.MATH.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.MATH.value, 1, test_teacher_orm.id, sorted([student_a.id])))
-        tuition_physics_ab = next(t for t in tuitions if t.subject == SubjectEnum.PHYSICS.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.PHYSICS.value, 1, test_teacher_orm.id, sorted([student_a.id, student_b.id])))
-        tuition_chemistry_b = next(t for t in tuitions if t.subject == SubjectEnum.CHEMISTRY.value and t.teacher_id == test_unrelated_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.CHEMISTRY.value, 1, test_unrelated_teacher_orm.id, sorted([student_b.id])))
-        tuition_math_c = next(t for t in tuitions if t.subject == SubjectEnum.MATH.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.MATH.value, 1, test_teacher_orm.id, sorted([student_c.id])))
+        tuition_math_a = next((t for t in tuitions if t.subject == SubjectEnum.MATH.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.MATH.value, EducationalSystemEnum.SAT.value, 1, test_teacher_orm.id, sorted([student_a.id]))), None)
+        tuition_physics_ab = next((t for t in tuitions if t.subject == SubjectEnum.PHYSICS.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.PHYSICS.value, EducationalSystemEnum.SAT.value, 1, test_teacher_orm.id, sorted([student_a.id, student_b.id]))), None)
+        tuition_chemistry_b = next((t for t in tuitions if t.subject == SubjectEnum.CHEMISTRY.value and t.teacher_id == test_unrelated_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.CHEMISTRY.value, EducationalSystemEnum.SAT.value, 1, test_unrelated_teacher_orm.id, sorted([student_b.id]))), None)
+        tuition_math_c = next((t for t in tuitions if t.subject == SubjectEnum.MATH.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.MATH.value, EducationalSystemEnum.SAT.value, 1, test_teacher_orm.id, sorted([student_c.id]))), None)
 
         assert tuition_math_a is not None
         assert tuition_physics_ab is not None
@@ -635,6 +637,7 @@ class TestTuitionServiceRegenerate:
         # We need to generate the deterministic ID first to create the tuition
         tuition_id = tuition_service._generate_deterministic_id(
             subject=SubjectEnum.IT.value,
+            educational_system=EducationalSystemEnum.SAT.value,
             lesson_index=1,
             teacher_id=test_teacher_orm.id,
             student_ids=sorted([student.id])
@@ -645,6 +648,7 @@ class TestTuitionServiceRegenerate:
             id=tuition_id,
             teacher_id=test_teacher_orm.id,
             subject=SubjectEnum.IT.value,
+            educational_system=EducationalSystemEnum.SAT.value,
             lesson_index=1,
             min_duration_minutes=student.min_duration_mins,
             max_duration_minutes=student.max_duration_mins,
@@ -729,6 +733,7 @@ class TestTuitionServiceRegenerate:
         # 2. Manually create a tuition and a tuition template charge with a custom cost
         tuition_id = tuition_service._generate_deterministic_id(
             subject=SubjectEnum.GEOGRAPHY.value,
+            educational_system=EducationalSystemEnum.SAT.value,
             lesson_index=1,
             teacher_id=test_teacher_orm.id,
             student_ids=sorted([student.id])
@@ -738,6 +743,7 @@ class TestTuitionServiceRegenerate:
             id=tuition_id,
             teacher_id=test_teacher_orm.id,
             subject=SubjectEnum.GEOGRAPHY.value,
+            educational_system=EducationalSystemEnum.SAT.value,
             lesson_index=1,
             min_duration_minutes=student.min_duration_mins,
             max_duration_minutes=student.max_duration_mins,
@@ -840,6 +846,7 @@ class TestTuitionServiceRegenerate:
         # --- Case 1: Same inputs should produce the same UUID ---
         uuid_1 = tuition_service._generate_deterministic_id(
             subject="Math",
+            educational_system="SAT",
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_1
@@ -847,6 +854,7 @@ class TestTuitionServiceRegenerate:
         
         uuid_2 = tuition_service._generate_deterministic_id(
             subject="Math",
+            educational_system="SAT",
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_1
@@ -858,6 +866,7 @@ class TestTuitionServiceRegenerate:
         # --- Case 2: Different student list should produce a different UUID ---
         uuid_3 = tuition_service._generate_deterministic_id(
             subject="Math",
+            educational_system="SAT",
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_2 # <-- Different list
@@ -868,12 +877,23 @@ class TestTuitionServiceRegenerate:
         # --- Case 3: Different subject should produce a different UUID ---
         uuid_4 = tuition_service._generate_deterministic_id(
             subject="Physics", # <-- Different subject
+            educational_system="SAT",
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_1
         )
         
         assert uuid_1 != uuid_4, "Different subject produced the same UUID"
+
+        # --- Case 4: Different educational system should produce a different UUID ---
+        uuid_5 = tuition_service._generate_deterministic_id(
+            subject="Math",
+            educational_system="IGCSE", # <-- Different system
+            lesson_index=1,
+            teacher_id=TEST_TEACHER_ID,
+            student_ids=student_ids_1
+        )
+        assert uuid_1 != uuid_5, "Different educational system produced the same UUID"
 
 # --- Helper Function (to create a link for update/delete tests) ---
 # We make this a helper function to avoid duplicating create logic
@@ -1131,61 +1151,6 @@ class TestMeetingLinkService:
         
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
 
-    ### Tests for _generate_deterministic_id ###
-    
-    def test_generate_deterministic_id(
-        self,
-        tuition_service_sync: TuitionService # Request the service to get the method
-    ):
-        """
-        Tests the internal ID generation logic.
-        Note: This is a regular 'def' test, not 'async def'.
-        """
-        # For clarity, assign it to the name the rest of the
-        # test expects, or just use tuition_service_sync directly.
-        tuition_service = tuition_service_sync
-
-        # Define two lists of student IDs, sorted to ensure order doesn't matter
-        student_ids_1 = sorted([TEST_STUDENT_ID, TEST_PARENT_ID]) # Just using 2 IDs
-        student_ids_2 = sorted([TEST_STUDENT_ID]) # A different list
-        
-        # --- Case 1: Same inputs should produce the same UUID ---
-        uuid_1 = tuition_service._generate_deterministic_id(
-            subject="Math",
-            lesson_index=1,
-            teacher_id=TEST_TEACHER_ID,
-            student_ids=student_ids_1
-        )
-        
-        uuid_2 = tuition_service._generate_deterministic_id(
-            subject="Math",
-            lesson_index=1,
-            teacher_id=TEST_TEACHER_ID,
-            student_ids=student_ids_1
-        )
-        
-        assert isinstance(uuid_1, UUID)
-        assert uuid_1 == uuid_2, "Same inputs did not produce the same UUID"
-        
-        # --- Case 2: Different student list should produce a different UUID ---
-        uuid_3 = tuition_service._generate_deterministic_id(
-            subject="Math",
-            lesson_index=1,
-            teacher_id=TEST_TEACHER_ID,
-            student_ids=student_ids_2 # <-- Different list
-        )
-        
-        assert uuid_1 != uuid_3, "Different student list produced the same UUID"
-        
-        # --- Case 3: Different subject should produce a different UUID ---
-        uuid_4 = tuition_service._generate_deterministic_id(
-            subject="Physics", # <-- Different subject
-            lesson_index=1,
-            teacher_id=TEST_TEACHER_ID,
-            student_ids=student_ids_1
-        )
-        
-        assert uuid_1 != uuid_4, "Different subject produced the same UUID"
 
 @pytest.mark.anyio
 class TestTuitionServiceUpdate:
