@@ -203,6 +203,9 @@ class TestTeacherServiceUpdate:
             first_name="UpdatedTeacherFirstName",
             currency="EUR"
         )
+        
+        original_specialty_count = len(test_teacher_orm.teacher_specialties)
+        assert original_specialty_count > 0
 
         updated_teacher = await teacher_service.update_teacher(
             teacher_id=test_teacher_orm.id,
@@ -216,12 +219,17 @@ class TestTeacherServiceUpdate:
         assert updated_teacher.currency == "EUR"
         # Ensure other fields are unchanged
         assert updated_teacher.last_name == test_teacher_orm.last_name
+        
+        # Assert that specialties were NOT changed by this operation
+        assert len(updated_teacher.teacher_specialties) == original_specialty_count
 
         # Verify in DB
         db_user = await user_service.get_user_by_id(test_teacher_orm.id)
         assert db_user.first_name == "UpdatedTeacherFirstName"
         assert db_user.currency == "EUR"
-        print("--- Successfully updated teacher as self ---")
+        assert len(db_user.teacher_specialties) == original_specialty_count
+        
+        print("--- Successfully updated teacher as self, specialties were preserved. ---")
         pprint(updated_teacher.model_dump())
 
     async def test_update_teacher_as_admin_happy_path(
@@ -358,75 +366,258 @@ class TestTeacherServiceUpdate:
         assert "Teacher not found." in e.value.detail
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
 
-    async def test_update_teacher_specialties(
+
+@pytest.mark.anyio
+class TestTeacherServiceUpdateSpecialties:
+    """Tests for adding and removing teacher specialties."""
+
+    async def test_add_specialty_as_owner(
         self,
         teacher_service: TeacherService,
-        db_session, # Use db_session to refresh the ORM object
         test_teacher_orm: db_models.Teachers,
+        db_session
     ):
-        """
-        Tests that a teacher's specialties can be updated,
-        and that the update replaces existing specialties.
-        """
-        print("\n--- Testing update_teacher_specialties ---")
-
-        # Arrange: Initial specialties are loaded via test_teacher_orm fixture.
-        # Verify initial state
-        initial_specialties = test_teacher_orm.teacher_specialties
-        assert len(initial_specialties) > 0, "Pre-condition: Teacher must have initial specialties."
-        print(f"Initial specialties: {initial_specialties}")
-
-        # Act: Define new specialties for update
-        new_specialties_data = [
-            user_models.TeacherSpecialtyWrite(
-                subject=SubjectEnum.BIOLOGY,
-                educational_system=EducationalSystemEnum.IGCSE
-            ),
-            user_models.TeacherSpecialtyWrite(
-                subject=SubjectEnum.CHEMISTRY,
-                educational_system=EducationalSystemEnum.SAT
-            )
-        ]
-        update_payload = user_models.TeacherUpdate(
-            teacher_specialties=new_specialties_data
+        """Tests a teacher can add a new specialty to their own profile."""
+        print("\n--- Testing add_specialty_as_owner ---")
+        specialty_data = user_models.TeacherSpecialtyWrite(
+            subject=SubjectEnum.GEOGRAPHY,
+            educational_system=EducationalSystemEnum.IGCSE
         )
+        
+        # Ensure the specialty doesn't already exist
+        assert not any(
+            s.subject == specialty_data.subject.value and s.educational_system == specialty_data.educational_system.value
+            for s in test_teacher_orm.teacher_specialties
+        )
+        
+        original_count = len(test_teacher_orm.teacher_specialties)
 
-        updated_teacher_read = await teacher_service.update_teacher(
+        updated_teacher = await teacher_service.add_specialty_to_teacher(
             teacher_id=test_teacher_orm.id,
-            update_data=update_payload,
-            current_user=test_teacher_orm # Can update own specialties
+            specialty_data=specialty_data,
+            current_user=test_teacher_orm
         )
-        await db_session.flush() # Ensure changes are written to the session
 
-        # Assert 1: Check the returned Pydantic model
-        assert isinstance(updated_teacher_read, user_models.TeacherRead)
-        assert updated_teacher_read.id == test_teacher_orm.id
-        assert updated_teacher_read.teacher_specialties is not None
-        assert len(updated_teacher_read.teacher_specialties) == 2
-        assert isinstance(updated_teacher_read.teacher_specialties[0], user_models.TeacherSpecialtyRead)
+        assert len(updated_teacher.teacher_specialties) == original_count + 1
+        
+        new_specialty = next(
+            s for s in updated_teacher.teacher_specialties 
+            if s.subject == specialty_data.subject and s.educational_system == specialty_data.educational_system
+        )
+        assert new_specialty is not None
 
-        updated_subjects = {s.subject for s in updated_teacher_read.teacher_specialties}
-        updated_systems = {s.educational_system for s in updated_teacher_read.teacher_specialties}
-
-        assert SubjectEnum.BIOLOGY in updated_subjects
-        assert EducationalSystemEnum.IGCSE in updated_systems
-        assert SubjectEnum.CHEMISTRY in updated_subjects
-        assert EducationalSystemEnum.SAT in updated_systems
-
-        # Assert 2: Verify database state (old specialties removed, new ones added)
-        # Refresh the ORM object to get the latest state from the database
+        # Verify in DB
         await db_session.refresh(test_teacher_orm, ['teacher_specialties'])
-        assert len(test_teacher_orm.teacher_specialties) == 2
-        assert isinstance(test_teacher_orm.teacher_specialties[0], db_models.TeacherSpecialties)
+        assert len(test_teacher_orm.teacher_specialties) == original_count + 1
+        print("--- Successfully added new specialty as owner. ---")
 
-        db_specialties = {(s.subject, s.educational_system) for s in test_teacher_orm.teacher_specialties}
-        expected_specialties = {(s.subject.value, s.educational_system.value) for s in new_specialties_data}
+    async def test_add_specialty_as_admin(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_admin_orm: db_models.Admins,
+        db_session
+    ):
+        """Tests an admin can add a new specialty to a teacher's profile."""
+        print("\n--- Testing add_specialty_as_admin ---")
+        specialty_data = user_models.TeacherSpecialtyWrite(
+            subject=SubjectEnum.GEOGRAPHY,
+            educational_system=EducationalSystemEnum.NATIONAL_EG
+        )
+        
+        original_count = len(test_teacher_orm.teacher_specialties)
 
-        assert db_specialties == expected_specialties
+        updated_teacher = await teacher_service.add_specialty_to_teacher(
+            teacher_id=test_teacher_orm.id,
+            specialty_data=specialty_data,
+            current_user=test_admin_orm
+        )
 
-        print("--- Successfully updated teacher specialties ---")
-        pprint(updated_teacher_read.model_dump())
+        assert len(updated_teacher.teacher_specialties) == original_count + 1
+        
+        await db_session.refresh(test_teacher_orm, ['teacher_specialties'])
+        assert len(test_teacher_orm.teacher_specialties) == original_count + 1
+        print("--- Successfully added new specialty as admin. ---")
 
+    async def test_add_duplicate_specialty_fails(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that adding an existing specialty raises a 400 error."""
+        print("\n--- Testing add_duplicate_specialty_fails ---")
+        
+        # Get a specialty that already exists from the fixture
+        existing_specialty = test_teacher_orm.teacher_specialties[0]
+        specialty_data = user_models.TeacherSpecialtyWrite(
+            subject=SubjectEnum(existing_specialty.subject),
+            educational_system=EducationalSystemEnum(existing_specialty.educational_system)
+        )
+
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.add_specialty_to_teacher(
+                teacher_id=test_teacher_orm.id,
+                specialty_data=specialty_data,
+                current_user=test_teacher_orm
+            )
+        
+        assert e.value.status_code == 400
+        assert "This specialty already exists for this teacher" in e.value.detail
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_add_specialty_as_unauthorized_user_fails(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_parent_orm: db_models.Parents
+    ):
+        """Tests that a non-admin/non-owner cannot add a specialty."""
+        print("\n--- Testing add_specialty_as_unauthorized_user_fails ---")
+        specialty_data = user_models.TeacherSpecialtyWrite(
+            subject=SubjectEnum.GEOGRAPHY,
+            educational_system=EducationalSystemEnum.SAT
+        )
+
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.add_specialty_to_teacher(
+                teacher_id=test_teacher_orm.id,
+                specialty_data=specialty_data,
+                current_user=test_parent_orm
+            )
+        
+        assert e.value.status_code == 403
+        assert "You do not have permission to modify this profile" in e.value.detail
+        print(f"--- Correctly raised HTTPException for unauthorized user: {e.value.status_code} ---")
+
+    async def test_delete_unused_specialty_as_owner(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        db_session
+    ):
+        """Tests a teacher can delete an unused specialty from their profile."""
+        print("\n--- Testing delete_unused_specialty_as_owner ---")
+        
+        # ARRANGE: Add a new, unused specialty first
+        specialty_data = user_models.TeacherSpecialtyWrite(
+            subject=SubjectEnum.IT,
+            educational_system=EducationalSystemEnum.NATIONAL_KW
+        )
+        teacher_with_new_specialty = await teacher_service.add_specialty_to_teacher(
+            teacher_id=test_teacher_orm.id,
+            specialty_data=specialty_data,
+            current_user=test_teacher_orm
+        )
+        
+        specialty_to_delete = next(
+            s for s in teacher_with_new_specialty.teacher_specialties
+            if s.subject == specialty_data.subject and s.educational_system == specialty_data.educational_system
+        )
+        assert specialty_to_delete is not None
+        
+        original_count = len(teacher_with_new_specialty.teacher_specialties)
+
+        # ACT: Delete the specialty
+        await teacher_service.delete_teacher_specialty(
+            teacher_id=test_teacher_orm.id,
+            specialty_id=specialty_to_delete.id,
+            current_user=test_teacher_orm
+        )
+        
+        # ASSERT
+        await db_session.refresh(test_teacher_orm, ['teacher_specialties'])
+        assert len(test_teacher_orm.teacher_specialties) == original_count - 1
+        assert not any(s.id == specialty_to_delete.id for s in test_teacher_orm.teacher_specialties)
+        print("--- Successfully deleted unused specialty. ---")
+
+    async def test_delete_unused_specialty_as_admin(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_admin_orm: db_models.Admins,
+        db_session
+    ):
+        """Tests an admin can delete an unused specialty from a teacher's profile."""
+        print("\n--- Testing delete_unused_specialty_as_admin ---")
+        
+        # ARRANGE: Add a new, unused specialty first
+        specialty_data = user_models.TeacherSpecialtyWrite(
+            subject=SubjectEnum.IT,
+            educational_system=EducationalSystemEnum.NATIONAL_EG
+        )
+        teacher_with_new_specialty = await teacher_service.add_specialty_to_teacher(
+            teacher_id=test_teacher_orm.id,
+            specialty_data=specialty_data,
+            current_user=test_admin_orm # Admin adds the specialty
+        )
+        
+        specialty_to_delete = next(
+            s for s in teacher_with_new_specialty.teacher_specialties
+            if s.subject == specialty_data.subject and s.educational_system == specialty_data.educational_system
+        )
+        assert specialty_to_delete is not None
+        original_count = len(teacher_with_new_specialty.teacher_specialties)
+
+        # ACT: Delete the specialty as admin
+        await teacher_service.delete_teacher_specialty(
+            teacher_id=test_teacher_orm.id,
+            specialty_id=specialty_to_delete.id,
+            current_user=test_admin_orm
+        )
+        
+        # ASSERT
+        await db_session.refresh(test_teacher_orm, ['teacher_specialties'])
+        assert len(test_teacher_orm.teacher_specialties) == original_count - 1
+        assert not any(s.id == specialty_to_delete.id for s in test_teacher_orm.teacher_specialties)
+        print("--- Successfully deleted unused specialty as admin. ---")
+
+    async def test_delete_specialty_in_use_by_student_subject_fails(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that deleting a specialty used by a student_subject fails."""
+        print("\n--- Testing delete_specialty_in_use_by_student_subject_fails ---")
+        
+        # ARRANGE: Find a specialty that is known to be in use by the seeded data
+        # From `student_details.py`, we know TEST_TEACHER_ID teaches PHYSICS IGCSE to TEST_STUDENT_ID
+        used_specialty = next(
+            s for s in test_teacher_orm.teacher_specialties
+            if s.subject == SubjectEnum.PHYSICS.value and s.educational_system == EducationalSystemEnum.IGCSE.value
+        )
+        assert used_specialty is not None
+
+        # ACT & ASSERT
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.delete_teacher_specialty(
+                teacher_id=test_teacher_orm.id,
+                specialty_id=used_specialty.id,
+                current_user=test_teacher_orm
+            )
+        
+        assert e.value.status_code == 400
+        assert "Cannot delete specialty as it is currently in use" in e.value.detail
+        print(f"--- Correctly raised HTTPException for deleting used specialty: {e.value.status_code} ---")
+
+    async def test_delete_non_existent_specialty_fails(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that deleting a non-existent specialty_id raises a 404."""
+        print("\n--- Testing delete_non_existent_specialty_fails ---")
+        non_existent_specialty_id = UUID(int=0)
+
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.delete_teacher_specialty(
+                teacher_id=test_teacher_orm.id,
+                specialty_id=non_existent_specialty_id,
+                current_user=test_teacher_orm
+            )
+        
+        assert e.value.status_code == 404
+        assert "Specialty not found" in e.value.detail
+        print(f"--- Correctly raised HTTPException for non-existent specialty: {e.value.status_code} ---")
 
 @pytest.mark.anyio
 class TestTeacherServiceDelete:

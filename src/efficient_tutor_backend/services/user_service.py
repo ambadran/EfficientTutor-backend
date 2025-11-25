@@ -928,23 +928,6 @@ class TeacherService(UserService):
 
         update_dict = update_data.model_dump(exclude_unset=True)
 
-        # Handle specialties update (delete and replace)
-        if 'teacher_specialties' in update_dict:
-            # By clearing the collection, the ORM's "delete-orphan" cascade
-            # will automatically delete the old specialties upon flush.
-            teacher_to_update.teacher_specialties.clear()
-            
-            # Create and append the new specialty objects
-            for specialty_data in update_data.teacher_specialties:
-                new_specialty = db_models.TeacherSpecialties(
-                    subject=specialty_data.subject.value,
-                    educational_system=specialty_data.educational_system.value
-                )
-                teacher_to_update.teacher_specialties.append(new_specialty)
-
-            # Remove from update_dict to avoid iterating over it again
-            del update_dict['teacher_specialties']
-
         for key, value in update_dict.items():
             if key == "password" and value:
                 setattr(teacher_to_update, key, HashedPassword.get_hash(value))
@@ -996,8 +979,128 @@ class TeacherService(UserService):
 
         await self.db.delete(teacher_to_delete)
         await self.db.flush()
-        log.info(f"Successfully deleted teacher {teacher_id}.")
-        return True
+
+        # Verify the deletion
+        check_user = await self.get_user_by_id(teacher_id)
+        if check_user is None:
+            log.info(f"Successfully deleted teacher {teacher_id}.")
+            return True
+        else:
+            log.error(f"Failed to delete teacher {teacher_id}, record still exists after flush.")
+            await self.db.rollback()
+            return False
+
+    async def add_specialty_to_teacher(
+        self,
+        teacher_id: UUID,
+        specialty_data: user_models.TeacherSpecialtyWrite,
+        current_user: db_models.Users
+    ) -> user_models.TeacherRead:
+        """
+        Adds a new specialty to a teacher.
+        - Authorized for the teacher themselves or an admin.
+        - Prevents adding duplicate specialties.
+        """
+        log.info(f"User {current_user.id} attempting to add specialty to teacher {teacher_id}.")
+
+        is_owner = teacher_id == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN.value
+
+        if not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to modify this profile."
+            )
+
+        teacher = await self.get_user_by_id(teacher_id)
+        if not teacher or teacher.role != UserRole.TEACHER.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Teacher not found."
+            )
+
+        # Check if the specialty already exists
+        for existing_specialty in teacher.teacher_specialties:
+            if (existing_specialty.subject == specialty_data.subject.value and
+                    existing_specialty.educational_system == specialty_data.educational_system.value):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This specialty already exists for this teacher."
+                )
+
+        # Create and add the new specialty
+        new_specialty = db_models.TeacherSpecialties(
+            teacher_id=teacher_id,
+            subject=specialty_data.subject.value,
+            educational_system=specialty_data.educational_system.value
+        )
+        self.db.add(new_specialty)
+        await self.db.flush()
+        await self.db.refresh(teacher, ['teacher_specialties'])
+
+        return user_models.TeacherRead.model_validate(teacher)
+
+    async def delete_teacher_specialty(
+        self,
+        teacher_id: UUID,
+        specialty_id: UUID,
+        current_user: db_models.Users
+    ) -> bool:
+        """
+        Deletes a specialty from a teacher.
+        - Authorized for the teacher themselves or an admin.
+        """
+        log.info(f"User {current_user.id} attempting to delete specialty {specialty_id} from teacher {teacher_id}.")
+
+        is_owner = teacher_id == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN.value
+
+        if not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to modify this profile."
+            )
+
+        # Fetch the specific specialty, and its relationships, to ensure it exists and belongs to the teacher
+        stmt = select(db_models.TeacherSpecialties).options(
+            selectinload(db_models.TeacherSpecialties.student_subjects),
+            selectinload(db_models.TeacherSpecialties.tuitions)
+        ).filter_by(id=specialty_id)
+        result = await self.db.execute(stmt)
+        specialty_to_delete = result.scalars().first()
+
+        if not specialty_to_delete:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Specialty not found."
+            )
+        
+        if specialty_to_delete.teacher_id != teacher_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This specialty does not belong to the specified teacher."
+            )
+        
+        # Check to prevent deleting a specialty if it's currently in use.
+        if specialty_to_delete.student_subjects or specialty_to_delete.tuitions:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete specialty as it is currently in use by a student or a tuition template."
+            )
+
+        await self.db.delete(specialty_to_delete)
+        await self.db.flush()
+        
+        # Verify the deletion
+        check_stmt = select(db_models.TeacherSpecialties).filter_by(id=specialty_id)
+        refetched_result = await self.db.execute(check_stmt)
+        if refetched_result.scalars().first() is None:
+            log.info(f"Successfully deleted specialty {specialty_id} from teacher {teacher_id}.")
+            return True
+        else:
+            log.error(f"Failed to delete specialty {specialty_id}, record still exists after flush.")
+            await self.db.rollback()
+            return False
 
 
 class AdminService(UserService):

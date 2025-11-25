@@ -134,6 +134,7 @@ class TimeTableService:
         teacher_tuition_model = tuition_models.TuitionReadForTeacher(
             id=tuition_data.id,
             subject=tuition_data.subject,
+            educational_system=tuition_data.educational_system,
             lesson_index=tuition_data.lesson_index,
             min_duration_minutes=tuition_data.min_duration_minutes,
             max_duration_minutes=tuition_data.max_duration_minutes,
@@ -175,6 +176,7 @@ class TimeTableService:
         parent_tuition_model = tuition_models.TuitionReadForParent(
             id=tuition_data.id,
             subject=tuition_data.subject,
+            educational_system=tuition_data.educational_system,
             lesson_index=tuition_data.lesson_index,
             min_duration_minutes=tuition_data.min_duration_minutes,
             max_duration_minutes=tuition_data.max_duration_minutes,
@@ -209,6 +211,7 @@ class TimeTableService:
         student_tuition_model = tuition_models.TuitionReadForStudent(
             id=tuition_data.id,
             subject=tuition_data.subject,
+            educational_system=tuition_data.educational_system,
             lesson_index=tuition_data.lesson_index,
             min_duration_minutes=tuition_data.min_duration_minutes,
             max_duration_minutes=tuition_data.max_duration_minutes,

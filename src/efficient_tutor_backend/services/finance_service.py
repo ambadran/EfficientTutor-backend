@@ -324,10 +324,14 @@ class TuitionLogService:
             for c in tuition.tuition_template_charges
         ]
         new_log = db_models.TuitionLogs(
-            teacher_id=current_user.id, subject=tuition.subject,
-            start_time=data.start_time, end_time=data.end_time,
+            teacher_id=current_user.id,
+            subject=tuition.subject,
+            educational_system=tuition.educational_system,
+            start_time=data.start_time,
+            end_time=data.end_time,
             create_type=TuitionLogCreateTypeEnum.SCHEDULED.value,
-            tuition_id=tuition.id, lesson_index=tuition.lesson_index,
+            tuition_id=tuition.id,
+            lesson_index=tuition.lesson_index,
             corrected_from_log_id=corrected_from_log_id,
             status=LogStatusEnum.ACTIVE.value
         )
@@ -367,6 +371,7 @@ class TuitionLogService:
         new_log = db_models.TuitionLogs(
             teacher_id=current_user.id, # IDOR security
             subject=data.subject.value,
+            educational_system=data.educational_system.value,
             start_time=data.start_time,
             end_time=data.end_time,
             create_type=TuitionLogCreateTypeEnum.CUSTOM.value,
@@ -529,6 +534,7 @@ class TuitionLogService:
             id=log.id,
             teacher=log.teacher,
             subject=log.subject,
+            educational_system=log.educational_system,
             start_time=log.start_time,
             end_time=log.end_time,
             status=log.status,
@@ -560,6 +566,7 @@ class TuitionLogService:
         api_model = finance_models.TuitionLogReadForParent(
             id=log.id,
             subject=log.subject,
+            educational_system=log.educational_system,
             start_time=log.start_time,
             end_time=log.end_time,
             status=log.status,
@@ -588,6 +595,7 @@ class TuitionLogService:
         api_model = finance_models.TuitionLogReadForStudent(
             id=log.id,
             subject=log.subject,
+            educational_system=log.educational_system,
             start_time=log.start_time,
             end_time=log.end_time,
             status=log.status,

@@ -367,7 +367,7 @@ class Tuitions(Base):
     teacher_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     teacher: Mapped[Optional['Teachers']] = relationship('Teachers', back_populates='tuitions')
-    teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='tuitions', foreign_keys=[teacher_id, subject, educational_system])
+    teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='tuitions', foreign_keys=[teacher_id, subject, educational_system], overlaps="teacher,tuitions")
     tuition_logs: Mapped[list['TuitionLogs']] = relationship('TuitionLogs', back_populates='tuition')
     tuition_template_charges: Mapped[list['TuitionTemplateCharges']] = relationship('TuitionTemplateCharges', back_populates='tuition')
 
@@ -534,7 +534,7 @@ class StudentSubjects(Base):
     shared_with_student: Mapped[list['Students']] = relationship('Students', secondary='student_subject_sharings', back_populates='student_subject')
     student: Mapped['Students'] = relationship('Students', back_populates='student_subjects')
     teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='student_subjects')
-    teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='student_subjects', foreign_keys=[teacher_id, subject, educational_system])
+    teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='student_subjects', foreign_keys=[teacher_id, subject, educational_system], overlaps="student_subjects,teacher")
 
 
 t_student_subject_sharings = Table(
@@ -586,13 +586,15 @@ class TeacherSpecialties(Base):
     student_subjects: Mapped[list['StudentSubjects']] = relationship(
         'StudentSubjects',
         back_populates='teacher_specialty',
-        foreign_keys='[StudentSubjects.teacher_id, StudentSubjects.subject, StudentSubjects.educational_system]'
+        foreign_keys='[StudentSubjects.teacher_id, StudentSubjects.subject, StudentSubjects.educational_system]',
+        overlaps="teacher,student_subjects"
     )
 
     tuitions: Mapped[list['Tuitions']] = relationship(
         'Tuitions',
         back_populates='teacher_specialty',
-        foreign_keys='[Tuitions.teacher_id, Tuitions.subject, Tuitions.educational_system]'
+        foreign_keys='[Tuitions.teacher_id, Tuitions.subject, Tuitions.educational_system]',
+        overlaps="teacher,tuitions"
     )
 
 

@@ -14,7 +14,8 @@ from ..database.db_enums import (
     LogStatusEnum, 
     TuitionLogCreateTypeEnum, 
     SubjectEnum,
-    PaidStatus
+    PaidStatus,
+    EducationalSystemEnum
 )
 from .user import UserRead
 from ..common.config import settings
@@ -49,6 +50,7 @@ class CustomLogInput(BaseModel):
 
     # 2. Required fields for this type
     subject: SubjectEnum
+    educational_system: EducationalSystemEnum
     lesson_index: int
     start_time: datetime
     end_time: datetime
@@ -93,6 +95,7 @@ class TuitionLogReadForTeacher(BaseModel):
     id: UUID
     teacher: UserRead
     subject: SubjectEnum
+    educational_system: EducationalSystemEnum
     start_time: datetime
     end_time: datetime
     status: LogStatusEnum
@@ -140,6 +143,7 @@ class TuitionLogReadForParent(BaseModel):
     """
     id: UUID
     subject: SubjectEnum
+    educational_system: EducationalSystemEnum
     start_time: datetime
     end_time: datetime
     status: LogStatusEnum
@@ -184,6 +188,7 @@ class TuitionLogReadForStudent(BaseModel):
     """
     id: UUID
     subject: SubjectEnum
+    educational_system: EducationalSystemEnum
     start_time: datetime
     end_time: datetime
     status: LogStatusEnum

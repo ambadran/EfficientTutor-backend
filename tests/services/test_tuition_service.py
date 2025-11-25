@@ -825,6 +825,137 @@ class TestTuitionServiceRegenerate:
         
         print("--- Successfully caught IntegrityError when teacher_id was set to None. ---")
 
+    async def test_regenerate_all_tuitions_creates_multiple_tuitions_for_lessons_per_week_gt_1(
+        self,
+        tuition_service: TuitionService,
+        student_service: StudentService,
+        db_session: AsyncSession,
+        test_parent_orm: db_models.Parents,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """
+        Tests that a StudentSubject with lessons_per_week > 1 creates a
+        corresponding number of tuition templates.
+        """
+        print("\n--- Testing regenerate with lessons_per_week > 1 creates multiple tuitions ---")
+
+        # ARRANGE
+        await db_session.execute(delete(db_models.Tuitions))
+        await db_session.execute(delete(db_models.StudentSubjects))
+        await db_session.flush()
+
+        lessons_count = 3
+        subject_data = user_models.StudentSubjectWrite(
+            subject=SubjectEnum.MATH,
+            educational_system=EducationalSystemEnum.SAT,
+            lessons_per_week=lessons_count, # Key part of this test
+            teacher_id=test_teacher_orm.id,
+            shared_with_student_ids=[]
+        )
+        await _create_student_with_subjects(
+            student_service, db_session, test_parent_orm, test_teacher_orm, "student_lpw@example.com", [subject_data]
+        )
+        await db_session.flush()
+
+        # ACT
+        await tuition_service.regenerate_all_tuitions()
+
+        # ASSERT
+        tuitions = (await db_session.execute(select(db_models.Tuitions))).scalars().all()
+        
+        # Assert that 3 tuitions were created
+        assert len(tuitions) == lessons_count
+        
+        # Assert that they all have the same subject but different lesson indices
+        lesson_indices = {t.lesson_index for t in tuitions}
+        assert all(t.subject == SubjectEnum.MATH.value for t in tuitions)
+        assert lesson_indices == {1, 2, 3}
+        
+        print(f"--- Successfully asserted that {lessons_count} tuitions were created with correct indices. ---")
+
+    async def test_regenerate_all_tuitions_shared_group_with_inconsistent_durations(
+        self,
+        tuition_service: TuitionService,
+        student_service: StudentService,
+        db_session: AsyncSession,
+        test_parent_orm: db_models.Parents,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """
+        Tests the case where students in a shared group have different
+        min/max duration settings. It asserts that the resulting tuition
+        takes the highest min_duration and highest max_duration among them.
+        """
+        print("\n--- Testing regenerate with inconsistent durations in a shared group ---")
+
+        await db_session.execute(delete(db_models.Tuitions))
+        await db_session.execute(delete(db_models.StudentSubjects))
+        await db_session.flush()
+
+        # 1. Create two students with different duration settings
+        # Student A: min=60, max=90
+        student_a = await _create_student_with_subjects(
+            student_service, db_session, test_parent_orm, test_teacher_orm, "student_a_dur@example.com", [],
+            min_duration=60, max_duration=90
+        )
+        # Student B: min=75, max=120
+        student_b = await _create_student_with_subjects(
+            student_service, db_session, test_parent_orm, test_teacher_orm, "student_b_dur@example.com", [],
+            min_duration=75, max_duration=120
+        )
+        
+        # 2. Create the shared subject link between them
+        subject_data_a = user_models.StudentSubjectWrite(
+            subject=SubjectEnum.CHEMISTRY, educational_system=EducationalSystemEnum.SAT, lessons_per_week=1, 
+            teacher_id=test_teacher_orm.id, shared_with_student_ids=[student_b.id] # Student A shares with B
+        )
+        student_a_subject = db_models.StudentSubjects(
+            student_id=student_a.id, teacher_id=subject_data_a.teacher_id,
+            subject=subject_data_a.subject.value, educational_system=subject_data_a.educational_system.value,
+            lessons_per_week=subject_data_a.lessons_per_week
+        )
+        db_session.add(student_a_subject)
+        await db_session.flush() # Flush to get student_a_subject.id
+
+        subject_data_b = user_models.StudentSubjectWrite(
+            subject=SubjectEnum.CHEMISTRY, educational_system=EducationalSystemEnum.SAT, lessons_per_week=1, 
+            teacher_id=test_teacher_orm.id, shared_with_student_ids=[student_a.id] # Student B shares with A
+        )
+        student_b_subject = db_models.StudentSubjects(
+            student_id=student_b.id, teacher_id=subject_data_b.teacher_id,
+            subject=subject_data_b.subject.value, educational_system=subject_data_b.educational_system.value,
+            lessons_per_week=subject_data_b.lessons_per_week
+        )
+        db_session.add(student_b_subject)
+        await db_session.flush()
+
+        # Link them bi-directionally in the shared_with_student relationship
+        await db_session.execute(db_models.t_student_subject_sharings.insert().values(
+            student_subject_id=student_a_subject.id, shared_with_student_id=student_b.id
+        ))
+        await db_session.execute(db_models.t_student_subject_sharings.insert().values(
+            student_subject_id=student_b_subject.id, shared_with_student_id=student_a.id
+        ))
+        await db_session.flush()
+
+        # 3. Run regeneration
+        await tuition_service.regenerate_all_tuitions()
+        
+        # 4. Assertions
+        tuitions = (await db_session.execute(select(db_models.Tuitions))).scalars().all()
+        assert len(tuitions) == 1
+        
+        created_tuition = tuitions[0]
+        
+        # The expected values are the maximums from Student A (60, 90) and Student B (75, 120)
+        expected_min_duration = max(student_a.min_duration_mins, student_b.min_duration_mins)
+        expected_max_duration = max(student_a.max_duration_mins, student_b.max_duration_mins)
+
+        assert created_tuition.min_duration_minutes == expected_min_duration
+        assert created_tuition.max_duration_minutes == expected_max_duration
+
+        print(f"--- Successfully asserted that tuition durations are max of grouped students: Min={expected_min_duration}, Max={expected_max_duration}. ---")
+
     ### Tests for _generate_deterministic_id ###
     
     def test_generate_deterministic_id(
@@ -894,6 +1025,7 @@ class TestTuitionServiceRegenerate:
             student_ids=student_ids_1
         )
         assert uuid_1 != uuid_5, "Different educational system produced the same UUID"
+
 
 # --- Helper Function (to create a link for update/delete tests) ---
 # We make this a helper function to avoid duplicating create logic
@@ -1400,5 +1532,4 @@ class TestTuitionServiceUpdate:
         assert updated_charge_in_db is not None
         assert updated_charge_in_db.cost == new_cost
         print("--- Successfully performed partial update on charges. ---")
-
 
