@@ -241,6 +241,17 @@ class TeachersAPI:
                 self.delete, 
                 methods=["DELETE"], 
                 status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/{teacher_id}/specialties",
+                self.add_specialty,
+                methods=["POST"],
+                status_code=status.HTTP_201_CREATED,
+                response_model=user_models.TeacherRead)
+        self.router.add_api_route(
+                "/{teacher_id}/specialties/{specialty_id}",
+                self.delete_specialty,
+                methods=["DELETE"],
+                status_code=status.HTTP_204_NO_CONTENT)
 
     async def get_all(self, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], teacher_service: Annotated[TeacherService, Depends(TeacherService)]):
         teachers = await teacher_service.get_all(current_user)
@@ -256,7 +267,37 @@ class TeachersAPI:
         return await teacher_service.update_teacher(teacher_id, update_data, current_user)
 
     async def delete(self, teacher_id: UUID, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], teacher_service: Annotated[TeacherService, Depends(TeacherService)]):
-        await teacher_service.delete_teacher(teacher_id, current_user)
+        success = await teacher_service.delete_teacher(teacher_id, current_user)
+        if not success:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found or could not be deleted.")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    async def add_specialty(
+        self,
+        teacher_id: UUID,
+        specialty_data: user_models.TeacherSpecialtyWrite,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        teacher_service: Annotated[TeacherService, Depends(TeacherService)]
+    ):
+        """
+        Adds a new specialty to a teacher's profile.
+        """
+        return await teacher_service.add_specialty_to_teacher(teacher_id, specialty_data, current_user)
+
+    async def delete_specialty(
+        self,
+        teacher_id: UUID,
+        specialty_id: UUID,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        teacher_service: Annotated[TeacherService, Depends(TeacherService)]
+    ):
+        """
+        Deletes a specialty from a teacher's profile.
+        """
+        success = await teacher_service.delete_teacher_specialty(teacher_id, specialty_id, current_user)
+        if not success:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Specialty not found or could not be deleted.")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # Instantiate and combine routers

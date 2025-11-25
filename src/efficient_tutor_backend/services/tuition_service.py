@@ -468,7 +468,7 @@ class TuitionService:
         )
         return api_model
 
-    # --- 7. Regeneration Logic (BUG FIX) ---
+    # --- 7. Regeneration Logic ---
 
     async def regenerate_all_tuitions(self) -> bool:
         """
@@ -479,6 +479,7 @@ class TuitionService:
         log.info("Starting regeneration of all tuitions...")
         
         try:
+            # 1. Preserve old data in memory before deletion.
             old_links_stmt = select(db_models.MeetingLinks)
             old_links_result = await self.db.execute(old_links_stmt)
             old_links = old_links_result.scalars().all()
@@ -508,7 +509,7 @@ class TuitionService:
             
             if not all_student_subjects:
                 log.warning("No student subjects found. Truncating tuitions and finishing.")
-                await self.db.execute(text("TRUNCATE TABLE tuitions RESTART IDENTITY CASCADE"))
+                await self.db.execute(delete(db_models.Tuitions))
                 return True
 
             # 3. Group students and generate new ORM objects
@@ -532,63 +533,68 @@ class TuitionService:
                 teacher_id = ss.teacher_id
                 subject_name = ss.subject
                 educational_system = ss.educational_system
-                
-                if not teacher_id:
-                    log.warning(f"Skipping group for subject '{subject_name}' because teacher_id is missing for student {ss.student_id}.")
-                    continue
 
-                # Generate the deterministic ID based on all students in the group
+                # Calculate the max of min/max durations for the whole group
+                min_duration_for_group = max(s.min_duration_mins for s in group_students)
+                max_duration_for_group = max(s.max_duration_mins for s in group_students)
+
                 student_ids_in_group = sorted([s.id for s in group_students])
-                tuition_id = self._generate_deterministic_id(
-                    subject=subject_name,
-                    educational_system=educational_system,
-                    lesson_index=1, # lesson_index is always 1 for templates
-                    teacher_id=teacher_id,
-                    student_ids=student_ids_in_group
-                )
 
-                # Create the new Tuition object
-                # Durations are assumed to be consistent across the group, taken from the first student.
-                new_tuition = db_models.Tuitions(
-                    id=tuition_id,
-                    teacher_id=teacher_id,
-                    subject=subject_name,
-                    educational_system=educational_system,
-                    lesson_index=1,
-                    min_duration_minutes=ss.student.min_duration_mins,
-                    max_duration_minutes=ss.student.max_duration_mins,
-                )
-                new_tuitions.append(new_tuition)
+                # Loop from 1 to lessons_per_week
+                for lesson_index in range(1, ss.lessons_per_week + 1):
+                    # Generate the deterministic ID based on all students in the group
+                    tuition_id = self._generate_deterministic_id(
+                        subject=subject_name,
+                        educational_system=educational_system,
+                        lesson_index=lesson_index, # Use the loop variable
+                        teacher_id=teacher_id,
+                        student_ids=student_ids_in_group
+                    )
 
-                # Create charges for every student in the group
+                    # Create the new Tuition object
+                    new_tuition = db_models.Tuitions(
+                        id=tuition_id,
+                        teacher_id=teacher_id,
+                        subject=subject_name,
+                        educational_system=educational_system,
+                        lesson_index=lesson_index, # Use the loop variable
+                        min_duration_minutes=min_duration_for_group, # Use calculated value
+                        max_duration_minutes=max_duration_for_group, # Use calculated value
+                    )
+                    new_tuitions.append(new_tuition)
+
+                    # Create charges for every student in the group
+                    for student_in_group in group_students:
+                        # Use preserved cost if available, otherwise fall back to student's current cost
+                        preserved_cost = old_charges_dict.get((tuition_id, student_in_group.id))
+                        cost_to_use = preserved_cost if preserved_cost is not None else student_in_group.cost
+
+                        new_charges.append(db_models.TuitionTemplateCharges(
+                            tuition_id=tuition_id,
+                            student_id=student_in_group.id,
+                            parent_id=student_in_group.parent_id,
+                            cost=cost_to_use
+                        ))
+
+                    # Check if a link existed for this deterministic ID and restore it
+                    if tuition_id in old_links_dict:
+                        old_link = old_links_dict[tuition_id]
+                        new_meeting_links.append(db_models.MeetingLinks(
+                            tuition_id=tuition_id, # Link to the new tuition
+                            meeting_link_type=old_link.meeting_link_type,
+                            meeting_link=old_link.meeting_link,
+                            meeting_id=old_link.meeting_id,
+                            meeting_password=old_link.meeting_password
+                        ))
+
+                # Mark all students in this group as processed for this subject/teacher combo
+                # This happens *after* the lesson_index loop
                 for student_in_group in group_students:
-                    # Use preserved cost if available, otherwise fall back to student's current cost
-                    preserved_cost = old_charges_dict.get((tuition_id, student_in_group.id))
-                    cost_to_use = preserved_cost if preserved_cost is not None else student_in_group.cost
-
-                    new_charges.append(db_models.TuitionTemplateCharges(
-                        tuition_id=tuition_id,
-                        student_id=student_in_group.id,
-                        parent_id=student_in_group.parent_id,
-                        cost=cost_to_use
-                    ))
-                    # Mark this student as processed for this specific subject/teacher combo
                     processed_students.add((student_in_group.id, subject_name, teacher_id, educational_system))
 
-                # 5. Check if a link existed for this deterministic ID and restore it
-                if tuition_id in old_links_dict:
-                    old_link = old_links_dict[tuition_id]
-                    new_meeting_links.append(db_models.MeetingLinks(
-                        tuition_id=tuition_id, # Link to the new tuition
-                        meeting_link_type=old_link.meeting_link_type,
-                        meeting_link=old_link.meeting_link,
-                        meeting_id=old_link.meeting_id,
-                        meeting_password=old_link.meeting_password
-                    ))
-            
             log.info(f"Generated {len(new_tuitions)} tuitions, {len(new_charges)} charges, and restored {len(new_meeting_links)} links.")
 
-            # 6. Perform the database transaction: wipe and recreate
+            # 4. Perform the database transaction: wipe and recreate
             await self.db.execute(delete(db_models.Tuitions))
             
             self.db.add_all(new_tuitions)

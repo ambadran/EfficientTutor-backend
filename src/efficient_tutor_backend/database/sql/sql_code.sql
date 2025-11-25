@@ -655,3 +655,4 @@ DROP COLUMN meeting_link;
 /* ********************************************************************* */
 /* ********************************************************************* */
 
+/* TODO: fix the date on the Abdullah Chemistry tuition on Nov25 3:06PM to 4:32PM, i forgot to put the right date. I think it was put on Nov11 by accident */

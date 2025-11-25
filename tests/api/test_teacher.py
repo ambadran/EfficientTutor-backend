@@ -131,49 +131,6 @@ class TestTeacherAPIGET:
 class TestTeacherAPIPATCH:
     """Test class for PATCH endpoints of the Teachers API."""
 
-    async def test_update_teacher_specialties_success(
-        self,
-        client: TestClient,
-        test_teacher_orm: db_models.Teachers
-    ):
-        """Test a teacher successfully updating their teacher_specialties."""
-        teacher_id = test_teacher_orm.id
-        headers = auth_headers_for_user(test_teacher_orm)
-        
-        new_specialties_data = [
-            user_models.TeacherSpecialtyWrite(
-                subject=SubjectEnum.BIOLOGY,
-                educational_system=EducationalSystemEnum.IGCSE
-            ),
-            user_models.TeacherSpecialtyWrite(
-                subject=SubjectEnum.CHEMISTRY,
-                educational_system=EducationalSystemEnum.SAT
-            )
-        ]
-        
-        update_payload = {"teacher_specialties": [s.model_dump(mode='json') for s in new_specialties_data]}
-
-        print(f"Attempting to update teacher {teacher_id}'s specialties as self.")
-        response = client.patch(f"/teachers/{teacher_id}", headers=headers, json=update_payload)
-
-        assert response.status_code == 200, response.json()
-        updated_data = user_models.TeacherRead(**response.json())
-        
-        assert updated_data.id == teacher_id
-        assert updated_data.teacher_specialties is not None
-        assert isinstance(updated_data.teacher_specialties, list)
-        assert len(updated_data.teacher_specialties) == 2
-        
-        updated_subjects = {s.subject for s in updated_data.teacher_specialties}
-        updated_systems = {s.educational_system for s in updated_data.teacher_specialties}
-        
-        assert SubjectEnum.BIOLOGY in updated_subjects
-        assert EducationalSystemEnum.IGCSE in updated_systems
-        assert SubjectEnum.CHEMISTRY in updated_subjects
-        assert EducationalSystemEnum.SAT in updated_systems
-        
-        print("Teacher successfully updated their teacher_specialties.")
-
     async def test_update_teacher_by_self_success(
         self,
         client: TestClient,
@@ -360,3 +317,175 @@ class TestTeacherAPIDELETE:
         assert response.status_code == 404
         assert response.json()["detail"] == "Teacher not found."
         print("Deleting non-existent teacher failed as expected.")
+
+
+@pytest.mark.anyio
+class TestTeacherSpecialtyAPI:
+    """Test class for the teacher specialties endpoints."""
+
+    async def test_add_specialty_as_owner_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test a teacher can add a new specialty to their own profile."""
+        teacher_id = test_teacher_orm.id
+        headers = auth_headers_for_user(test_teacher_orm)
+        
+        payload = {
+            "subject": SubjectEnum.GEOGRAPHY.value,
+            "educational_system": EducationalSystemEnum.IGCSE.value
+        }
+
+        print(f"Attempting to add specialty as owner {teacher_id}.")
+        response = client.post(f"/teachers/{teacher_id}/specialties", headers=headers, json=payload)
+
+        assert response.status_code == 201, response.json()
+        updated_teacher = user_models.TeacherRead(**response.json())
+        
+        specialty_exists = any(
+            s.subject == SubjectEnum.GEOGRAPHY and s.educational_system == EducationalSystemEnum.IGCSE
+            for s in updated_teacher.teacher_specialties
+        )
+        assert specialty_exists
+        print("Successfully added specialty as owner.")
+
+    async def test_add_specialty_as_admin_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_admin_orm: db_models.Admins
+    ):
+        """Test an admin can add a new specialty to a teacher's profile."""
+        teacher_id = test_teacher_orm.id
+        headers = auth_headers_for_user(test_admin_orm)
+        
+        payload = {
+            "subject": SubjectEnum.MATH.value,
+            "educational_system": EducationalSystemEnum.NATIONAL_EG.value
+        }
+
+        print(f"Admin attempting to add specialty to teacher {teacher_id}.")
+        response = client.post(f"/teachers/{teacher_id}/specialties", headers=headers, json=payload)
+
+        assert response.status_code == 201, response.json()
+        updated_teacher = user_models.TeacherRead(**response.json())
+        
+        specialty_exists = any(
+            s.subject == SubjectEnum.MATH and s.educational_system == EducationalSystemEnum.NATIONAL_EG
+            for s in updated_teacher.teacher_specialties
+        )
+        assert specialty_exists
+        print("Admin successfully added specialty to teacher.")
+
+    async def test_add_duplicate_specialty_fails(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test adding a specialty that already exists fails."""
+        teacher_id = test_teacher_orm.id
+        headers = auth_headers_for_user(test_teacher_orm)
+        
+        # This specialty is added in the seed data
+        payload = {
+            "subject": SubjectEnum.PHYSICS.value,
+            "educational_system": EducationalSystemEnum.IGCSE.value
+        }
+
+        print("Attempting to add a duplicate specialty.")
+        response = client.post(f"/teachers/{teacher_id}/specialties", headers=headers, json=payload)
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "This specialty already exists for this teacher."
+        print("Adding duplicate specialty failed as expected.")
+
+    async def test_add_specialty_as_unauthorized_user_fails(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_parent_orm: db_models.Parents
+    ):
+        """Test a parent (unauthorized) cannot add a specialty."""
+        teacher_id = test_teacher_orm.id
+        headers = auth_headers_for_user(test_parent_orm)
+        
+        payload = {
+            "subject": SubjectEnum.IT.value,
+            "educational_system": EducationalSystemEnum.SAT.value
+        }
+
+        print("Parent attempting to add specialty.")
+        response = client.post(f"/teachers/{teacher_id}/specialties", headers=headers, json=payload)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "You do not have permission to modify this profile."
+        print("Unauthorized user was correctly forbidden from adding specialty.")
+
+    async def test_delete_unused_specialty_as_owner_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test a teacher can delete an unused specialty."""
+        teacher_id = test_teacher_orm.id
+        headers = auth_headers_for_user(test_teacher_orm)
+        
+        # First, add a specialty to delete
+        add_payload = {
+            "subject": SubjectEnum.BIOLOGY.value,
+            "educational_system": EducationalSystemEnum.NATIONAL_KW.value
+        }
+        add_response = client.post(f"/teachers/{teacher_id}/specialties", headers=headers, json=add_payload)
+        assert add_response.status_code == 201
+        added_specialty = next(
+            s for s in add_response.json()["teacher_specialties"] if s["subject"] == add_payload["subject"]
+        )
+        specialty_id_to_delete = added_specialty["id"]
+
+        print(f"Teacher attempting to delete own specialty {specialty_id_to_delete}.")
+        delete_response = client.delete(f"/teachers/{teacher_id}/specialties/{specialty_id_to_delete}", headers=headers)
+
+        assert delete_response.status_code == 204
+        print("Successfully deleted own specialty.")
+
+    async def test_delete_specialty_in_use_fails(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+    ):
+        """Test that deleting a specialty currently in use fails."""
+        teacher_id = test_teacher_orm.id
+        headers = auth_headers_for_user(test_teacher_orm)
+        
+        # This specialty is used by a student_subject in the seed data
+        used_specialty = next(
+            s for s in test_teacher_orm.teacher_specialties 
+            if s.subject == SubjectEnum.PHYSICS.value and s.educational_system == EducationalSystemEnum.IGCSE.value
+        )
+        specialty_id_to_delete = used_specialty.id
+
+        print(f"Attempting to delete a specialty that is in use: {specialty_id_to_delete}.")
+        response = client.delete(f"/teachers/{teacher_id}/specialties/{specialty_id_to_delete}", headers=headers)
+
+        assert response.status_code == 400
+        assert "Cannot delete specialty as it is currently in use" in response.json()["detail"]
+        print("Deleting specialty in use failed as expected.")
+
+    async def test_delete_nonexistent_specialty_fails(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+    ):
+        """Test deleting a non-existent specialty fails with 404."""
+        teacher_id = test_teacher_orm.id
+        headers = auth_headers_for_user(test_teacher_orm)
+        non_existent_id = uuid4()
+
+        print(f"Attempting to delete non-existent specialty {non_existent_id}.")
+        response = client.delete(f"/teachers/{teacher_id}/specialties/{non_existent_id}", headers=headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Specialty not found."
+        print("Deleting non-existent specialty failed as expected.")
+

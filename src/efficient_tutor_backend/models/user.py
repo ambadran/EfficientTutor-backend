@@ -226,7 +226,6 @@ class TeacherUpdate(BaseModel):
     last_name: Optional[str] = None
     timezone: Optional[str] = None
     currency: Optional[str] = None
-    teacher_specialties: Optional[list[TeacherSpecialtyWrite]] = None
 
 
 class AdminRead(UserRead):

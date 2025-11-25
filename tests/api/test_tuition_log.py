@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.security import JWTHandler
 from src.efficient_tutor_backend.models import finance as finance_models
+from src.efficient_tutor_backend.database.db_enums import EducationalSystemEnum
 from tests.constants import (
     TEST_TEACHER_ID,
     TEST_PARENT_ID,
@@ -170,6 +171,7 @@ class TestTuitionLogsAPIPOST:
         payload = {
             "log_type": "CUSTOM",
             "subject": "Math",
+            "educational_system": EducationalSystemEnum.IGCSE.value,
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat(),
             "lesson_index": 5,
@@ -238,6 +240,7 @@ class TestTuitionLogsAPIPOST:
         payload = {
             "log_type": "CUSTOM",
             "subject": "Math",
+            "educational_system": EducationalSystemEnum.IGCSE.value,
             "start_time": datetime.now(timezone.utc).isoformat(),
             "end_time": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
             "lesson_index": 1,
@@ -290,6 +293,7 @@ class TestTuitionLogsAPIPOST:
         payload = {
             "log_type": "CUSTOM",
             "subject": "Math",
+            "educational_system": EducationalSystemEnum.IGCSE.value,
             "start_time": datetime.now(timezone.utc).isoformat(),
             "end_time": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
             "lesson_index": 1,
@@ -376,6 +380,7 @@ class TestTuitionLogsAPICorrection:
         correction_payload = {
             "log_type": "CUSTOM",
             "subject": "Biology",
+            "educational_system": EducationalSystemEnum.IGCSE.value,
             "start_time": datetime.now(timezone.utc).isoformat(),
             "end_time": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
             "lesson_index": 101,
@@ -413,6 +418,7 @@ class TestTuitionLogsAPICorrection:
         correction_payload = {
             "log_type": "CUSTOM",
             "subject": "Biology",
+            "educational_system": EducationalSystemEnum.IGCSE.value,
             "start_time": datetime.now(timezone.utc).isoformat(),
             "end_time": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
             "lesson_index": 101,
@@ -442,6 +448,7 @@ class TestTuitionLogsAPICorrection:
         correction_payload = {
             "log_type": "CUSTOM",
             "subject": "Biology",
+            "educational_system": EducationalSystemEnum.IGCSE.value,
             "start_time": datetime.now(timezone.utc).isoformat(),
             "end_time": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
             "lesson_index": 101,

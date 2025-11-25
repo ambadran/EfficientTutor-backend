@@ -14,7 +14,8 @@ from src.efficient_tutor_backend.database.db_enums import (
     TuitionLogCreateTypeEnum, 
     SubjectEnum,
     PaidStatus,
-    LogStatusEnum
+    LogStatusEnum,
+    EducationalSystemEnum
 )
 
 # --- Import Test Constants ---
@@ -177,7 +178,7 @@ class TestTuitionLogServiceRead:
 
 
 @pytest.mark.anyio
-class TestTuitionLogServiceWrite:
+class TestTuitionLogServiceCreate:
 
     ### Tests for create_tuition_log (Auth) ###
 
@@ -220,12 +221,15 @@ class TestTuitionLogServiceWrite:
         log_data = {
             "log_type": TuitionLogCreateTypeEnum.CUSTOM.value,
             "subject": SubjectEnum.MATH.value,
+            "educational_system": EducationalSystemEnum.NATIONAL_EG.value,
             "start_time": datetime.now(timezone.utc).isoformat(),
             "end_time": datetime.now(timezone.utc).isoformat(),
             "lesson_index": 1,
             "charges": [
-                {"student_id": str(test_student_orm.id),
-                 "cost": 91.91}
+                    {
+                    "student_id": str(test_student_orm.id),
+                     "cost": 91.91
+                    }
                 ]
         }
         
@@ -252,6 +256,9 @@ class TestTuitionLogServiceWrite:
         
         assert e.value.status_code == 403
         print(f"--- Correctly raised 403 FORBIDDEN ---")
+
+@pytest.mark.anyio
+class TestTuitionLogServiceVoid:
 
     ### Tests for void_tuition_log (Auth) ###
 
@@ -310,6 +317,9 @@ class TestTuitionLogServiceWrite:
         assert e.value.status_code == 403
         print(f"--- Correctly raised 403 FORBIDDEN ---")
 
+@pytest.mark.anyio
+class TestTuitionLogServiceCorrect:
+
     ### Tests for correct_tuition_log (Auth) ###
 
     async def test_correct_log_as_owner_teacher(
@@ -334,6 +344,7 @@ class TestTuitionLogServiceWrite:
             "start_time": old_log.start_time.isoformat(),
             "end_time": old_log.end_time.isoformat(),
             "subject": SubjectEnum.CHEMISTRY.value,
+            "educational_system": EducationalSystemEnum.NATIONAL_EG.value,
             "lesson_index": 99,
             "charges": [
                 {"student_id": c.student_id, "cost": c.cost + 10}
@@ -377,3 +388,4 @@ class TestTuitionLogServiceWrite:
         
         assert e.value.status_code == 403
         print(f"--- Correctly raised 403 FORBIDDEN ---")
+
