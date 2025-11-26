@@ -328,6 +328,7 @@ class TestTuitionServiceRegenerate:
             educational_system=EducationalSystemEnum.SAT,
             lessons_per_week=1,
             teacher_id=test_teacher_orm.id,
+            grade=10,
             shared_with_student_ids=[]
         )
         student1 = await _create_student_with_subjects(
@@ -399,6 +400,7 @@ class TestTuitionServiceRegenerate:
                     educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1,
                     teacher_id=test_teacher_orm.id,
+                    grade=10,
                     shared_with_student_ids=[] # Will be updated by student2
                 )
             ]
@@ -414,6 +416,7 @@ class TestTuitionServiceRegenerate:
                     educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1,
                     teacher_id=test_teacher_orm.id,
+                    grade=10,
                     shared_with_student_ids=[student1.id] # Student2 shares with Student1
                 )
             ]
@@ -495,12 +498,14 @@ class TestTuitionServiceRegenerate:
                     educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1, 
                     teacher_id=test_teacher_orm.id, 
+                    grade=10,
                     shared_with_student_ids=[]),
                 user_models.StudentSubjectWrite(
                     subject=SubjectEnum.PHYSICS, 
                     educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1, 
                     teacher_id=test_teacher_orm.id, 
+                    grade=10,
                     shared_with_student_ids=[]),
             ], 
             cost=Decimal("10.00")
@@ -520,12 +525,14 @@ class TestTuitionServiceRegenerate:
                     educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1, 
                     teacher_id=test_teacher_orm.id, 
+                    grade=10,
                     shared_with_student_ids=[student_a.id]),
                 user_models.StudentSubjectWrite(
                     subject=SubjectEnum.CHEMISTRY, 
                     educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1, 
                     teacher_id=test_unrelated_teacher_orm.id, 
+                    grade=10,
                     shared_with_student_ids=[]),
             ], 
             cost=Decimal("12.00")
@@ -552,6 +559,7 @@ class TestTuitionServiceRegenerate:
                     educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1, 
                     teacher_id=test_teacher_orm.id, 
+                    grade=10,
                     shared_with_student_ids=[]),
             ], 
             cost=Decimal("15.00")
@@ -575,10 +583,41 @@ class TestTuitionServiceRegenerate:
         assert len(charges) == 5 # Student A (Math), Student A (Physics), Student B (Physics), Student B (Chemistry), Student C (Math)
 
         # Verify Tuitions
-        tuition_math_a = next((t for t in tuitions if t.subject == SubjectEnum.MATH.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.MATH.value, EducationalSystemEnum.SAT.value, 1, test_teacher_orm.id, sorted([student_a.id]))), None)
-        tuition_physics_ab = next((t for t in tuitions if t.subject == SubjectEnum.PHYSICS.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.PHYSICS.value, EducationalSystemEnum.SAT.value, 1, test_teacher_orm.id, sorted([student_a.id, student_b.id]))), None)
-        tuition_chemistry_b = next((t for t in tuitions if t.subject == SubjectEnum.CHEMISTRY.value and t.teacher_id == test_unrelated_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.CHEMISTRY.value, EducationalSystemEnum.SAT.value, 1, test_unrelated_teacher_orm.id, sorted([student_b.id]))), None)
-        tuition_math_c = next((t for t in tuitions if t.subject == SubjectEnum.MATH.value and t.teacher_id == test_teacher_orm.id and t.id == tuition_service._generate_deterministic_id(SubjectEnum.MATH.value, EducationalSystemEnum.SAT.value, 1, test_teacher_orm.id, sorted([student_c.id]))), None)
+        tuition_math_a = next((
+            t for t in tuitions if t.subject == SubjectEnum.MATH.value and 
+            t.teacher_id == test_teacher_orm.id and 
+            t.id == tuition_service._generate_deterministic_id(
+                SubjectEnum.MATH.value, EducationalSystemEnum.SAT.value, 10, 1, 
+                test_teacher_orm.id, sorted([student_a.id])
+            )
+        ), None)
+
+        tuition_physics_ab = next((
+            t for t in tuitions if t.subject == SubjectEnum.PHYSICS.value and 
+            t.teacher_id == test_teacher_orm.id and 
+            t.id == tuition_service._generate_deterministic_id(
+                SubjectEnum.PHYSICS.value, EducationalSystemEnum.SAT.value, 10, 1, 
+                test_teacher_orm.id, sorted([student_a.id, student_b.id])
+            )
+        ), None)
+
+        tuition_chemistry_b = next((
+            t for t in tuitions if t.subject == SubjectEnum.CHEMISTRY.value and 
+            t.teacher_id == test_unrelated_teacher_orm.id and 
+            t.id == tuition_service._generate_deterministic_id(
+                SubjectEnum.CHEMISTRY.value, EducationalSystemEnum.SAT.value, 10, 1, 
+                test_unrelated_teacher_orm.id, sorted([student_b.id])
+            )
+        ), None)
+
+        tuition_math_c = next((
+            t for t in tuitions if t.subject == SubjectEnum.MATH.value and 
+            t.teacher_id == test_teacher_orm.id and 
+            t.id == tuition_service._generate_deterministic_id(
+                SubjectEnum.MATH.value, EducationalSystemEnum.SAT.value, 10, 1, 
+                test_teacher_orm.id, sorted([student_c.id])
+            )
+        ), None)
 
         assert tuition_math_a is not None
         assert tuition_physics_ab is not None
@@ -626,10 +665,16 @@ class TestTuitionServiceRegenerate:
             educational_system=EducationalSystemEnum.SAT,
             lessons_per_week=1,
             teacher_id=test_teacher_orm.id,
+            grade=10,
             shared_with_student_ids=[]
         )
         student = await _create_student_with_subjects(
-            student_service, db_session, test_parent_orm, test_teacher_orm, student_email, [subject_data]
+            student_service, 
+            db_session, 
+            test_parent_orm, 
+            test_teacher_orm, 
+            student_email, 
+            [subject_data]
         )
         await db_session.flush()
 
@@ -639,6 +684,7 @@ class TestTuitionServiceRegenerate:
             subject=SubjectEnum.IT.value,
             educational_system=EducationalSystemEnum.SAT.value,
             lesson_index=1,
+            grade=10,
             teacher_id=test_teacher_orm.id,
             student_ids=sorted([student.id])
         )
@@ -649,6 +695,7 @@ class TestTuitionServiceRegenerate:
             teacher_id=test_teacher_orm.id,
             subject=SubjectEnum.IT.value,
             educational_system=EducationalSystemEnum.SAT.value,
+            grade=10,
             lesson_index=1,
             min_duration_minutes=student.min_duration_mins,
             max_duration_minutes=student.max_duration_mins,
@@ -722,6 +769,7 @@ class TestTuitionServiceRegenerate:
             educational_system=EducationalSystemEnum.SAT,
             lessons_per_week=1,
             teacher_id=test_teacher_orm.id,
+            grade=10,
             shared_with_student_ids=[]
         )
         student = await _create_student_with_subjects(
@@ -734,6 +782,7 @@ class TestTuitionServiceRegenerate:
         tuition_id = tuition_service._generate_deterministic_id(
             subject=SubjectEnum.GEOGRAPHY.value,
             educational_system=EducationalSystemEnum.SAT.value,
+            grade=10,
             lesson_index=1,
             teacher_id=test_teacher_orm.id,
             student_ids=sorted([student.id])
@@ -744,6 +793,7 @@ class TestTuitionServiceRegenerate:
             teacher_id=test_teacher_orm.id,
             subject=SubjectEnum.GEOGRAPHY.value,
             educational_system=EducationalSystemEnum.SAT.value,
+            grade=10,
             lesson_index=1,
             min_duration_minutes=student.min_duration_mins,
             max_duration_minutes=student.max_duration_mins,
@@ -804,6 +854,7 @@ class TestTuitionServiceRegenerate:
                     educational_system=EducationalSystemEnum.SAT,
                     lessons_per_week=1,
                     teacher_id=test_teacher_orm.id,
+                    grade=10,
                     shared_with_student_ids=[]
                 )
             ]
@@ -850,6 +901,7 @@ class TestTuitionServiceRegenerate:
             educational_system=EducationalSystemEnum.SAT,
             lessons_per_week=lessons_count, # Key part of this test
             teacher_id=test_teacher_orm.id,
+            grade=10,
             shared_with_student_ids=[]
         )
         await _create_student_with_subjects(
@@ -906,24 +958,38 @@ class TestTuitionServiceRegenerate:
         
         # 2. Create the shared subject link between them
         subject_data_a = user_models.StudentSubjectWrite(
-            subject=SubjectEnum.CHEMISTRY, educational_system=EducationalSystemEnum.SAT, lessons_per_week=1, 
-            teacher_id=test_teacher_orm.id, shared_with_student_ids=[student_b.id] # Student A shares with B
+            subject=SubjectEnum.CHEMISTRY, 
+            educational_system=EducationalSystemEnum.SAT, 
+            lessons_per_week=1, 
+            teacher_id=test_teacher_orm.id, 
+            grade=10,
+            shared_with_student_ids=[student_b.id] # Student A shares with B
         )
         student_a_subject = db_models.StudentSubjects(
-            student_id=student_a.id, teacher_id=subject_data_a.teacher_id,
-            subject=subject_data_a.subject.value, educational_system=subject_data_a.educational_system.value,
+            student_id=student_a.id, 
+            teacher_id=subject_data_a.teacher_id,
+            subject=subject_data_a.subject.value, 
+            educational_system=subject_data_a.educational_system.value,
+            grade=subject_data_a.grade,
             lessons_per_week=subject_data_a.lessons_per_week
         )
         db_session.add(student_a_subject)
         await db_session.flush() # Flush to get student_a_subject.id
 
         subject_data_b = user_models.StudentSubjectWrite(
-            subject=SubjectEnum.CHEMISTRY, educational_system=EducationalSystemEnum.SAT, lessons_per_week=1, 
-            teacher_id=test_teacher_orm.id, shared_with_student_ids=[student_a.id] # Student B shares with A
+            subject=SubjectEnum.CHEMISTRY, 
+            educational_system=EducationalSystemEnum.SAT, 
+            lessons_per_week=1, 
+            teacher_id=test_teacher_orm.id, 
+            grade=10,
+            shared_with_student_ids=[student_a.id] # Student B shares with A
         )
         student_b_subject = db_models.StudentSubjects(
-            student_id=student_b.id, teacher_id=subject_data_b.teacher_id,
-            subject=subject_data_b.subject.value, educational_system=subject_data_b.educational_system.value,
+            student_id=student_b.id, 
+            teacher_id=subject_data_b.teacher_id,
+            subject=subject_data_b.subject.value, 
+            educational_system=subject_data_b.educational_system.value,
+            grade=subject_data_b.grade,
             lessons_per_week=subject_data_b.lessons_per_week
         )
         db_session.add(student_b_subject)
@@ -978,6 +1044,7 @@ class TestTuitionServiceRegenerate:
         uuid_1 = tuition_service._generate_deterministic_id(
             subject="Math",
             educational_system="SAT",
+            grade=10,
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_1
@@ -986,6 +1053,7 @@ class TestTuitionServiceRegenerate:
         uuid_2 = tuition_service._generate_deterministic_id(
             subject="Math",
             educational_system="SAT",
+            grade=10,
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_1
@@ -998,6 +1066,7 @@ class TestTuitionServiceRegenerate:
         uuid_3 = tuition_service._generate_deterministic_id(
             subject="Math",
             educational_system="SAT",
+            grade=10,
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_2 # <-- Different list
@@ -1009,6 +1078,7 @@ class TestTuitionServiceRegenerate:
         uuid_4 = tuition_service._generate_deterministic_id(
             subject="Physics", # <-- Different subject
             educational_system="SAT",
+            grade=10,
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_1
@@ -1020,6 +1090,7 @@ class TestTuitionServiceRegenerate:
         uuid_5 = tuition_service._generate_deterministic_id(
             subject="Math",
             educational_system="IGCSE", # <-- Different system
+            grade=10,
             lesson_index=1,
             teacher_id=TEST_TEACHER_ID,
             student_ids=student_ids_1

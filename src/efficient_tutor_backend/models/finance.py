@@ -51,6 +51,7 @@ class CustomLogInput(BaseModel):
     # 2. Required fields for this type
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
     lesson_index: int
     start_time: datetime
     end_time: datetime
@@ -96,6 +97,7 @@ class TuitionLogReadForTeacher(BaseModel):
     teacher: UserRead
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
     start_time: datetime
     end_time: datetime
     status: LogStatusEnum
@@ -144,6 +146,7 @@ class TuitionLogReadForParent(BaseModel):
     id: UUID
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
     start_time: datetime
     end_time: datetime
     status: LogStatusEnum
@@ -189,6 +192,7 @@ class TuitionLogReadForStudent(BaseModel):
     id: UUID
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
     start_time: datetime
     end_time: datetime
     status: LogStatusEnum

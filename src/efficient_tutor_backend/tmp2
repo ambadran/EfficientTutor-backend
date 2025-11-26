@@ -1,0 +1,30 @@
+> I finished a huge update introducing the teacher_specialties table and using it a composite
+  foreign key to validate tuitions and student_subjects records with teacher_id (teacher user).
+  Unfortunately, I forgot to add a very crucial column, the 'grade' . I am proposing the
+  following plan, we write sql code to add the column, set it to a value, then make it Not NULL.
+  Then I think we need to update the unique constraint. Then we need to add the new column to
+  student_subjects, tuitions and tuition_logs tables. Then update the foreign key constraint to
+  include this new grade column (except tuition_logs table, it doesn't have a foreign key
+  constraint and we don't want to add it to that table). Then I think that would finish the sql
+  code-migration phase (please review these steps and make sure they are not missing or wrong).
+  After that we start database base layer python phase. We start by update the factories and the
+  data/ content (teacher_specialties, tuitions, student_subjects and tuition_logs) we have to
+  include this new column (as well as put more records especially for the teacher_specialties,
+  for example, SAT, chemistry, grade 8, 9, 10). Then we finally update the
+  src/.../database/models.py to include the new columns, update the unique constraint and foreign
+  key constraints that was changed. and that would be it! Please study the plan deeply, analyze
+  it, mention any missing or wrong steps then show me. Then if we agree on the plan, we'll start
+  it
+
+
+Now I have just finished introducing a new attribute to the teacher_specialties,
+  student_subjects, tuitions and tuition_logs tables which is the 'grade' column. the postgres db
+  have been updated and filled, the python ORM models under src/.../database/models.py have been
+  updated too, feel free to look over the updates please. Now I'm proposing the following plan. We
+  start by modifying the src/.../models/user.py TeacherSpecialtyRead and Write to include the new
+  grade attribute. Then update the create, read and the add_specialty_to_teacher methods to
+  process this new attribute. After that, you give me time to update the pytest service layer
+  testing methods, finish testing and come back to you to hopefully confirm everything is running
+  smoothly. Then we will proceed to applying the same plan for Tuition models and services, then
+  finally the tuition_logs models and services. Pleae let me know if you have any questions or
+  need more context please.

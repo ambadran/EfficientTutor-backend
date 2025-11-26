@@ -35,7 +35,6 @@ zoom_creds.json
 tmp.py
 
 
-scripts/
 setup.cfg
 *.egg-info
 *.egg-info/

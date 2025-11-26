@@ -412,6 +412,7 @@ class TuitionService:
             id=tuition_orm.id,
             subject=tuition_orm.subject,
             educational_system=tuition_orm.educational_system,
+            grade=tuition_orm.grade,
             lesson_index=tuition_orm.lesson_index,
             min_duration_minutes=tuition_orm.min_duration_minutes,
             max_duration_minutes=tuition_orm.max_duration_minutes,
@@ -439,6 +440,7 @@ class TuitionService:
             id=tuition_orm.id,
             subject=tuition_orm.subject,
             educational_system=tuition_orm.educational_system,
+            grade=tuition_orm.grade,
             lesson_index=tuition_orm.lesson_index,
             min_duration_minutes=tuition_orm.min_duration_minutes,
             max_duration_minutes=tuition_orm.max_duration_minutes,
@@ -460,6 +462,7 @@ class TuitionService:
             id=tuition_orm.id,
             subject=tuition_orm.subject,
             educational_system=tuition_orm.educational_system,
+            grade=tuition_orm.grade,
             lesson_index=tuition_orm.lesson_index,
             min_duration_minutes=tuition_orm.min_duration_minutes,
             max_duration_minutes=tuition_orm.max_duration_minutes,
@@ -516,36 +519,38 @@ class TuitionService:
             new_tuitions = []
             new_charges = []
             new_meeting_links = []
-            # Use a set to track students already assigned to a group for a specific subject/teacher/system
-            # to avoid creating duplicate tuitions. Key: (student_id, subject, teacher_id, educational_system)
+            # Use a set to track students already assigned to a group for a specific subject/teacher/system/grade
+            # to avoid creating duplicate tuitions. Key: (student_id, subject, teacher_id, educational_system, grade)
             processed_students = set()
 
             for ss in all_student_subjects:
-                process_key = (ss.student_id, ss.subject, ss.teacher_id, ss.educational_system)
+                process_key = (ss.student_id, ss.subject, ss.teacher_id, ss.educational_system, ss.grade)
                 if process_key in processed_students:
-                    continue # This student has already been added to a group for this subject/teacher/system
+                    continue # This student has already been added to a group for this subject/teacher/system/grade
 
                 # This is a new group. The group consists of the main student
                 # plus all students they share this subject with.
                 group_students = [ss.student] + ss.shared_with_student
                 
-                # The teacher, subject and educational_system are the same for the whole group
+                # The teacher, subject, educational_system, and grade are the same for the whole group
                 teacher_id = ss.teacher_id
                 subject_name = ss.subject
                 educational_system = ss.educational_system
+                grade_for_group = ss.grade
 
-                # Calculate the max of min/max durations for the whole group
+                # BUG 1 FIX: Calculate the max of min/max durations for the whole group
                 min_duration_for_group = max(s.min_duration_mins for s in group_students)
                 max_duration_for_group = max(s.max_duration_mins for s in group_students)
 
                 student_ids_in_group = sorted([s.id for s in group_students])
 
-                # Loop from 1 to lessons_per_week
+                # BUG 2 FIX: Loop from 1 to lessons_per_week
                 for lesson_index in range(1, ss.lessons_per_week + 1):
                     # Generate the deterministic ID based on all students in the group
                     tuition_id = self._generate_deterministic_id(
                         subject=subject_name,
                         educational_system=educational_system,
+                        grade=grade_for_group,
                         lesson_index=lesson_index, # Use the loop variable
                         teacher_id=teacher_id,
                         student_ids=student_ids_in_group
@@ -557,6 +562,7 @@ class TuitionService:
                         teacher_id=teacher_id,
                         subject=subject_name,
                         educational_system=educational_system,
+                        grade=grade_for_group,
                         lesson_index=lesson_index, # Use the loop variable
                         min_duration_minutes=min_duration_for_group, # Use calculated value
                         max_duration_minutes=max_duration_for_group, # Use calculated value
@@ -590,7 +596,7 @@ class TuitionService:
                 # Mark all students in this group as processed for this subject/teacher combo
                 # This happens *after* the lesson_index loop
                 for student_in_group in group_students:
-                    processed_students.add((student_in_group.id, subject_name, teacher_id, educational_system))
+                    processed_students.add((student_in_group.id, subject_name, teacher_id, educational_system, grade_for_group))
 
             log.info(f"Generated {len(new_tuitions)} tuitions, {len(new_charges)} charges, and restored {len(new_meeting_links)} links.")
 
@@ -609,10 +615,10 @@ class TuitionService:
             log.error(f"A critical error occurred during tuition regeneration: {e}", exc_info=True)
             raise
 
-    def _generate_deterministic_id(self, subject: str, educational_system: str, lesson_index: int, teacher_id: UUID, student_ids: list[UUID]) -> UUID:
+    def _generate_deterministic_id(self, subject: str, educational_system: str, grade: int, lesson_index: int, teacher_id: UUID, student_ids: list[UUID]) -> UUID:
         """
         Creates a stable, deterministic UUID for a tuition based on its core properties.
         """
-        id_string = f"{subject}:{educational_system}:{lesson_index}:{teacher_id}:{','.join(map(str, sorted(student_ids)))}"
+        id_string = f"{subject}:{educational_system}:{grade}:{lesson_index}:{teacher_id}:{','.join(map(str, sorted(student_ids)))}"
         hasher = hashlib.sha256(id_string.encode('utf-8'))
         return UUID(bytes=hasher.digest()[:16])

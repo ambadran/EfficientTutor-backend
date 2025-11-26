@@ -371,6 +371,7 @@ class TestStudentServiceUPDATE:
         new_subjects = [
             user_models.StudentSubjectWrite(subject=SubjectEnum.CHEMISTRY,
                                             educational_system=EducationalSystemEnum.SAT,
+                                            grade=10,
                                             lessons_per_week=3,
                                             teacher_id=TEST_UNRELATED_TEACHER_ID)
         ]

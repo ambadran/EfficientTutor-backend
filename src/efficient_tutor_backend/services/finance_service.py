@@ -24,7 +24,7 @@ from .tuition_service import TuitionService
 
 class TuitionLogService:
     """
-    REFACTORED: Service for creating, reading, and managing tuition logs.
+    Service for creating, reading, and managing tuition logs.
     Authorization is now handled in all API-facing methods.
     """
     
@@ -327,6 +327,7 @@ class TuitionLogService:
             teacher_id=current_user.id,
             subject=tuition.subject,
             educational_system=tuition.educational_system,
+            grade=tuition.grade,
             start_time=data.start_time,
             end_time=data.end_time,
             create_type=TuitionLogCreateTypeEnum.SCHEDULED.value,
@@ -372,6 +373,7 @@ class TuitionLogService:
             teacher_id=current_user.id, # IDOR security
             subject=data.subject.value,
             educational_system=data.educational_system.value,
+            grade=data.grade,
             start_time=data.start_time,
             end_time=data.end_time,
             create_type=TuitionLogCreateTypeEnum.CUSTOM.value,
@@ -535,6 +537,7 @@ class TuitionLogService:
             teacher=log.teacher,
             subject=log.subject,
             educational_system=log.educational_system,
+            grade=log.grade,
             start_time=log.start_time,
             end_time=log.end_time,
             status=log.status,
@@ -567,6 +570,7 @@ class TuitionLogService:
             id=log.id,
             subject=log.subject,
             educational_system=log.educational_system,
+            grade=log.grade,
             start_time=log.start_time,
             end_time=log.end_time,
             status=log.status,
@@ -596,6 +600,7 @@ class TuitionLogService:
             id=log.id,
             subject=log.subject,
             educational_system=log.educational_system,
+            grade=log.grade,
             start_time=log.start_time,
             end_time=log.end_time,
             status=log.status,

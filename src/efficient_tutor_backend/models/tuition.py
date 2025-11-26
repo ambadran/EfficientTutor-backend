@@ -35,6 +35,7 @@ class TuitionReadForTeacher(BaseModel):
     id: UUID
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
@@ -53,6 +54,7 @@ class TuitionReadForParent(BaseModel):
     id: UUID
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int
@@ -72,6 +74,7 @@ class TuitionReadForStudent(BaseModel):
     id: UUID
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
     lesson_index: int
     min_duration_minutes: int
     max_duration_minutes: int

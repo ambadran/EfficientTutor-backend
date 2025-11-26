@@ -42,19 +42,19 @@ WHERE educational_system IS NULL;
 ALTER TABLE tuition_logs
 ALTER COLUMN educational_system SET NOT NULL;
 
--- Phase 5: Add composite foreign key constraints to link to teacher_specialties
+/* -- Phase 5: Add composite foreign key constraints to link to teacher_specialties */
 
--- For student_subjects: Ensures a student is only assigned to a subject/system
--- that the teacher is qualified for.
-ALTER TABLE student_subjects
-ADD CONSTRAINT fk_student_subjects_to_teacher_specialties
-FOREIGN KEY (teacher_id, subject, educational_system)
-REFERENCES teacher_specialties (teacher_id, subject, educational_system)
-ON UPDATE CASCADE ON DELETE RESTRICT;
+/* -- For student_subjects: Ensures a student is only assigned to a subject/system */
+/* -- that the teacher is qualified for. */
+/* ALTER TABLE student_subjects */
+/* ADD CONSTRAINT fk_student_subjects_to_teacher_specialties */
+/* FOREIGN KEY (teacher_id, subject, educational_system) */
+/* REFERENCES teacher_specialties (teacher_id, subject, educational_system) */
+/* ON UPDATE CASCADE ON DELETE RESTRICT; */
 
--- For tuitions: Ensures a tuition template is only created for a valid specialty.
-ALTER TABLE tuitions
-ADD CONSTRAINT fk_tuitions_to_teacher_specialties
-FOREIGN KEY (teacher_id, subject, educational_system)
-REFERENCES teacher_specialties (teacher_id, subject, educational_system)
-ON UPDATE CASCADE ON DELETE RESTRICT;
+/* -- For tuitions: Ensures a tuition template is only created for a valid specialty. */
+/* ALTER TABLE tuitions */
+/* ADD CONSTRAINT fk_tuitions_to_teacher_specialties */
+/* FOREIGN KEY (teacher_id, subject, educational_system) */
+/* REFERENCES teacher_specialties (teacher_id, subject, educational_system) */
+/* ON UPDATE CASCADE ON DELETE RESTRICT; */

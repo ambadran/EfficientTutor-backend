@@ -16,6 +16,7 @@ LOGS_DATA = [
         "tuition_id": TEST_TUITION_ID,
         "teacher_id": TEST_TEACHER_ID,
         "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
     },
     {
         "factory": "TuitionLogFactory",
@@ -24,6 +25,7 @@ LOGS_DATA = [
         "tuition_id": TEST_TUITION_ID,
         "teacher_id": TEST_TEACHER_ID,
         "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
     },
     # --- Tuition Log Charges (dependent on TuitionLogs) ---
     {

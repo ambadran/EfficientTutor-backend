@@ -348,8 +348,8 @@ class Tuitions(Base):
     __table_args__ = (
         ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='SET NULL', name='tuitions_teacher_id_fkey'),
         ForeignKeyConstraint(
-            ['teacher_id', 'subject', 'educational_system'],
-            ['teacher_specialties.teacher_id', 'teacher_specialties.subject', 'teacher_specialties.educational_system'],
+            ['teacher_id', 'subject', 'educational_system', 'grade'],
+            ['teacher_specialties.teacher_id', 'teacher_specialties.subject', 'teacher_specialties.educational_system', 'teacher_specialties.grade'],
             name='fk_tuitions_to_teacher_specialties',
             onupdate='CASCADE', ondelete='RESTRICT'
         ),
@@ -359,6 +359,7 @@ class Tuitions(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
     educational_system: Mapped[str] = mapped_column(Enum('IGCSE', 'SAT', 'National-EG', 'National-KW', name='educational_system_enum'))
+    grade: Mapped[int] = mapped_column(Integer)
     lesson_index: Mapped[int] = mapped_column(Integer)
     min_duration_minutes: Mapped[int] = mapped_column(Integer)
     max_duration_minutes: Mapped[int] = mapped_column(Integer)
@@ -367,7 +368,7 @@ class Tuitions(Base):
     teacher_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     teacher: Mapped[Optional['Teachers']] = relationship('Teachers', back_populates='tuitions')
-    teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='tuitions', foreign_keys=[teacher_id, subject, educational_system], overlaps="teacher,tuitions")
+    teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='tuitions', foreign_keys=[teacher_id, subject, educational_system, grade], overlaps="teacher,tuitions")
     tuition_logs: Mapped[list['TuitionLogs']] = relationship('TuitionLogs', back_populates='tuition')
     tuition_template_charges: Mapped[list['TuitionTemplateCharges']] = relationship('TuitionTemplateCharges', back_populates='tuition')
 
@@ -391,6 +392,7 @@ class TuitionLogs(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
     educational_system: Mapped[str] = mapped_column(Enum('IGCSE', 'SAT', 'National-EG', 'National-KW', name='educational_system_enum'))
+    grade: Mapped[int] = mapped_column(Integer)
     start_time: Mapped[datetime.datetime] = mapped_column(DateTime(True))
     end_time: Mapped[datetime.datetime] = mapped_column(DateTime(True))
     status: Mapped[str] = mapped_column(Enum('ACTIVE', 'VOID', name='log_status_enum'), server_default=text("'ACTIVE'::log_status_enum"))
@@ -514,13 +516,13 @@ class StudentSubjects(Base):
         ForeignKeyConstraint(['student_id'], ['students.id'], ondelete='CASCADE', name='student_subjects_student_id_fkey'),
         ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='SET NULL', name='student_subjects_teacher_id_fkey'),
         ForeignKeyConstraint(
-            ['teacher_id', 'subject', 'educational_system'],
-            ['teacher_specialties.teacher_id', 'teacher_specialties.subject', 'teacher_specialties.educational_system'],
+            ['teacher_id', 'subject', 'educational_system', 'grade'],
+            ['teacher_specialties.teacher_id', 'teacher_specialties.subject', 'teacher_specialties.educational_system', 'teacher_specialties.grade'],
             name='fk_student_subjects_to_teacher_specialties',
             onupdate='CASCADE', ondelete='RESTRICT'
         ),
         PrimaryKeyConstraint('id', name='student_subjects_pkey'),
-        UniqueConstraint('student_id', 'subject', 'teacher_id', 'educational_system', name='student_subjects_student_id_subject_teacher_id_educat_key'),
+        UniqueConstraint('student_id', 'subject', 'teacher_id', 'educational_system', 'grade', name='student_subjects_student_id_subject_teacher_id_system_grade_key'),
         Index('idx_student_subjects_student_id', 'student_id')
     )
 
@@ -530,11 +532,12 @@ class StudentSubjects(Base):
     lessons_per_week: Mapped[int] = mapped_column(Integer, server_default=text('1'))
     teacher_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     educational_system: Mapped[str] = mapped_column(Enum('IGCSE', 'SAT', 'National-EG', 'National-KW', name='educational_system_enum'))
+    grade: Mapped[int] = mapped_column(Integer)
 
     shared_with_student: Mapped[list['Students']] = relationship('Students', secondary='student_subject_sharings', back_populates='student_subject')
     student: Mapped['Students'] = relationship('Students', back_populates='student_subjects')
     teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='student_subjects')
-    teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='student_subjects', foreign_keys=[teacher_id, subject, educational_system], overlaps="student_subjects,teacher")
+    teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='student_subjects', foreign_keys=[teacher_id, subject, educational_system, grade], overlaps="student_subjects,teacher")
 
 
 t_student_subject_sharings = Table(
@@ -572,7 +575,7 @@ class TeacherSpecialties(Base):
     __table_args__ = (
         ForeignKeyConstraint(['teacher_id'], ['teachers.id'], ondelete='CASCADE', name='teacher_specialties_teacher_id_fkey'),
         PrimaryKeyConstraint('id', name='teacher_specialties_pkey'),
-        UniqueConstraint('teacher_id', 'subject', 'educational_system', name='teacher_specialties_teacher_id_subject_educational_system_key'),
+        UniqueConstraint('teacher_id', 'subject', 'educational_system', 'grade', name='teacher_specialties_teacher_id_subject_system_grade_key'),
         Index('idx_teacher_specialties_teacher_id', 'teacher_id')
     )
 
@@ -580,20 +583,21 @@ class TeacherSpecialties(Base):
     teacher_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     subject: Mapped[str] = mapped_column(Enum('Math', 'Physics', 'Chemistry', 'Biology', 'IT', 'Geography', name='subject_enum'))
     educational_system: Mapped[str] = mapped_column(Enum('IGCSE', 'SAT', 'National-EG', 'National-KW', name='educational_system_enum'))
+    grade: Mapped[int] = mapped_column(Integer)
 
     teacher: Mapped['Teachers'] = relationship('Teachers', back_populates='teacher_specialties')
 
     student_subjects: Mapped[list['StudentSubjects']] = relationship(
         'StudentSubjects',
         back_populates='teacher_specialty',
-        foreign_keys='[StudentSubjects.teacher_id, StudentSubjects.subject, StudentSubjects.educational_system]',
+        foreign_keys='[StudentSubjects.teacher_id, StudentSubjects.subject, StudentSubjects.educational_system, StudentSubjects.grade]',
         overlaps="teacher,student_subjects"
     )
 
     tuitions: Mapped[list['Tuitions']] = relationship(
         'Tuitions',
         back_populates='teacher_specialty',
-        foreign_keys='[Tuitions.teacher_id, Tuitions.subject, Tuitions.educational_system]',
+        foreign_keys='[Tuitions.teacher_id, Tuitions.subject, Tuitions.educational_system, Tuitions.grade]',
         overlaps="teacher,tuitions"
     )
 
