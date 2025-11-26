@@ -17,12 +17,14 @@ TUITIONS_DATA = [
         "id": TEST_TUITION_ID,
         "teacher_id": TEST_TEACHER_ID,
         "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
     },
     {
         "factory": "TuitionFactory",
         "id": TEST_TUITION_ID_NO_LINK,
         "teacher_id": TEST_TEACHER_ID,
         "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
     },
     # --- Meeting Links (dependent on Tuitions) ---
     {

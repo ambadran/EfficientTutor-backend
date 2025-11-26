@@ -334,7 +334,8 @@ class TestTeacherSpecialtyAPI:
         
         payload = {
             "subject": SubjectEnum.GEOGRAPHY.value,
-            "educational_system": EducationalSystemEnum.IGCSE.value
+            "educational_system": EducationalSystemEnum.IGCSE.value,
+            "grade": 10
         }
 
         print(f"Attempting to add specialty as owner {teacher_id}.")
@@ -362,7 +363,8 @@ class TestTeacherSpecialtyAPI:
         
         payload = {
             "subject": SubjectEnum.MATH.value,
-            "educational_system": EducationalSystemEnum.NATIONAL_EG.value
+            "educational_system": EducationalSystemEnum.NATIONAL_EG.value,
+            "grade": 10
         }
 
         print(f"Admin attempting to add specialty to teacher {teacher_id}.")
@@ -390,7 +392,8 @@ class TestTeacherSpecialtyAPI:
         # This specialty is added in the seed data
         payload = {
             "subject": SubjectEnum.PHYSICS.value,
-            "educational_system": EducationalSystemEnum.IGCSE.value
+            "educational_system": EducationalSystemEnum.IGCSE.value,
+            "grade": 10
         }
 
         print("Attempting to add a duplicate specialty.")
@@ -412,7 +415,8 @@ class TestTeacherSpecialtyAPI:
         
         payload = {
             "subject": SubjectEnum.IT.value,
-            "educational_system": EducationalSystemEnum.SAT.value
+            "educational_system": EducationalSystemEnum.SAT.value,
+            "grade": 10
         }
 
         print("Parent attempting to add specialty.")
@@ -434,7 +438,8 @@ class TestTeacherSpecialtyAPI:
         # First, add a specialty to delete
         add_payload = {
             "subject": SubjectEnum.BIOLOGY.value,
-            "educational_system": EducationalSystemEnum.NATIONAL_KW.value
+            "educational_system": EducationalSystemEnum.NATIONAL_KW.value,
+            "grade": 10
         }
         add_response = client.post(f"/teachers/{teacher_id}/specialties", headers=headers, json=add_payload)
         assert add_response.status_code == 201

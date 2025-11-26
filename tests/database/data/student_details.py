@@ -12,6 +12,7 @@ STUDENT_DETAILS_DATA = [
         "teacher_id": TEST_TEACHER_ID,
         "subject": SubjectEnum.PHYSICS.value,
         "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
     },
     {
         "factory": "StudentAvailabilityIntervalFactory",

@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """
-        Dynamically returns the correct database URL based on the test_mode flag.
+        Dynamically returns the correct database URL based 
+        on the test_mode flag.
         """
         if self.TEST_MODE:
             return self.DATABASE_URL_TEST

@@ -28,6 +28,7 @@ class StudentSubjectRead(BaseModel):
     lessons_per_week: int
     teacher_id: UUID
     educational_system: EducationalSystemEnum
+    grade: int
     shared_with_student_ids: list[UUID] = Field(default_factory=list) # list of student IDs this subject is shared with
 
     model_config = ConfigDict(from_attributes=True)
@@ -78,6 +79,7 @@ class TeacherSpecialtyRead(BaseModel):
     id: UUID
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -117,6 +119,7 @@ class StudentSubjectWrite(BaseModel):
     subject: SubjectEnum
     teacher_id: UUID
     educational_system: EducationalSystemEnum
+    grade: int
     lessons_per_week: int = 1
     shared_with_student_ids: list[UUID] = Field(default_factory=list)
 
@@ -200,6 +203,7 @@ class TeacherSpecialtyWrite(BaseModel):
     """
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
+    grade: int
 
 
 class TeacherCreate(BaseModel):

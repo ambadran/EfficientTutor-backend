@@ -546,8 +546,9 @@ class StudentService(UserService):
                 student=new_student,
                 subject=subject_data.subject.value,
                 lessons_per_week=subject_data.lessons_per_week,
-                teacher_id=subject_data.teacher_id, # Assign the teacher
-                educational_system=subject_data.educational_system.value
+                teacher_id=subject_data.teacher_id,
+                educational_system=subject_data.educational_system.value,
+                grade=subject_data.grade
             )
             # Handle M2M relationship for shared subjects
             for shared_student_id in subject_data.shared_with_student_ids:
@@ -585,6 +586,7 @@ class StudentService(UserService):
                 lessons_per_week=sub.lessons_per_week,
                 teacher_id=sub.teacher_id,
                 educational_system=sub.educational_system,
+                grade=sub.grade,
                 shared_with_student_ids=[s.id for s in sub.shared_with_student]
             ))
 
@@ -729,8 +731,9 @@ class StudentService(UserService):
                 new_subject = db_models.StudentSubjects(
                     subject=subject_data.subject.value,
                     lessons_per_week=subject_data.lessons_per_week,
-                    teacher_id=subject_data.teacher_id, # Assign the teacher
-                    educational_system=subject_data.educational_system.value
+                    teacher_id=subject_data.teacher_id,
+                    educational_system=subject_data.educational_system.value,
+                    grade=subject_data.grade
                 )
                 for shared_student_id in subject_data.shared_with_student_ids:
                     shared_student = shared_students_map.get(shared_student_id)
@@ -755,6 +758,7 @@ class StudentService(UserService):
                 lessons_per_week=sub.lessons_per_week,
                 teacher_id=sub.teacher_id,
                 educational_system=sub.educational_system,
+                grade=sub.grade,
                 shared_with_student_ids=[s.id for s in sub.shared_with_student]
             ))
 
@@ -886,7 +890,8 @@ class TeacherService(UserService):
             new_specialty = db_models.TeacherSpecialties(
                 teacher=new_teacher,
                 subject=specialty_data.subject.value,
-                educational_system=specialty_data.educational_system.value
+                educational_system=specialty_data.educational_system.value,
+                grade=specialty_data.grade
             )
             self.db.add(new_specialty)
 
@@ -1022,7 +1027,8 @@ class TeacherService(UserService):
         # Check if the specialty already exists
         for existing_specialty in teacher.teacher_specialties:
             if (existing_specialty.subject == specialty_data.subject.value and
-                    existing_specialty.educational_system == specialty_data.educational_system.value):
+                    existing_specialty.educational_system == specialty_data.educational_system.value and
+                    existing_specialty.grade == specialty_data.grade):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="This specialty already exists for this teacher."
@@ -1032,7 +1038,8 @@ class TeacherService(UserService):
         new_specialty = db_models.TeacherSpecialties(
             teacher_id=teacher_id,
             subject=specialty_data.subject.value,
-            educational_system=specialty_data.educational_system.value
+            educational_system=specialty_data.educational_system.value,
+            grade=specialty_data.grade
         )
         self.db.add(new_specialty)
         await self.db.flush()

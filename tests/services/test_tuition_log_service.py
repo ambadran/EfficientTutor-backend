@@ -176,7 +176,6 @@ class TestTuitionLogServiceRead:
 
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
 
-
 @pytest.mark.anyio
 class TestTuitionLogServiceCreate:
 
@@ -222,6 +221,7 @@ class TestTuitionLogServiceCreate:
             "log_type": TuitionLogCreateTypeEnum.CUSTOM.value,
             "subject": SubjectEnum.MATH.value,
             "educational_system": EducationalSystemEnum.NATIONAL_EG.value,
+            "grade": 10,
             "start_time": datetime.now(timezone.utc).isoformat(),
             "end_time": datetime.now(timezone.utc).isoformat(),
             "lesson_index": 1,
@@ -345,6 +345,7 @@ class TestTuitionLogServiceCorrect:
             "end_time": old_log.end_time.isoformat(),
             "subject": SubjectEnum.CHEMISTRY.value,
             "educational_system": EducationalSystemEnum.NATIONAL_EG.value,
+            "grade": 10,
             "lesson_index": 99,
             "charges": [
                 {"student_id": c.student_id, "cost": c.cost + 10}

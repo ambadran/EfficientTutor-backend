@@ -90,6 +90,7 @@ class TuitionFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     subject = SubjectEnum.MATH.value
     educational_system = EducationalSystemEnum.IGCSE.value
+    grade = 10
     lesson_index = 1
     min_duration_minutes = 60
     max_duration_minutes = 90
@@ -142,6 +143,7 @@ class TuitionLogFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     subject = SubjectEnum.MATH.value
     educational_system = EducationalSystemEnum.IGCSE.value
+    grade = 10
     start_time = factory.LazyFunction(datetime.datetime.now)
     end_time = factory.LazyFunction(lambda: datetime.datetime.now() + datetime.timedelta(hours=1))
     status = LogStatusEnum.ACTIVE.value
@@ -177,6 +179,7 @@ class StudentSubjectFactory(BaseFactory):
     subject = SubjectEnum.PHYSICS.value
     lessons_per_week = 2
     educational_system = EducationalSystemEnum.IGCSE.value
+    grade = 10
 
     student = factory.SubFactory(StudentFactory)
     teacher = factory.SubFactory(TeacherFactory)
@@ -200,6 +203,7 @@ class TeacherSpecialtyFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     subject = SubjectEnum.MATH.value
     educational_system = EducationalSystemEnum.IGCSE.value
+    grade = 10
     teacher = factory.SubFactory(TeacherFactory)
 
     class Meta:

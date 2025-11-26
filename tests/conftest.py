@@ -466,6 +466,7 @@ def valid_student_data() -> dict:
             {
                 "subject": SubjectEnum.PHYSICS.value,
                 "lessons_per_week": 2,
+                "grade": 10,
                 "shared_with_student_ids": [str(TEST_STUDENT_ID)],
                 "teacher_id": str(TEST_TEACHER_ID),
                 "educational_system": EducationalSystemEnum.IGCSE.value

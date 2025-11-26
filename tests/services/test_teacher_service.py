@@ -101,11 +101,13 @@ class TestTeacherServiceCreate:
             teacher_specialties=[
                 user_models.TeacherSpecialtyWrite(
                     subject=SubjectEnum.MATH,
-                    educational_system=EducationalSystemEnum.NATIONAL_EG
+                    educational_system=EducationalSystemEnum.NATIONAL_EG,
+                    grade=8
                 ),
                 user_models.TeacherSpecialtyWrite(
                     subject=SubjectEnum.PHYSICS,
-                    educational_system=EducationalSystemEnum.IGCSE
+                    educational_system=EducationalSystemEnum.IGCSE,
+                    grade=8
                 )
             ]
         )
@@ -381,7 +383,8 @@ class TestTeacherServiceUpdateSpecialties:
         print("\n--- Testing add_specialty_as_owner ---")
         specialty_data = user_models.TeacherSpecialtyWrite(
             subject=SubjectEnum.GEOGRAPHY,
-            educational_system=EducationalSystemEnum.IGCSE
+            educational_system=EducationalSystemEnum.IGCSE,
+            grade=8
         )
         
         # Ensure the specialty doesn't already exist
@@ -422,7 +425,8 @@ class TestTeacherServiceUpdateSpecialties:
         print("\n--- Testing add_specialty_as_admin ---")
         specialty_data = user_models.TeacherSpecialtyWrite(
             subject=SubjectEnum.GEOGRAPHY,
-            educational_system=EducationalSystemEnum.NATIONAL_EG
+            educational_system=EducationalSystemEnum.NATIONAL_EG,
+            grade=8
         )
         
         original_count = len(test_teacher_orm.teacher_specialties)
@@ -451,7 +455,8 @@ class TestTeacherServiceUpdateSpecialties:
         existing_specialty = test_teacher_orm.teacher_specialties[0]
         specialty_data = user_models.TeacherSpecialtyWrite(
             subject=SubjectEnum(existing_specialty.subject),
-            educational_system=EducationalSystemEnum(existing_specialty.educational_system)
+            educational_system=EducationalSystemEnum(existing_specialty.educational_system),
+            grade=10
         )
 
         with pytest.raises(HTTPException) as e:
@@ -475,7 +480,8 @@ class TestTeacherServiceUpdateSpecialties:
         print("\n--- Testing add_specialty_as_unauthorized_user_fails ---")
         specialty_data = user_models.TeacherSpecialtyWrite(
             subject=SubjectEnum.GEOGRAPHY,
-            educational_system=EducationalSystemEnum.SAT
+            educational_system=EducationalSystemEnum.SAT,
+            grade=8
         )
 
         with pytest.raises(HTTPException) as e:
@@ -501,7 +507,8 @@ class TestTeacherServiceUpdateSpecialties:
         # ARRANGE: Add a new, unused specialty first
         specialty_data = user_models.TeacherSpecialtyWrite(
             subject=SubjectEnum.IT,
-            educational_system=EducationalSystemEnum.NATIONAL_KW
+            educational_system=EducationalSystemEnum.NATIONAL_KW,
+            grade=8
         )
         teacher_with_new_specialty = await teacher_service.add_specialty_to_teacher(
             teacher_id=test_teacher_orm.id,
@@ -543,7 +550,8 @@ class TestTeacherServiceUpdateSpecialties:
         # ARRANGE: Add a new, unused specialty first
         specialty_data = user_models.TeacherSpecialtyWrite(
             subject=SubjectEnum.IT,
-            educational_system=EducationalSystemEnum.NATIONAL_EG
+            educational_system=EducationalSystemEnum.NATIONAL_EG,
+            grade=8
         )
         teacher_with_new_specialty = await teacher_service.add_specialty_to_teacher(
             teacher_id=test_teacher_orm.id,
