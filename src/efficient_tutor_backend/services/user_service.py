@@ -851,6 +851,29 @@ class TeacherService(UserService):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_all_for_student_subject(self, query: user_models.TeacherSpecialtyQuery, current_user: db_models.Users) -> list[db_models.Teachers]:
+        """
+        Fetches a list of all Teacher objects that have a specialty matching the query.
+        This action is restricted to ADMINS and PARENTS only.
+        Returns ORM models directly.
+        """
+        log.info(f"User {current_user.id} attempting to get all teachers for subject {query.subject}.")
+        if current_user.role not in [UserRole.ADMIN.value, UserRole.PARENT.value]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to view this list."
+            )
+
+        stmt = select(db_models.Teachers).join(db_models.TeacherSpecialties).filter(
+            db_models.TeacherSpecialties.subject == query.subject.value,
+            db_models.TeacherSpecialties.educational_system == query.educational_system.value,
+            db_models.TeacherSpecialties.grade == query.grade
+        ).options(selectinload(db_models.Teachers.teacher_specialties)).distinct()
+
+        result = await self.db.execute(stmt)
+        teachers = result.scalars().all()
+        return teachers
+
     async def create_teacher(
         self,
         teacher_data: user_models.TeacherCreate,

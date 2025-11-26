@@ -227,6 +227,11 @@ class TeachersAPI:
                 methods=["GET"], 
                 response_model=list[user_models.TeacherRead])
         self.router.add_api_route(
+                "/by_specialty",
+                self.get_all_by_specialty,
+                methods=["GET"],
+                response_model=list[user_models.TeacherRead])
+        self.router.add_api_route(
                 "/{teacher_id}", 
                 self.get_by_id, 
                 methods=["GET"], 
@@ -255,6 +260,13 @@ class TeachersAPI:
 
     async def get_all(self, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], teacher_service: Annotated[TeacherService, Depends(TeacherService)]):
         teachers = await teacher_service.get_all(current_user)
+        return to_pydantic_list(teachers, user_models.TeacherRead)
+
+    async def get_all_by_specialty(self, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], query: Annotated[user_models.TeacherSpecialtyQuery, Depends()], teacher_service: Annotated[TeacherService, Depends(TeacherService)]):
+        """
+        Gets all teachers that match a specific specialty query.
+        """
+        teachers = await teacher_service.get_all_for_student_subject(query, current_user)
         return to_pydantic_list(teachers, user_models.TeacherRead)
 
     async def get_by_id(self, teacher_id: UUID, user_service: Annotated[UserService, Depends(UserService)]):

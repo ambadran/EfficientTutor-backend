@@ -206,6 +206,15 @@ class TeacherSpecialtyWrite(BaseModel):
     grade: int
 
 
+class TeacherSpecialtyQuery(BaseModel):
+    """
+    Pydantic model for querying teachers by specialty.
+    """
+    subject: SubjectEnum
+    educational_system: EducationalSystemEnum
+    grade: int
+
+
 class TeacherCreate(BaseModel):
     """
     Pydantic model for validating the JSON payload when CREATING a new teacher.
