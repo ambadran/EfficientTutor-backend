@@ -630,3 +630,111 @@ class TestTeacherServiceUpdateSpecialties:
 @pytest.mark.anyio
 class TestTeacherServiceDelete:
     pass
+
+
+@pytest.mark.anyio
+class TestTeacherServiceGetBySpecialty:
+    """Tests for the get_all_for_student_subject method."""
+
+    async def test_get_all_for_student_subject_as_parent_success(
+        self,
+        teacher_service: TeacherService,
+        test_parent_orm: db_models.Parents,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that a parent can successfully fetch teachers by specialty."""
+        print("\n--- Testing get_all_for_student_subject as PARENT (Happy Path) ---")
+        query = user_models.TeacherSpecialtyQuery(
+            subject=SubjectEnum.PHYSICS,
+            educational_system=EducationalSystemEnum.IGCSE,
+            grade=10
+        )
+
+        teachers = await teacher_service.get_all_for_student_subject(query, test_parent_orm)
+
+        assert isinstance(teachers, list)
+        assert len(teachers) > 0
+        assert any(t.id == test_teacher_orm.id for t in teachers)
+        print(f"--- Found {len(teachers)} teachers for the specified specialty. ---")
+
+    async def test_get_all_for_student_subject_as_admin_success(
+        self,
+        teacher_service: TeacherService,
+        test_admin_orm: db_models.Admins,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that an admin can successfully fetch teachers by specialty."""
+        print("\n--- Testing get_all_for_student_subject as ADMIN (Happy Path) ---")
+        query = user_models.TeacherSpecialtyQuery(
+            subject=SubjectEnum.PHYSICS,
+            educational_system=EducationalSystemEnum.IGCSE,
+            grade=10
+        )
+
+        teachers = await teacher_service.get_all_for_student_subject(query, test_admin_orm)
+
+        assert isinstance(teachers, list)
+        assert len(teachers) > 0
+        assert any(t.id == test_teacher_orm.id for t in teachers)
+        print(f"--- Found {len(teachers)} teachers for the specified specialty. ---")
+
+    async def test_get_all_for_student_subject_no_match(
+        self,
+        teacher_service: TeacherService,
+        test_parent_orm: db_models.Parents
+    ):
+        """Tests that an empty list is returned when no teachers match the specialty."""
+        print("\n--- Testing get_all_for_student_subject with no matching specialty ---")
+        # This subject/system combination is not in the test data for any teacher
+        query = user_models.TeacherSpecialtyQuery(
+            subject=SubjectEnum.GEOGRAPHY,
+            educational_system=EducationalSystemEnum.IGCSE,
+            grade=10
+        )
+
+        teachers = await teacher_service.get_all_for_student_subject(query, test_parent_orm)
+
+        assert isinstance(teachers, list)
+        assert len(teachers) == 0
+        print("--- Correctly returned an empty list for a non-matching specialty. ---")
+
+    async def test_get_all_for_student_subject_as_teacher_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that a teacher is forbidden from fetching teachers by specialty."""
+        print("\n--- Testing get_all_for_student_subject as TEACHER (Forbidden) ---")
+        query = user_models.TeacherSpecialtyQuery(
+            subject=SubjectEnum.PHYSICS,
+            educational_system=EducationalSystemEnum.IGCSE,
+            grade=10
+        )
+
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.get_all_for_student_subject(query, test_teacher_orm)
+
+        assert e.value.status_code == 403
+        assert "You do not have permission to view this list." in e.value.detail
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_get_all_for_student_subject_as_student_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_student_orm: db_models.Students
+    ):
+        """Tests that a student is forbidden from fetching teachers by specialty."""
+        print("\n--- Testing get_all_for_student_subject as STUDENT (Forbidden) ---")
+        query = user_models.TeacherSpecialtyQuery(
+            subject=SubjectEnum.PHYSICS,
+            educational_system=EducationalSystemEnum.IGCSE,
+            grade=10
+        )
+
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.get_all_for_student_subject(query, test_student_orm)
+
+        assert e.value.status_code == 403
+        assert "You do not have permission to view this list." in e.value.detail
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+

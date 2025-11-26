@@ -494,3 +494,168 @@ class TestTeacherSpecialtyAPI:
         assert response.json()["detail"] == "Specialty not found."
         print("Deleting non-existent specialty failed as expected.")
 
+
+@pytest.mark.anyio
+class TestTeacherAPIGetBySpecialty:
+    """Test class for the GET /teachers/by_specialty endpoint."""
+
+    async def test_get_all_by_specialty_as_parent_success(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that a parent can successfully fetch teachers by specialty."""
+        print("\n--- Testing GET /teachers/by_specialty as PARENT (Happy Path) ---")
+        headers = auth_headers_for_user(test_parent_orm)
+        
+        # This query should match test_teacher_orm from the seed data
+        query_params = {
+            "subject": "Physics",
+            "educational_system": "IGCSE",
+            "grade": 10
+        }
+
+        response = client.get("/teachers/by_specialty", headers=headers, params=query_params)
+
+        assert response.status_code == 200, response.json()
+        response_data = response.json()
+        assert isinstance(response_data, list)
+        assert len(response_data) > 0
+        
+        # Verify the correct teacher is in the response
+        teacher_ids = {t['id'] for t in response_data}
+        assert str(test_teacher_orm.id) in teacher_ids
+        
+        # Verify the response model structure
+        first_teacher = response_data[0]
+        assert "teacher_specialties" in first_teacher
+        assert isinstance(first_teacher["teacher_specialties"], list)
+
+        print(f"--- Successfully found {len(response_data)} teachers for the query. ---")
+
+    async def test_get_all_by_specialty_as_admin_success(
+        self,
+        client: TestClient,
+        test_admin_orm: db_models.Admins,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that an admin can successfully fetch teachers by specialty."""
+        print("\n--- Testing GET /teachers/by_specialty as ADMIN (Happy Path) ---")
+        headers = auth_headers_for_user(test_admin_orm)
+        
+        query_params = {
+            "subject": "Physics",
+            "educational_system": "IGCSE",
+            "grade": 10
+        }
+
+        response = client.get("/teachers/by_specialty", headers=headers, params=query_params)
+
+        assert response.status_code == 200, response.json()
+        response_data = response.json()
+        assert len(response_data) > 0
+        teacher_ids = {t['id'] for t in response_data}
+        assert str(test_teacher_orm.id) in teacher_ids
+        print(f"--- Successfully found {len(response_data)} teachers for the query. ---")
+
+    async def test_get_all_by_specialty_no_match(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents
+    ):
+        """Tests an empty list is returned when no teachers match the specialty."""
+        print("\n--- Testing GET /teachers/by_specialty with no matching specialty ---")
+        headers = auth_headers_for_user(test_parent_orm)
+        
+        query_params = {
+            "subject": "Geography",
+            "educational_system": "IGCSE", # This combination doesn't exist
+            "grade": 10
+        }
+
+        response = client.get("/teachers/by_specialty", headers=headers, params=query_params)
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == []
+        print("--- Correctly received an empty list for a non-matching specialty. ---")
+
+    async def test_get_all_by_specialty_as_teacher_forbidden(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that a teacher is forbidden from using this endpoint."""
+        print("\n--- Testing GET /teachers/by_specialty as TEACHER (Forbidden) ---")
+        headers = auth_headers_for_user(test_teacher_orm)
+        query_params = {"subject": "Math", "educational_system": "SAT", "grade": 10}
+
+        response = client.get("/teachers/by_specialty", headers=headers, params=query_params)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "You do not have permission to view this list."
+        print(f"--- Correctly raised HTTPException: {response.status_code} ---")
+
+    async def test_get_all_by_specialty_as_student_forbidden(
+        self,
+        client: TestClient,
+        test_student_orm: db_models.Students
+    ):
+        """Tests that a student is forbidden from using this endpoint."""
+        print("\n--- Testing GET /teachers/by_specialty as STUDENT (Forbidden) ---")
+        headers = auth_headers_for_user(test_student_orm)
+        query_params = {"subject": "Math", "educational_system": "SAT", "grade": 10}
+
+        response = client.get("/teachers/by_specialty", headers=headers, params=query_params)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "You do not have permission to view this list."
+        print(f"--- Correctly raised HTTPException: {response.status_code} ---")
+
+    async def test_get_all_by_specialty_no_auth_fails(
+        self,
+        client: TestClient
+    ):
+        """Tests that an unauthenticated user cannot use the endpoint."""
+        print("\n--- Testing GET /teachers/by_specialty without authentication ---")
+        query_params = {"subject": "Math", "educational_system": "SAT", "grade": 10}
+        
+        response = client.get("/teachers/by_specialty", params=query_params)
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+        print("--- Unauthenticated request failed as expected. ---")
+
+    async def test_get_all_by_specialty_invalid_query_params(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents
+    ):
+        """Tests that requests with invalid or missing query parameters fail."""
+        print("\n--- Testing GET /teachers/by_specialty with invalid parameters ---")
+        headers = auth_headers_for_user(test_parent_orm)
+        
+        # Missing 'grade'
+        invalid_params = {
+            "subject": "Math",
+            "educational_system": "SAT"
+        }
+        
+        response = client.get("/teachers/by_specialty", headers=headers, params=invalid_params)
+
+        assert response.status_code == 422 # Unprocessable Entity
+        print("--- Request with missing 'grade' failed with 422 as expected. ---")
+        
+        # Invalid value for 'subject'
+        invalid_params_value = {
+            "subject": "Quantum Physics",
+            "educational_system": "SAT",
+            "grade": 10
+        }
+        
+        response_invalid_value = client.get("/teachers/by_specialty", headers=headers, params=invalid_params_value)
+        
+        assert response_invalid_value.status_code == 422 # Unprocessable Entity
+        print("--- Request with invalid 'subject' value failed with 422 as expected. ---")
+
+
