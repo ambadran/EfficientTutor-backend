@@ -1,5 +1,5 @@
 """
-A standalone script to update user passwords in the database.
+(V0.3) standalone script to update user passwords in the database.
 
 This script connects to the database, finds specific users by their first_name,
 and updates their passwords with a new hash generated from a plain-text password.

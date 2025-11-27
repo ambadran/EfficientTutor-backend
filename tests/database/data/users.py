@@ -65,6 +65,7 @@ USERS_DATA = [
     {
         "factory": "StudentFactory",
         "id": TEST_STUDENT_ID,
+        "grade": 10,
         "email": "test.student@example.com",
         "first_name": "Test",
         "last_name": "Student",
@@ -74,6 +75,7 @@ USERS_DATA = [
     {
         "factory": "StudentFactory",
         "id": TEST_UNRELATED_STUDENT_ID,
+        "grade": 10,
         "email": "unrelated.student@example.com",
         "first_name": "Unrelated",
         "last_name": "Student",

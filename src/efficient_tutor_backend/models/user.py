@@ -28,7 +28,7 @@ class StudentSubjectRead(BaseModel):
     lessons_per_week: int
     teacher_id: UUID
     educational_system: EducationalSystemEnum
-    grade: int
+    grade: int = Field(..., ge=1, le=12)
     shared_with_student_ids: list[UUID] = Field(default_factory=list) # list of student IDs this subject is shared with
 
     model_config = ConfigDict(from_attributes=True)
@@ -79,7 +79,7 @@ class TeacherSpecialtyRead(BaseModel):
     id: UUID
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
-    grade: int
+    grade: int = Field(..., ge=1, le=12)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -101,7 +101,7 @@ class StudentRead(UserRead):
     status: StudentStatusEnum
     min_duration_mins: int
     max_duration_mins: int
-    grade: Optional[int] = None
+    grade: Optional[int] = Field(None, ge=1, le=12)
     generated_password: Optional[str] = None # New field
     
     # New relational fields
@@ -119,7 +119,7 @@ class StudentSubjectWrite(BaseModel):
     subject: SubjectEnum
     teacher_id: UUID
     educational_system: EducationalSystemEnum
-    grade: int
+    grade: int = Field(..., ge=1, le=12)
     lessons_per_week: int = 1
     shared_with_student_ids: list[UUID] = Field(default_factory=list)
 
@@ -148,7 +148,7 @@ class StudentCreate(BaseModel):
     status: StudentStatusEnum = StudentStatusEnum.NONE
     min_duration_mins: int = 60
     max_duration_mins: int = 90
-    grade: Optional[int] = None
+    grade: Optional[int] = Field(None, ge=1, le=12)
     
     student_subjects: list[StudentSubjectWrite] = Field(default_factory=list)
     student_availability_intervals: list[StudentAvailabilityIntervalWrite] = Field(default_factory=list)
@@ -168,7 +168,7 @@ class StudentUpdate(BaseModel):
     status: Optional[StudentStatusEnum] = None
     min_duration_mins: Optional[int] = None
     max_duration_mins: Optional[int] = None
-    grade: Optional[int] = None
+    grade: Optional[int] = Field(None, ge=1, le=12)
     
     # For nested lists, we typically replace the entire list on update
     student_subjects: Optional[list[StudentSubjectWrite]] = None
@@ -203,7 +203,7 @@ class TeacherSpecialtyWrite(BaseModel):
     """
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
-    grade: int
+    grade: int = Field(..., ge=1, le=12)
 
 
 class TeacherSpecialtyQuery(BaseModel):
@@ -212,7 +212,7 @@ class TeacherSpecialtyQuery(BaseModel):
     """
     subject: SubjectEnum
     educational_system: EducationalSystemEnum
-    grade: int
+    grade: int = Field(..., ge=1, le=12)
 
 
 class TeacherCreate(BaseModel):

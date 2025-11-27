@@ -77,6 +77,113 @@ class TestTeacherServiceRead:
 
         assert "You do not have permission to view this list." in e.value.detail
 
+    async def test_get_specialties_as_owner_success(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that a teacher can successfully retrieve their own specialties."""
+        print("\n--- Testing get_specialties as OWNER ---")
+        
+        specialties = await teacher_service.get_specialties(test_teacher_orm.id, test_teacher_orm)
+        
+        assert isinstance(specialties, list)
+        assert len(specialties) == len(test_teacher_orm.teacher_specialties)
+        assert all(isinstance(s, user_models.TeacherSpecialtyRead) for s in specialties)
+        if specialties:
+            assert specialties[0].subject.value in [s.subject for s in test_teacher_orm.teacher_specialties]
+        
+        print(f"--- Successfully retrieved {len(specialties)} specialties. ---")
+
+    async def test_get_specialties_as_admin_success(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_admin_orm: db_models.Admins
+    ):
+        """Tests that an admin can successfully retrieve a teacher's specialties."""
+        print("\n--- Testing get_specialties as ADMIN ---")
+        
+        specialties = await teacher_service.get_specialties(test_teacher_orm.id, test_admin_orm)
+        
+        assert isinstance(specialties, list)
+        assert len(specialties) == len(test_teacher_orm.teacher_specialties)
+        print(f"--- Admin successfully retrieved {len(specialties)} specialties. ---")
+
+    async def test_get_specialties_as_unrelated_teacher_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_unrelated_teacher_orm: db_models.Teachers
+    ):
+        """Tests that an unrelated teacher is forbidden from retrieving specialties."""
+        print("\n--- Testing get_specialties as UNRELATED TEACHER (Forbidden) ---")
+        
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.get_specialties(test_teacher_orm.id, test_unrelated_teacher_orm)
+        
+        assert e.value.status_code == 403
+        assert e.value.detail == "You do not have permission to view these specialties."
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_get_specialties_as_parent_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_parent_orm: db_models.Parents
+    ):
+        """Tests that a parent is forbidden from retrieving specialties."""
+        print("\n--- Testing get_specialties as PARENT (Forbidden) ---")
+        
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.get_specialties(test_teacher_orm.id, test_parent_orm)
+        
+        assert e.value.status_code == 403
+        assert e.value.detail == "You do not have permission to view these specialties."
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_get_specialties_for_nonexistent_teacher_fails(
+        self,
+        teacher_service: TeacherService,
+        test_admin_orm: db_models.Admins
+    ):
+        """Tests that requesting specialties for a non-existent teacher raises a 404."""
+        print("\n--- Testing get_specialties for non-existent teacher ---")
+        non_existent_id = UUID(int=0)
+        
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.get_specialties(non_existent_id, test_admin_orm)
+            
+        assert e.value.status_code == 404
+        assert e.value.detail == "Teacher not found."
+        print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+    async def test_get_specialties_for_teacher_with_no_specialties(
+        self,
+        teacher_service: TeacherService,
+        test_admin_orm: db_models.Admins,
+        mock_geo_service: MagicMock
+    ):
+        """Tests retrieving specialties for a valid teacher who has none."""
+        print("\n--- Testing get_specialties for teacher with no specialties ---")
+        # ARRANGE: Create a new teacher with no specialties
+        teacher_data = user_models.TeacherCreate(
+            email="no.specialty.teacher@example.com",
+            password="password",
+            first_name="No",
+            last_name="Specialty",
+            teacher_specialties=[] # Empty list
+        )
+        new_teacher = await teacher_service.create_teacher(teacher_data, "1.2.3.4")
+
+        # ACT
+        specialties = await teacher_service.get_specialties(new_teacher.id, test_admin_orm)
+
+        # ASSERT
+        assert isinstance(specialties, list)
+        assert len(specialties) == 0
+        print("--- Successfully retrieved an empty list for teacher with no specialties. ---")
+
 
 @pytest.mark.anyio
 class TestTeacherServiceCreate:
