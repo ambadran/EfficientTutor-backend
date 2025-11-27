@@ -232,6 +232,11 @@ class TeachersAPI:
                 methods=["GET"],
                 response_model=list[user_models.TeacherRead])
         self.router.add_api_route(
+                "/{teacher_id}/specialties",
+                self.get_specialties_for_teacher,
+                methods=["GET"],
+                response_model=list[user_models.TeacherSpecialtyRead])
+        self.router.add_api_route(
                 "/{teacher_id}", 
                 self.get_by_id, 
                 methods=["GET"], 
@@ -257,6 +262,18 @@ class TeachersAPI:
                 self.delete_specialty,
                 methods=["DELETE"],
                 status_code=status.HTTP_204_NO_CONTENT)
+
+    async def get_specialties_for_teacher(
+        self,
+        teacher_id: UUID,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        teacher_service: Annotated[TeacherService, Depends(TeacherService)]
+    ) -> list[user_models.TeacherSpecialtyRead]:
+        """
+        Retrieves all specialties for a specific teacher.
+        Authorized for the teacher themselves or an admin.
+        """
+        return await teacher_service.get_specialties(teacher_id, current_user)
 
     async def get_all(self, current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)], teacher_service: Annotated[TeacherService, Depends(TeacherService)]):
         teachers = await teacher_service.get_all(current_user)

@@ -1,5 +1,5 @@
 """
-A standalone script to run all SQL migration files in the correct order.
+(V0.3) standalone script to run all SQL migration files in the correct order.
 
 This script connects to the database and executes the raw SQL from each
 migration file located in the `src/efficient_tutor_backend/database/sql/` directory.

@@ -6,6 +6,7 @@ from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.database.db_enums import SubjectEnum, EducationalSystemEnum
 from src.efficient_tutor_backend.services.security import JWTHandler
 from src.efficient_tutor_backend.models import user as user_models
+from src.efficient_tutor_backend.services.user_service import TeacherService
 
 # Helper to create auth headers
 def auth_headers_for_user(user: db_models.Users) -> dict:
@@ -657,5 +658,132 @@ class TestTeacherAPIGetBySpecialty:
         
         assert response_invalid_value.status_code == 422 # Unprocessable Entity
         print("--- Request with invalid 'subject' value failed with 422 as expected. ---")
+
+
+@pytest.mark.anyio
+class TestTeacherAPIGetSpecialties:
+    """Test class for the GET /teachers/{teacher_id}/specialties endpoint."""
+
+    async def test_get_specialties_endpoint_as_owner_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that a teacher can successfully get their own specialties via the API."""
+        print(f"\n--- Testing GET /teachers/{{teacher_id}}/specialties as OWNER ---")
+        headers = auth_headers_for_user(test_teacher_orm)
+        
+        response = client.get(f"/teachers/{test_teacher_orm.id}/specialties", headers=headers)
+        
+        assert response.status_code == 200, response.json()
+        response_data = response.json()
+        assert isinstance(response_data, list)
+        assert len(response_data) == len(test_teacher_orm.teacher_specialties)
+        
+        # Basic structural check
+        if response_data:
+            assert "subject" in response_data[0]
+            assert "educational_system" in response_data[0]
+            assert "grade" in response_data[0]
+        
+        print(f"--- Successfully retrieved {len(response_data)} specialties for owner. ---")
+
+    async def test_get_specialties_endpoint_as_admin_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_admin_orm: db_models.Admins
+    ):
+        """Tests that an admin can successfully get a teacher's specialties via the API."""
+        print(f"\n--- Testing GET /teachers/{{teacher_id}}/specialties as ADMIN ---")
+        headers = auth_headers_for_user(test_admin_orm)
+        
+        response = client.get(f"/teachers/{test_teacher_orm.id}/specialties", headers=headers)
+        
+        assert response.status_code == 200, response.json()
+        response_data = response.json()
+        assert isinstance(response_data, list)
+        assert len(response_data) == len(test_teacher_orm.teacher_specialties)
+        print(f"--- Admin successfully retrieved {len(response_data)} specialties. ---")
+
+    async def test_get_specialties_endpoint_as_unrelated_teacher_forbidden(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_unrelated_teacher_orm: db_models.Teachers
+    ):
+        """Tests that an unrelated teacher is forbidden from getting specialties."""
+        print(f"\n--- Testing GET /teachers/{{teacher_id}}/specialties as UNRELATED TEACHER (Forbidden) ---")
+        headers = auth_headers_for_user(test_unrelated_teacher_orm)
+        
+        response = client.get(f"/teachers/{test_teacher_orm.id}/specialties", headers=headers)
+        
+        assert response.status_code == 403
+        assert response.json()["detail"] == "You do not have permission to view these specialties."
+        print(f"--- Correctly raised HTTPException: {response.status_code} ---")
+
+    async def test_get_specialties_endpoint_as_parent_forbidden(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_parent_orm: db_models.Parents
+    ):
+        """Tests that a parent is forbidden from getting specialties."""
+        print(f"\n--- Testing GET /teachers/{{teacher_id}}/specialties as PARENT (Forbidden) ---")
+        headers = auth_headers_for_user(test_parent_orm)
+        
+        response = client.get(f"/teachers/{test_teacher_orm.id}/specialties", headers=headers)
+        
+        assert response.status_code == 403
+        assert response.json()["detail"] == "You do not have permission to view these specialties."
+        print(f"--- Correctly raised HTTPException: {response.status_code} ---")
+
+    async def test_get_specialties_endpoint_as_student_forbidden(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_student_orm: db_models.Students
+    ):
+        """Tests that a student is forbidden from getting specialties."""
+        print(f"\n--- Testing GET /teachers/{{teacher_id}}/specialties as STUDENT (Forbidden) ---")
+        headers = auth_headers_for_user(test_student_orm)
+        
+        response = client.get(f"/teachers/{test_teacher_orm.id}/specialties", headers=headers)
+        
+        assert response.status_code == 403
+        assert response.json()["detail"] == "You do not have permission to view these specialties."
+        print(f"--- Correctly raised HTTPException: {response.status_code} ---")
+
+    async def test_get_specialties_endpoint_no_auth_fails(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that an unauthenticated user cannot get specialties."""
+        print("\n--- Testing GET /teachers/{teacher_id}/specialties without authentication ---")
+        
+        response = client.get(f"/teachers/{test_teacher_orm.id}/specialties")
+        
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+        print("--- Unauthenticated request failed as expected. ---")
+
+    async def test_get_specialties_endpoint_not_found(
+        self,
+        client: TestClient,
+        test_admin_orm: db_models.Admins
+    ):
+        """Tests that requesting specialties for a non-existent teacher fails with 404."""
+        print("\n--- Testing GET /teachers/{teacher_id}/specialties for non-existent teacher ---")
+        headers = auth_headers_for_user(test_admin_orm)
+        non_existent_id = uuid4()
+        
+        response = client.get(f"/teachers/{non_existent_id}/specialties", headers=headers)
+        
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Teacher not found."
+        print(f"--- Correctly raised HTTPException: {response.status_code} ---")
+
+
 
 

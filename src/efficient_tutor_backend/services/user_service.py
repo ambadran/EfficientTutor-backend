@@ -874,11 +874,45 @@ class TeacherService(UserService):
         teachers = result.scalars().all()
         return teachers
 
+    async def get_all_for_student_subject_for_api(self, query: user_models.TeacherSpecialtyQuery, current_user: db_models.Users) -> list[user_models.TeacherRead]:
+        """
+        API-facing method: Fetches a list of all Teacher objects that have a specialty matching the query.
+        This action is restricted to ADMINS and PARENTS only.
+        Returns Pydantic models for API response.
+        """
+        teachers_orm = await self.get_all_for_student_subject(query, current_user)
+        return [user_models.TeacherRead.model_validate(teacher) for teacher in teachers_orm]
+
+    async def get_specialties(self, teacher_id: UUID, current_user: db_models.Users) -> list[user_models.TeacherSpecialtyRead]:
+        """
+        Fetches the specialties for a specific teacher.
+        - Authorized for the teacher themselves or an admin.
+        """
+        log.info(f"User {current_user.id} attempting to get specialties for teacher {teacher_id}.")
+
+        teacher = await self.get_user_by_id(teacher_id)
+        if not teacher or teacher.role != UserRole.TEACHER.value:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Teacher not found."
+            )
+
+        is_owner = current_user.id == teacher_id
+        is_admin = current_user.role == UserRole.ADMIN.value
+        
+        if not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to view these specialties."
+            )
+
+        return [user_models.TeacherSpecialtyRead.model_validate(specialty) for specialty in teacher.teacher_specialties]
+
     async def create_teacher(
-        self,
-        teacher_data: user_models.TeacherCreate,
-        ip_address: str
-    ) -> user_models.TeacherRead:
+            self,
+            teacher_data: user_models.TeacherCreate,
+            ip_address: str
+        ) -> user_models.TeacherRead:
         """
         Creates a new teacher user (for sign-up).
         - Checks for existing email.
