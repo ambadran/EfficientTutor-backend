@@ -92,8 +92,8 @@ class TuitionLogService:
                 selectinload(db_models.TuitionLogs.teacher),
                 selectinload(db_models.TuitionLogs.tuition),
                 selectinload(db_models.TuitionLogs.tuition_log_charges).options(
-                    selectinload(db_models.TuitionLogCharges.student).joinedload('*'),
-                    selectinload(db_models.TuitionLogCharges.parent).joinedload('*')
+selectinload(db_models.TuitionLogCharges.student),
+                    selectinload(db_models.TuitionLogCharges.parent)
                 )
             ).filter(db_models.TuitionLogs.id == log_id)
             
@@ -122,8 +122,8 @@ class TuitionLogService:
             selectinload(db_models.TuitionLogs.teacher),
             selectinload(db_models.TuitionLogs.tuition),
             selectinload(db_models.TuitionLogs.tuition_log_charges).options(
-                selectinload(db_models.TuitionLogCharges.student).joinedload('*'),
-                selectinload(db_models.TuitionLogCharges.parent).joinedload('*')
+selectinload(db_models.TuitionLogCharges.student),
+                selectinload(db_models.TuitionLogCharges.parent)
             )
         )
         
@@ -677,7 +677,7 @@ class PaymentLogService:
         log.info(f"Internal fetch for payment log by ID: {log_id}")
         try:
             stmt = select(db_models.PaymentLogs).options(
-                selectinload(db_models.PaymentLogs.parent).joinedload('*'),
+selectinload(db_models.PaymentLogs.parent),
                 selectinload(db_models.PaymentLogs.teacher)
             ).filter(db_models.PaymentLogs.id == log_id)
             
@@ -700,7 +700,7 @@ class PaymentLogService:
         
         try:
             stmt = select(db_models.PaymentLogs).options(
-                selectinload(db_models.PaymentLogs.parent).joinedload('*'),
+selectinload(db_models.PaymentLogs.parent),
                 selectinload(db_models.PaymentLogs.teacher)
             )
             

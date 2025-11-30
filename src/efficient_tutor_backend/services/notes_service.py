@@ -94,7 +94,7 @@ class NotesService:
         """
         log.info(f"Internal fetch for note by ID: {note_id}")
         stmt = select(db_models.Notes).options(
-            selectinload(db_models.Notes.student).joinedload('*'), # Load student (and their parent)
+selectinload(db_models.Notes.student),
             selectinload(db_models.Notes.teacher)
         ).filter(db_models.Notes.id == note_id)
         
@@ -138,7 +138,7 @@ class NotesService:
         
         # 1. Base query with eager loading
         stmt = select(db_models.Notes).options(
-            selectinload(db_models.Notes.student).joinedload('*'),
+selectinload(db_models.Notes.student),
             selectinload(db_models.Notes.teacher)
         ).order_by(db_models.Notes.created_at.desc())
 

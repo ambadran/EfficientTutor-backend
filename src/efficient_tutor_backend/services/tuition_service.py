@@ -84,8 +84,8 @@ class TuitionService:
                 selectinload(db_models.Tuitions.teacher),
                 selectinload(db_models.Tuitions.meeting_link),
                 selectinload(db_models.Tuitions.tuition_template_charges).options(
-                    selectinload(db_models.TuitionTemplateCharges.student).joinedload('*'),
-                    selectinload(db_models.TuitionTemplateCharges.parent).joinedload('*')
+                    selectinload(db_models.TuitionTemplateCharges.student),
+                    selectinload(db_models.TuitionTemplateCharges.parent)
                 )
             ).filter(db_models.Tuitions.id == tuition_id)
             
@@ -113,8 +113,8 @@ class TuitionService:
             selectinload(db_models.Tuitions.teacher),
             selectinload(db_models.Tuitions.meeting_link),
             selectinload(db_models.Tuitions.tuition_template_charges).options(
-                selectinload(db_models.TuitionTemplateCharges.student).joinedload('*'),
-                selectinload(db_models.TuitionTemplateCharges.parent).joinedload('*')
+                    selectinload(db_models.TuitionTemplateCharges.student),
+                    selectinload(db_models.TuitionTemplateCharges.parent)
             )
         ).order_by(db_models.Tuitions.subject, db_models.Tuitions.lesson_index).distinct()
 
