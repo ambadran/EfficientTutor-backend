@@ -40,7 +40,7 @@ class HashedPassword:
 # --- User Data ---
 # Dictionary mapping the user's first_name to their new plain-text password.
 PASSWORDS_TO_UPDATE = {
-    "Manal": "New @2025",
+    "Manal": "New@2025",
     "Enas": "mumzy31*",
     "Ayman": "Yoyoyo.55",
     "Yasmine": "Yasmine @1977",
