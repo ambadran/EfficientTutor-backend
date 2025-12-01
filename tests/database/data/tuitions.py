@@ -8,42 +8,46 @@ from tests.constants import (
 )
 from src.efficient_tutor_backend.database.db_enums import EducationalSystemEnum
 
-# This list will be processed in order by the seeder.
-# We define Tuitions first, then their dependent objects.
+# --- Tuitions ---
 TUITIONS_DATA = [
-    # --- Tuitions ---
     {
-        "factory": "TuitionFactory",
+        "factory": "RawTuitionFactory",
         "id": TEST_TUITION_ID,
         "teacher_id": TEST_TEACHER_ID,
         "educational_system": EducationalSystemEnum.IGCSE.value,
         "grade": 10,
     },
     {
-        "factory": "TuitionFactory",
+        "factory": "RawTuitionFactory",
         "id": TEST_TUITION_ID_NO_LINK,
         "teacher_id": TEST_TEACHER_ID,
         "educational_system": EducationalSystemEnum.IGCSE.value,
         "grade": 10,
     },
-    # --- Meeting Links (dependent on Tuitions) ---
+]
+
+# --- Meeting Links ---
+MEETING_LINKS_DATA = [
     {
-        "factory": "MeetingLinkFactory",
+        "factory": "RawMeetingLinkFactory",
         "tuition_id": TEST_TUITION_ID,
         "meeting_link_type": "GOOGLE_MEET",
         "meeting_link": "https://meet.google.com/abc-defg-hij",
         "meeting_id": "abc-defg-hij",
         "meeting_password": None,
     },
-    # --- Template Charges (dependent on Tuitions, Students, Parents) ---
+]
+
+# --- Template Charges ---
+TUITION_TEMPLATE_CHARGES_DATA = [
     {
-        "factory": "TuitionTemplateChargeFactory",
+        "factory": "RawTuitionTemplateChargeFactory",
         "tuition_id": TEST_TUITION_ID,
         "student_id": TEST_STUDENT_ID,
         "parent_id": TEST_PARENT_ID,
     },
     {
-        "factory": "TuitionTemplateChargeFactory",
+        "factory": "RawTuitionTemplateChargeFactory",
         "tuition_id": TEST_TUITION_ID_NO_LINK,
         "student_id": TEST_STUDENT_ID,
         "parent_id": TEST_PARENT_ID,

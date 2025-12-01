@@ -8,10 +8,8 @@ from tests.constants import (
 )
 from src.efficient_tutor_backend.database.db_enums import AdminPrivilegeType
 
-# The 'factory' key will be used by the seeder to know which factory to call.
-# The rest of the keys are the arguments for that factory.
-USERS_DATA = [
-    # --- Admins ---
+# --- Admins ---
+ADMINS_DATA = [
     {
         "factory": "AdminFactory",
         "id": TEST_ADMIN_ID,
@@ -28,7 +26,10 @@ USERS_DATA = [
         "last_name": "Admin",
         "privileges": AdminPrivilegeType.NORMAL.value,
     },
-    # --- Teachers ---
+]
+
+# --- Teachers ---
+TEACHERS_DATA = [
     {
         "factory": "TeacherFactory",
         "id": TEST_TEACHER_ID,
@@ -43,7 +44,10 @@ USERS_DATA = [
         "first_name": "Unrelated",
         "last_name": "Teacher",
     },
-    # --- Parents ---
+]
+
+# --- Parents ---
+PARENTS_DATA = [
     {
         "factory": "ParentFactory",
         "id": TEST_PARENT_ID,
@@ -58,28 +62,28 @@ USERS_DATA = [
         "first_name": "Unrelated",
         "last_name": "Parent",
     },
-    # --- Students ---
-    # Note: Students have a dependency on a parent. We will handle this
-    # in the seeder script by creating users in order and passing the
-    # created parent object. For now, we define the relationship by ID.
+]
+
+# --- Students ---
+STUDENTS_DATA = [
     {
-        "factory": "StudentFactory",
+        "factory": "RawStudentFactory",
         "id": TEST_STUDENT_ID,
         "grade": 10,
         "email": "test.student@example.com",
         "first_name": "Test",
         "last_name": "Student",
-        "parent_id": TEST_PARENT_ID, # Define the relationship
+        "parent_id": TEST_PARENT_ID, 
         "generated_password": TEST_PASSWORD_STUDENT
     },
     {
-        "factory": "StudentFactory",
+        "factory": "RawStudentFactory",
         "id": TEST_UNRELATED_STUDENT_ID,
         "grade": 10,
         "email": "unrelated.student@example.com",
         "first_name": "Unrelated",
         "last_name": "Student",
-        "parent_id": TEST_UNRELATED_PARENT_ID, # This is the crucial link
+        "parent_id": TEST_UNRELATED_PARENT_ID, 
         "generated_password": TEST_PASSWORD_STUDENT
     },
 ]

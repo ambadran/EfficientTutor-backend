@@ -7,7 +7,7 @@ from datetime import time
 
 STUDENT_DETAILS_DATA = [
     {
-        "factory": "StudentSubjectFactory",
+        "factory": "RawStudentSubjectFactory",
         "student_id": TEST_STUDENT_ID,
         "teacher_id": TEST_TEACHER_ID,
         "subject": SubjectEnum.PHYSICS.value,
@@ -15,7 +15,7 @@ STUDENT_DETAILS_DATA = [
         "grade": 10,
     },
     {
-        "factory": "StudentAvailabilityIntervalFactory",
+        "factory": "RawStudentAvailabilityIntervalFactory",
         "student_id": TEST_STUDENT_ID,
         "day_of_week": 1,
         "start_time": time(9, 0),
