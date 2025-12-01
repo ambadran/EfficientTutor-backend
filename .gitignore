@@ -36,3 +36,4 @@ tmp.py
 .pytest_cache
 .pytest_cache/
 .gemini/
+tmp*
