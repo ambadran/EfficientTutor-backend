@@ -6,10 +6,10 @@ from tests.constants import TEST_NOTE_ID, TEST_TEACHER_ID, TEST_STUDENT_ID, TEST
 from src.efficient_tutor_backend.database.db_enums import SubjectEnum, NoteTypeEnum
 import uuid
 
-MISC_DATA = [
-    # --- Notes ---
+# --- Notes ---
+NOTES_DATA = [
     {
-        "factory": "NoteFactory",
+        "factory": "RawNoteFactory",
         "name": "Forces",
         "id": TEST_NOTE_ID,
         "teacher_id": TEST_TEACHER_ID,
@@ -20,7 +20,7 @@ MISC_DATA = [
 
     },
     {
-        "factory": "NoteFactory",
+        "factory": "RawNoteFactory",
         "name": "Momentum",
         "id": uuid.uuid4(),
         "teacher_id": TEST_TEACHER_ID,
@@ -32,7 +32,7 @@ MISC_DATA = [
     },
 
     {
-        "factory": "NoteFactory",
+        "factory": "RawNoteFactory",
         "name": "Algebra",
         "id": uuid.uuid4(),
         "teacher_id": TEST_TEACHER_ID,
@@ -44,7 +44,7 @@ MISC_DATA = [
     },
 
     {
-        "factory": "NoteFactory",
+        "factory": "RawNoteFactory",
         "name": "Algebra HW",
         "id": uuid.uuid4(),
         "teacher_id": TEST_TEACHER_ID,
@@ -54,14 +54,12 @@ MISC_DATA = [
         "url": "www.goodnotes.com/some-other-doc"
 
     },
+]
 
-
-    # --- Timetable Runs ---
-    # This is more complex as it involves dynamic data (current time)
-    # We can handle this by passing a callable or generating it in the seeder.
-    # For now, we will define the static parts.
+# --- Timetable Runs ---
+TIMETABLE_RUNS_DATA = [
     {
         "factory": "TimetableRunFactory",
-        # The solution_data will be generated dynamically in the seeder
+        # solution_data will be handled dynamically in the seeder
     },
 ]

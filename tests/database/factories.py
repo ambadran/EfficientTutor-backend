@@ -86,6 +86,12 @@ class StudentFactory(BaseFactory):
     class Meta:
         model = db_models.Students
 
+class RawStudentFactory(StudentFactory):
+    """Factory for seeding where IDs are explicit and relationships should be ignored."""
+    class Meta:
+        exclude = ('parent',)
+    parent = None
+
 class TuitionFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     subject = SubjectEnum.MATH.value
@@ -99,6 +105,11 @@ class TuitionFactory(BaseFactory):
     class Meta:
         model = db_models.Tuitions
 
+class RawTuitionFactory(TuitionFactory):
+    class Meta:
+        exclude = ('teacher',)
+    teacher = None
+
 class MeetingLinkFactory(BaseFactory):
     meeting_link_type = MeetingLinkTypeEnum.GOOGLE_MEET.value
     meeting_link = "https://meet.google.com/test-link"
@@ -106,6 +117,11 @@ class MeetingLinkFactory(BaseFactory):
 
     class Meta:
         model = db_models.MeetingLinks
+
+class RawMeetingLinkFactory(MeetingLinkFactory):
+    class Meta:
+        exclude = ('tuition',)
+    tuition = None
 
 class TimetableRunFactory(BaseFactory):
     run_started_at = factory.LazyFunction(datetime.datetime.now)
@@ -128,6 +144,12 @@ class NoteFactory(BaseFactory):
     class Meta:
         model = db_models.Notes
 
+class RawNoteFactory(NoteFactory):
+    class Meta:
+        exclude = ('teacher', 'student')
+    teacher = None
+    student = None
+
 class PaymentLogFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     payment_date = factory.LazyFunction(datetime.datetime.now)
@@ -138,6 +160,12 @@ class PaymentLogFactory(BaseFactory):
 
     class Meta:
         model = db_models.PaymentLogs
+
+class RawPaymentLogFactory(PaymentLogFactory):
+    class Meta:
+        exclude = ('parent', 'teacher')
+    parent = None
+    teacher = None
 
 class TuitionLogFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
@@ -154,6 +182,12 @@ class TuitionLogFactory(BaseFactory):
     class Meta:
         model = db_models.TuitionLogs
 
+class RawTuitionLogFactory(TuitionLogFactory):
+    class Meta:
+        exclude = ('tuition', 'teacher')
+    tuition = None
+    teacher = None
+
 class TuitionTemplateChargeFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     cost = 100.00
@@ -164,6 +198,13 @@ class TuitionTemplateChargeFactory(BaseFactory):
     class Meta:
         model = db_models.TuitionTemplateCharges
 
+class RawTuitionTemplateChargeFactory(TuitionTemplateChargeFactory):
+    class Meta:
+        exclude = ('tuition', 'student', 'parent')
+    tuition = None
+    student = None
+    parent = None
+
 class TuitionLogChargeFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     cost = 120.00
@@ -173,6 +214,13 @@ class TuitionLogChargeFactory(BaseFactory):
 
     class Meta:
         model = db_models.TuitionLogCharges
+
+class RawTuitionLogChargeFactory(TuitionLogChargeFactory):
+    class Meta:
+        exclude = ('tuition_log', 'student', 'parent')
+    tuition_log = None
+    student = None
+    parent = None
 
 class StudentSubjectFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
@@ -187,6 +235,12 @@ class StudentSubjectFactory(BaseFactory):
     class Meta:
         model = db_models.StudentSubjects
 
+class RawStudentSubjectFactory(StudentSubjectFactory):
+    class Meta:
+        exclude = ('student', 'teacher')
+    student = None
+    teacher = None
+
 class StudentAvailabilityIntervalFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     day_of_week = 1
@@ -199,6 +253,11 @@ class StudentAvailabilityIntervalFactory(BaseFactory):
     class Meta:
         model = db_models.StudentAvailabilityIntervals
 
+class RawStudentAvailabilityIntervalFactory(StudentAvailabilityIntervalFactory):
+    class Meta:
+        exclude = ('student',)
+    student = None
+
 class TeacherSpecialtyFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     subject = SubjectEnum.MATH.value
@@ -208,3 +267,8 @@ class TeacherSpecialtyFactory(BaseFactory):
 
     class Meta:
         model = db_models.TeacherSpecialties
+
+class RawTeacherSpecialtyFactory(TeacherSpecialtyFactory):
+    class Meta:
+        exclude = ('teacher',)
+    teacher = None
