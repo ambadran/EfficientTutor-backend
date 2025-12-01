@@ -7,6 +7,7 @@ from the `tests/database/data/` directory.
 import asyncio
 import uuid
 import datetime
+import importlib
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
@@ -20,7 +21,7 @@ from src.efficient_tutor_backend.database import models as db_models
 from tests.database import factories
 from tests.constants import TEST_TUITION_ID
 
-# --- Import Data Definitions ---
+# --- Import Manual Data Definitions ---
 from .data.users import ADMINS_DATA, TEACHERS_DATA, PARENTS_DATA, STUDENTS_DATA
 from .data.teacher_specialties import TEACHER_SPECIALTIES_DATA
 from .data.tuitions import TUITIONS_DATA, MEETING_LINKS_DATA, TUITION_TEMPLATE_CHARGES_DATA
@@ -28,22 +29,55 @@ from .data.student_details import STUDENT_DETAILS_DATA
 from .data.logs import TUITION_LOGS_DATA, TUITION_LOG_CHARGES_DATA, PAYMENT_LOGS_DATA
 from .data.misc import NOTES_DATA, TIMETABLE_RUNS_DATA
 
+# --- Dynamic Import for Auto-Generated Data ---
+def safe_import(module_name, var_name, default=[]):
+    try:
+        mod = importlib.import_module(f"tests.database.data.{module_name}")
+        return getattr(mod, var_name, default)
+    except ImportError:
+        return default
+
+AUTO_ADMINS_DATA = safe_import("auto_users", "AUTO_ADMINS_DATA")
+AUTO_TEACHERS_DATA = safe_import("auto_users", "AUTO_TEACHERS_DATA")
+AUTO_PARENTS_DATA = safe_import("auto_users", "AUTO_PARENTS_DATA")
+AUTO_STUDENTS_DATA = safe_import("auto_users", "AUTO_STUDENTS_DATA")
+
+AUTO_TEACHER_SPECIALTIES_DATA = safe_import("auto_teacher_specialties", "AUTO_TEACHER_SPECIALTIES_DATA")
+AUTO_STUDENT_DETAILS_DATA = (
+    safe_import("auto_student_details", "AUTO_STUDENT_SUBJECTS_DATA") + 
+    safe_import("auto_student_details", "AUTO_STUDENT_AVAILABILITY_DATA")
+)
+
+AUTO_TUITIONS_DATA = safe_import("auto_tuitions", "AUTO_TUITIONS_DATA")
+AUTO_MEETING_LINKS_DATA = safe_import("auto_tuitions", "AUTO_MEETING_LINKS_DATA")
+AUTO_TUITION_TEMPLATE_CHARGES_DATA = safe_import("auto_tuitions", "AUTO_TUITION_TEMPLATE_CHARGES_DATA")
+
+AUTO_TUITION_LOGS_DATA = safe_import("auto_logs", "AUTO_TUITION_LOGS_DATA")
+AUTO_TUITION_LOG_CHARGES_DATA = safe_import("auto_logs", "AUTO_TUITION_LOG_CHARGES_DATA")
+AUTO_PAYMENT_LOGS_DATA = safe_import("auto_logs", "AUTO_PAYMENT_LOGS_DATA")
+
+AUTO_NOTES_DATA = safe_import("auto_misc", "AUTO_NOTES_DATA")
+# Timetable Runs usually don't need auto-generation as they are state-specific, but good to have
+AUTO_TIMETABLE_RUNS_DATA = safe_import("auto_misc", "AUTO_TIMETABLE_RUNS_DATA")
+
+
 # --- Seeding Topology ---
+# We combine Manual + Auto data here.
 SEEDING_ORDER = [
-    ("Admins", ADMINS_DATA),
-    ("Teachers", TEACHERS_DATA),
-    ("Parents", PARENTS_DATA),
-    ("Students", STUDENTS_DATA),
-    ("TeacherSpecialties", TEACHER_SPECIALTIES_DATA),
-    ("StudentDetails", STUDENT_DETAILS_DATA),
-    ("Tuitions", TUITIONS_DATA),
-    ("MeetingLinks", MEETING_LINKS_DATA),
-    ("TuitionTemplateCharges", TUITION_TEMPLATE_CHARGES_DATA),
-    ("TuitionLogs", TUITION_LOGS_DATA),
-    ("TuitionLogCharges", TUITION_LOG_CHARGES_DATA),
-    ("PaymentLogs", PAYMENT_LOGS_DATA),
-    ("Notes", NOTES_DATA),
-    ("TimetableRuns", TIMETABLE_RUNS_DATA),
+    ("Admins", ADMINS_DATA + AUTO_ADMINS_DATA),
+    ("Teachers", TEACHERS_DATA + AUTO_TEACHERS_DATA),
+    ("Parents", PARENTS_DATA + AUTO_PARENTS_DATA),
+    ("Students", STUDENTS_DATA + AUTO_STUDENTS_DATA),
+    ("TeacherSpecialties", TEACHER_SPECIALTIES_DATA + AUTO_TEACHER_SPECIALTIES_DATA),
+    ("StudentDetails", STUDENT_DETAILS_DATA + AUTO_STUDENT_DETAILS_DATA),
+    ("Tuitions", TUITIONS_DATA + AUTO_TUITIONS_DATA),
+    ("MeetingLinks", MEETING_LINKS_DATA + AUTO_MEETING_LINKS_DATA),
+    ("TuitionTemplateCharges", TUITION_TEMPLATE_CHARGES_DATA + AUTO_TUITION_TEMPLATE_CHARGES_DATA),
+    ("TuitionLogs", TUITION_LOGS_DATA + AUTO_TUITION_LOGS_DATA),
+    ("TuitionLogCharges", TUITION_LOG_CHARGES_DATA + AUTO_TUITION_LOG_CHARGES_DATA),
+    ("PaymentLogs", PAYMENT_LOGS_DATA + AUTO_PAYMENT_LOGS_DATA),
+    ("Notes", NOTES_DATA + AUTO_NOTES_DATA),
+    ("TimetableRuns", TIMETABLE_RUNS_DATA + AUTO_TIMETABLE_RUNS_DATA),
 ]
 
 async def clear_database(session: AsyncSession):
@@ -71,7 +105,7 @@ async def seed_data(session: AsyncSession):
     factories.test_db_session = session
 
     for label, data_list in SEEDING_ORDER:
-        print(f"Seeding {label}...")
+        print(f"Seeding {label} ({len(data_list)} items)...")
         for entry in data_list:
             data = entry.copy()
             factory_name = data.pop("factory")
@@ -79,8 +113,10 @@ async def seed_data(session: AsyncSession):
 
             # --- Special Handling ---
             if factory_name == "TimetableRunFactory":
-                now = datetime.datetime.now(datetime.timezone.utc)
-                data["solution_data"] = [{"category": "Tuition", "id": str(TEST_TUITION_ID), "start_time": now.isoformat(), "end_time": (now + datetime.timedelta(hours=1)).isoformat()}]
+                # Only apply default solution data if not provided
+                if "solution_data" not in data:
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    data["solution_data"] = [{"category": "Tuition", "id": str(TEST_TUITION_ID), "start_time": now.isoformat(), "end_time": (now + datetime.timedelta(hours=1)).isoformat()}]
 
             # Create the object. 
             # Because we are using "Raw*" factories for items with FKs, 
