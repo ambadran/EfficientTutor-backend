@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 # --- Path Setup ---
 # This allows the script to import modules from the 'src' directory
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from src.efficient_tutor_backend.common.config import settings
 from src.efficient_tutor_backend.database.models import Users, Students

@@ -1,9 +1,9 @@
-"Script to extract data from a production database (restored locally),
+"""Script to extract data from a production database (restored locally),
 anonymize it, and generate Python data files for the test seeder.
 
 Usage:
     python scripts/generate_test_data.py --db-url postgresql+asyncpg://user:pass@localhost:5432/prod_temp
-"
+"""
 
 import argparse
 import asyncio
@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 faker = Faker()
 
+# Global configuration
+ANONYMIZE_PII = True
+
 # --- Configuration ---
 
 # Mapping Table Name -> (Factory Name, Anonymization Rules)
@@ -43,18 +46,25 @@ faker = Faker()
 # If key is not present, it keeps original value.
 
 def anonymize_email(old_val: str) -> str:
+    if not ANONYMIZE_PII:
+        return old_val
     return faker.unique.email()
 
 def anonymize_first_name(old_val: str) -> str:
+    if not ANONYMIZE_PII:
+        return old_val
     return faker.first_name()
 
 def anonymize_last_name(old_val: str) -> str:
+    if not ANONYMIZE_PII:
+        return old_val
     return faker.last_name()
 
 def anonymize_password(old_val: str) -> str:
     # Return a known hash: "password" (or whatever constant you prefer)
     # Using a placeholder hash for speed.
-    return "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWrn3IlaVZFyq1taf59FhnXaYz.23O"
+    # This password is 'testtest'
+    return "$2b$12$ezyY86d0mZsWLPdJ0V5Jeuf/qFcsGcM8zO5GKEQ7I3KN9d2LNDN1C"
 
 # We need to know which Factory corresponds to which table AND filtered by some criteria (like Role) for Users.
 # Since 'users' table holds multiple roles, we handle it specially.
@@ -318,19 +328,31 @@ async def process_table(
         output_buffer[filename] = []
     
     # Format variable block
-    block = f"# --- {var_name} ---
-{var_name} = [
-" + "\n".join(data_list_str) + "\n]
-"
+    header = f"# --- {var_name} ---\n{var_name} = [\n"
+    footer = "\n]\n"
+    block = header + "\n".join(data_list_str) + footer
     output_buffer[filename].append(block)
 
 
 async def main():
+    global ANONYMIZE_PII
     parser = argparse.ArgumentParser(description="Generate test data from production DB.")
     parser.add_argument("--db-url", required=True, help="Source Database URL")
+    parser.add_argument("--no-anonymize", action="store_true", help="Disable PII anonymization (keep real emails/names)")
     args = parser.parse_args()
 
-    engine = create_async_engine(args.db_url)
+    if args.no_anonymize:
+        ANONYMIZE_PII = False
+        logger.info("Anonymization DISABLED. Real PII will be used.")
+    else:
+        ANONYMIZE_PII = True
+        logger.info("Anonymization ENABLED.")
+
+    db_url = args.db_url
+    if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+
+    engine = create_async_engine(db_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     # Buffer to hold file contents: Filename -> List of variable blocks
@@ -351,6 +373,7 @@ async def main():
         file_path = base_path / filename
         logger.info(f"Writing {len(blocks)} blocks to {file_path}")
         with open(file_path, "w") as f:
+            print(f"writing to {file_path}")
             f.write(full_content)
 
     print("Done.")

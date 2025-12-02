@@ -14,13 +14,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 # --- Path Setup ---
 # This allows the script to import modules from the 'src' directory
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from src.efficient_tutor_backend.common.config import settings
 
 # --- Constants ---
 # The directory where migration scripts are stored.
-SQL_DIR = os.path.join(os.path.dirname(__file__), '..', 'src', 'efficient_tutor_backend', 'database', 'sql')
+SQL_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'efficient_tutor_backend', 'database', 'sql', 'v0.3_migration')
 
 # The specific order in which the migration scripts must be run.
 MIGRATION_FILES = [
