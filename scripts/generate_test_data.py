@@ -363,7 +363,9 @@ async def main():
             await process_table(session, config, output_buffer)
 
     # Write files
-    base_path = Path("tests/database/data")
+    # Resolve path relative to project root (which is parent of scripts/ dir)
+    project_root = Path(__file__).parent.parent
+    base_path = project_root / "tests/database/data"
     base_path.mkdir(parents=True, exist_ok=True)
 
     header = "from uuid import UUID\nfrom decimal import Decimal\nimport datetime\n\n"
@@ -373,7 +375,6 @@ async def main():
         file_path = base_path / filename
         logger.info(f"Writing {len(blocks)} blocks to {file_path}")
         with open(file_path, "w") as f:
-            print(f"writing to {file_path}")
             f.write(full_content)
 
     print("Done.")

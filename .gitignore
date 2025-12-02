@@ -37,3 +37,4 @@ tmp.py
 .pytest_cache/
 .gemini/
 tmp*
+tests/database/data/auto_*

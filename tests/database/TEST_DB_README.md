@@ -21,15 +21,18 @@ To bridge this gap, we use a multi-step pipeline to creating a **Hybrid Database
 **Script:** `scripts/reset_test_db.sh`
 
 This script performs a hard reset of the local test database.
-1.  Downloads the latest production backup (or uses a local dump).
-2.  Wipes the local `efficient_tutor_test` database.
-3.  Uses `pg_restore` to import the **v0.2** schema and data exactly as it exists in production.
+1.  **Cleanup:** Wipes the local `efficient_tutor_test_db` database.
+2.  **Creation:** Re-creates the empty database.
+3.  **Restore:** Uses `pg_restore` to import the **v0.2** schema and data exactly as it exists in production.
+
+**Options:**
+*   `--download-recent`: Downloads a fresh backup from the production database URL (defined in `.env` as `DATABASE_URL_PROD_CLI`) before restoring. If omitted, it uses the existing `prod_backup.dump` in the `scripts/` directory.
 
 ### Step 2: Migrate to v0.3
-**Script:** `scripts/v0.3_migration/run_migration.py`
+**Script:** `scripts/v0.3_migration/run_migrations.py`
 
 Since the local DB is now in v0.2 format, we must upgrade it. This script:
-1.  Executes SQL scripts located in `src/efficient_tutor_backend/database/sql/v0.3_migration/`.
+1.  Executes SQL scripts located in `src/efficient_tutor_backend/database/sql/`.
 2.  **Schema Updates:** Adds new tables, columns, and constraints.
 3.  **Data Migration:** Transforms existing data to fit the new structure (filling blanks, mapping enums, etc.).
 
@@ -40,26 +43,26 @@ The v0.2 database used an incompatible hashing method.
 1.  This script takes known plain-text passwords (collected securely).
 2.  Re-hashes them using the v0.3 compliant method (e.g., `bcrypt`).
 3.  Updates the user records in the local database.
-4.  *Note:* At the end of this, all user passwords are currently standardized to the hash of `'testtest'` because the get data script (discussed next) changes passwords.
+4.  *Note:* For the test environment, generated users (in Step 4) will have their passwords standardized to the hash of `'testtest'`.
 
 ---
 
 ## 🧬 Data Generation & Seeding
 
-At this stage, the local DB has v0.3 schema and production data, but **pytest will still fail** because the specific UUIDs in `tests/constants.py` (which the tests rely on) do not exist or be in the expected state.
+At this stage, the local DB has v0.3 schema and production data, but **pytest will still fail** because the specific UUIDs in `tests/constants.py` (which the tests rely on) might not exist or be in the expected state.
 
 We use a **"Extract -> Merge -> Load"** strategy to solve this.
 
 ### Step 4: The Extractor (Generate Test Data)
 **Script:** `scripts/generate_test_data.py`
 
-This script connects to the now-migrated local database and "extracts" the data into Python code.
+This script connects to the now-migrated local database and "extracts" the data into Python code files located in `tests/database/data/auto_*.py`.
 
 *   **Function:** Reads rows from tables (Users, Tuitions, Logs, etc.).
 *   **Anonymization:**
     *   By default, PII (Names, Emails) is replaced with `Faker` data.
     *   **Toggle:** You can disable this using the `--no-anonymize` flag if you need real production data for debugging.
-*   **Output:** Generates the file `tests/database/data/auto_*.py` (e.g., `auto_users.py`). These files contain lists of dictionaries representing the production data.
+*   **Passwords:** All extracted users will have their password set to the hash of `'testtest'`.
 
 ### Step 5: The Loader (Seed Test DB)
 **Script:** `tests/database/seed_test_db.py`
@@ -70,7 +73,7 @@ This is the final step that prepares the database for `pytest`.
 2.  **Merge:** It imports data from two sources:
     *   **Manual Data (`tests/database/data/*.py`):** The hand-crafted records matching `tests/constants.py`.
     *   **Auto Data (`tests/database/data/auto_*.py`):** The massive dataset generated in Step 4.
-3.  **Deduplication:** It intelligently merges these lists. If a record in "Auto" has the same ID as a record in "Manual", the "Manual" version takes precedence (or duplicates are skipped) to ensure test stability.
+3.  **Deduplication:** It intelligently merges these lists. If a record in "Auto" has the same ID (or unique constraint) as a record in "Manual", the "Manual" version takes precedence to ensure test stability.
 4.  **Topological Insert:** It inserts records in strict dependency order (Admins -> Teachers -> Students -> Tuitions -> Logs) to satisfy Foreign Key constraints.
 
 ---
@@ -85,20 +88,29 @@ After completing this pipeline, you have a local database that:
 
 ## 🛠️ Quick Command Reference
 
+All scripts are directory-agnostic and can be run from the project root.
+
 ```bash
 # 1. Reset & Restore
+# Option A: Use existing dump
 ./scripts/reset_test_db.sh
+# Option B: Download fresh dump from production (requires PROD env var)
+./scripts/reset_test_db.sh --download-recent
 
 # 2. Migrate to v0.3
-python scripts/v0.3_migration/run_migration.py
+uv run scripts/v0.3_migration/run_migrations.py
 
-# 3. Fix Passwords
-python scripts/v0.3_migration/update_passwords.py
+# 3. Fix Passwords (Optional but recommended for consistency)
+uv run scripts/v0.3_migration/update_passwords.py
 
 # 4. Generate Data Files (Extract)
-# Ensure DATABASE_URL_TEST_CLI is set to your local postgres instance
+# Note: This overwrites files in tests/database/data/auto_*.py
+# Default (Anonymized):
 uv run scripts/generate_test_data.py --db-url $DATABASE_URL_TEST_CLI
+# Debug Mode (Real Names/Emails):
+uv run scripts/generate_test_data.py --db-url $DATABASE_URL_TEST_CLI --no-anonymize
 
 # 5. Seed (Load)
-python -m tests.database.seed_test_db
+# This truncates the DB and re-inserts the merged (Manual + Auto) data
+uv run tests/database/seed_test_db.py
 ```
