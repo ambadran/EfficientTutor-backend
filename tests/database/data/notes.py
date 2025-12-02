@@ -1,8 +1,7 @@
 """
-Test data for miscellaneous objects like Notes and TimetableRuns.
+Test data for Notes.
 """
-import datetime
-from tests.constants import TEST_NOTE_ID, TEST_TEACHER_ID, TEST_STUDENT_ID, TEST_TUITION_ID
+from tests.constants import TEST_NOTE_ID, TEST_TEACHER_ID, TEST_STUDENT_ID
 from src.efficient_tutor_backend.database.db_enums import SubjectEnum, NoteTypeEnum
 import uuid
 
@@ -53,13 +52,5 @@ NOTES_DATA = [
         "note_type": NoteTypeEnum.HOMEWORK.value,
         "url": "www.goodnotes.com/some-other-doc"
 
-    },
-]
-
-# --- Timetable Runs ---
-TIMETABLE_RUNS_DATA = [
-    {
-        "factory": "TimetableRunFactory",
-        # solution_data will be handled dynamically in the seeder
     },
 ]

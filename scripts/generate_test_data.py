@@ -224,7 +224,7 @@ TABLE_CONFIG = [
     # --- Misc ---
     {
         "table": "notes",
-        "filename": "auto_misc.py",
+        "filename": "auto_notes.py",
         "var_name": "AUTO_NOTES_DATA",
         "factory": "RawNoteFactory",
         "anonymize": {
@@ -232,6 +232,13 @@ TABLE_CONFIG = [
             "description": lambda x: faker.text(),
             "url": lambda x: "https://example.com/anonymized-note"
         }
+    },
+    {
+        "table": "timetable_runs",
+        "filename": "auto_timetable.py",
+        "var_name": "AUTO_TIMETABLE_RUNS_DATA",
+        "factory": "TimetableRunFactory",
+        "anonymize": {}
     },
 ]
 

@@ -35,7 +35,8 @@ from tests.database.data.teacher_specialties import TEACHER_SPECIALTIES_DATA
 from tests.database.data.tuitions import TUITIONS_DATA, MEETING_LINKS_DATA, TUITION_TEMPLATE_CHARGES_DATA
 from tests.database.data.student_details import STUDENT_DETAILS_DATA 
 from tests.database.data.logs import TUITION_LOGS_DATA, TUITION_LOG_CHARGES_DATA, PAYMENT_LOGS_DATA
-from tests.database.data.misc import NOTES_DATA, TIMETABLE_RUNS_DATA
+from tests.database.data.notes import NOTES_DATA
+from tests.database.data.timetable import TIMETABLE_RUNS_DATA
 
 # --- Dynamic Import for Auto-Generated Data ---
 def safe_import(module_name, var_name, default=[]):
@@ -64,10 +65,27 @@ AUTO_TUITION_LOGS_DATA = safe_import("auto_logs", "AUTO_TUITION_LOGS_DATA")
 AUTO_TUITION_LOG_CHARGES_DATA = safe_import("auto_logs", "AUTO_TUITION_LOG_CHARGES_DATA")
 AUTO_PAYMENT_LOGS_DATA = safe_import("auto_logs", "AUTO_PAYMENT_LOGS_DATA")
 
-AUTO_NOTES_DATA = safe_import("auto_misc", "AUTO_NOTES_DATA")
-# Timetable Runs usually don't need auto-generation as they are state-specific, but good to have
-AUTO_TIMETABLE_RUNS_DATA = safe_import("auto_misc", "AUTO_TIMETABLE_RUNS_DATA")
+AUTO_NOTES_DATA = safe_import("auto_notes", "AUTO_NOTES_DATA")
+AUTO_TIMETABLE_RUNS_DATA = safe_import("auto_timetable", "AUTO_TIMETABLE_RUNS_DATA")
 
+# --- Special Handling: Merge Timetable Data ---
+# To ensure the backend sees specific manual tests AND volume auto data,
+# we merge all 'solution_data' into a single "Latest Run".
+combined_solution_data = []
+for entry in TIMETABLE_RUNS_DATA + AUTO_TIMETABLE_RUNS_DATA:
+    if "solution_data" in entry and isinstance(entry["solution_data"], list):
+        combined_solution_data.extend(entry["solution_data"])
+
+COMBINED_TIMETABLE_RUNS_DATA = [
+    {
+        "factory": "TimetableRunFactory",
+        "solution_data": combined_solution_data,
+        "run_started_at": datetime.datetime.now(datetime.timezone.utc),
+        "status": "SUCCESS",
+        "input_version_hash": "test_merged_hash",
+        "trigger_source": "test_seeder"
+    }
+]
 
 # --- Seeding Topology ---
 # We combine Manual + Auto data here.
@@ -85,7 +103,7 @@ SEEDING_ORDER = [
     ("TuitionLogCharges", TUITION_LOG_CHARGES_DATA + AUTO_TUITION_LOG_CHARGES_DATA),
     ("PaymentLogs", PAYMENT_LOGS_DATA + AUTO_PAYMENT_LOGS_DATA),
     ("Notes", NOTES_DATA + AUTO_NOTES_DATA),
-    ("TimetableRuns", TIMETABLE_RUNS_DATA + AUTO_TIMETABLE_RUNS_DATA),
+    ("TimetableRuns", COMBINED_TIMETABLE_RUNS_DATA),
 ]
 
 async def clear_database(session: AsyncSession):
@@ -172,19 +190,20 @@ async def seed_data(session: AsyncSession):
                         continue
                     seen_unique_constraints.add("MasterAdmin")
 
+            # 6. Unique Constraint Deduplication (for TimetableRuns)
+            if label == "TimetableRuns":
+                entry_id = entry.get("id")
+                if entry_id:
+                    if entry_id in seen_ids:
+                        continue
+                    seen_ids.add(entry_id)
+
             unique_data_list.append(entry)
 
         for entry in unique_data_list:
             data = entry.copy()
             factory_name = data.pop("factory")
             factory_class = getattr(factories, factory_name)
-
-            # --- Special Handling ---
-            if factory_name == "TimetableRunFactory":
-                # Only apply default solution data if not provided
-                if "solution_data" not in data:
-                    now = datetime.datetime.now(datetime.timezone.utc)
-                    data["solution_data"] = [{"category": "Tuition", "id": str(TEST_TUITION_ID), "start_time": now.isoformat(), "end_time": (now + datetime.timedelta(hours=1)).isoformat()}]
 
             # Create the object. 
             # Because we are using "Raw*" factories for items with FKs, 
