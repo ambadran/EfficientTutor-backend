@@ -8,13 +8,21 @@ import asyncio
 import uuid
 import datetime
 import importlib
+import sys
+from pathlib import Path
+import os
+
+# --- Setup Path & Environment ---
+# Ensure project root is in sys.path
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+os.environ["TEST_MODE"] = "True"
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-import os
-
-# --- Setup & Imports ---
-os.environ["TEST_MODE"] = "True"
 
 from src.efficient_tutor_backend.common.config import settings
 from src.efficient_tutor_backend.database import models as db_models
@@ -22,12 +30,12 @@ from tests.database import factories
 from tests.constants import TEST_TUITION_ID
 
 # --- Import Manual Data Definitions ---
-from .data.users import ADMINS_DATA, TEACHERS_DATA, PARENTS_DATA, STUDENTS_DATA
-from .data.teacher_specialties import TEACHER_SPECIALTIES_DATA
-from .data.tuitions import TUITIONS_DATA, MEETING_LINKS_DATA, TUITION_TEMPLATE_CHARGES_DATA
-from .data.student_details import STUDENT_DETAILS_DATA 
-from .data.logs import TUITION_LOGS_DATA, TUITION_LOG_CHARGES_DATA, PAYMENT_LOGS_DATA
-from .data.misc import NOTES_DATA, TIMETABLE_RUNS_DATA
+from tests.database.data.users import ADMINS_DATA, TEACHERS_DATA, PARENTS_DATA, STUDENTS_DATA
+from tests.database.data.teacher_specialties import TEACHER_SPECIALTIES_DATA
+from tests.database.data.tuitions import TUITIONS_DATA, MEETING_LINKS_DATA, TUITION_TEMPLATE_CHARGES_DATA
+from tests.database.data.student_details import STUDENT_DETAILS_DATA 
+from tests.database.data.logs import TUITION_LOGS_DATA, TUITION_LOG_CHARGES_DATA, PAYMENT_LOGS_DATA
+from tests.database.data.misc import NOTES_DATA, TIMETABLE_RUNS_DATA
 
 # --- Dynamic Import for Auto-Generated Data ---
 def safe_import(module_name, var_name, default=[]):

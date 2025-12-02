@@ -11,18 +11,21 @@ NOTE: This script assumes that the `first_name` for the staff users being update
 is unique, as confirmed by the user.
 """
 
-import os
 import sys
+import os
+from pathlib import Path
 
 from passlib.context import CryptContext
 from sqlalchemy import create_engine, update, select
 from sqlalchemy.orm import sessionmaker
 
 # --- Path Setup ---
-# This allows the script to import modules from the 'src' directory
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+# Ensure project root is in sys.path
+# This file is at: root/scripts/v0.3_migration/update_passwords.py
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.efficient_tutor_backend.common.config import settings
 from src.efficient_tutor_backend.database.models import Users, Students
 
 
@@ -48,6 +51,31 @@ PASSWORDS_TO_UPDATE = {
     "AbdulRahman": "etsuperuser",
 }
 
+def load_env():
+    """
+    Manually load .env file from PROJECT_ROOT.
+    """
+    env_path = PROJECT_ROOT / '.env'
+    if not env_path.exists():
+        return
+
+    with open(env_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            
+            if '=' in line:
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if (value.startswith('"') and value.endswith('"')) or \
+                   (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
+                
+                if key not in os.environ:
+                    os.environ[key] = value
 
 def update_staff_passwords_sync(session):
     """
@@ -120,12 +148,17 @@ def run_all_updates():
     """
     Connects to the database and runs all password update functions.
     """
-    db_url = settings.DATABASE_URL_TEST_CLI
+    load_env()
+    db_url = os.getenv("DATABASE_URL_TEST_CLI")
     if not db_url:
         print("Error: DATABASE_URL_TEST_CLI environment variable not set.")
         return
 
     print(f"Connecting to database...")
+    
+    # Use sync engine for running migrations/updates
+    if db_url.startswith("postgresql+asyncpg"):
+        db_url = db_url.replace("postgresql+asyncpg", "postgresql")
     
     engine = create_engine(db_url, echo=False)
     Session = sessionmaker(bind=engine)

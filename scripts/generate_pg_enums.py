@@ -88,6 +88,9 @@ def main():
         sys.exit(1)
     
     db_url = sys.argv[1]
+    # Ensure compatibility with asyncpg URLs commonly used in this project
+    if db_url.startswith("postgresql+asyncpg"):
+        db_url = db_url.replace("postgresql+asyncpg", "postgresql")
     
     # Check for any other arguments, like a schema, which is no longer supported
     # in this simple version.
