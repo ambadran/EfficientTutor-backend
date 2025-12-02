@@ -106,7 +106,67 @@ async def seed_data(session: AsyncSession):
 
     for label, data_list in SEEDING_ORDER:
         print(f"Seeding {label} ({len(data_list)} items)...")
+        
+        # Deduplicate based on ID if present, or specific unique constraints
+        seen_ids = set()
+        seen_unique_constraints = set()
+        unique_data_list = []
+        
         for entry in data_list:
+            # 1. Primary Key Deduplication
+            entry_id = entry.get("id")
+            if entry_id:
+                if entry_id in seen_ids:
+                    continue
+                seen_ids.add(entry_id)
+
+            # 2. Unique Constraint Deduplication (for TeacherSpecialties)
+            if label == "TeacherSpecialties":
+                # Composite Key: (teacher_id, subject, educational_system, grade)
+                composite_key = (
+                    str(entry.get("teacher_id")), 
+                    entry.get("subject"), 
+                    entry.get("educational_system"), 
+                    entry.get("grade")
+                )
+                if composite_key in seen_unique_constraints:
+                    continue
+                seen_unique_constraints.add(composite_key)
+
+            # 3. Unique Constraint Deduplication (for StudentDetails -> StudentSubjects)
+            # We only check this if the entry looks like a StudentSubject (has 'student_id' and 'subject')
+            if label == "StudentDetails" and "subject" in entry:
+                # Composite Key: (student_id, subject, teacher_id, educational_system, grade)
+                composite_key = (
+                    str(entry.get("student_id")), 
+                    entry.get("subject"), 
+                    str(entry.get("teacher_id")),
+                    entry.get("educational_system"), 
+                    entry.get("grade")
+                )
+                if composite_key in seen_unique_constraints:
+                    continue
+                seen_unique_constraints.add(composite_key)
+
+            # 4. Unique Constraint Deduplication (for MeetingLinks)
+            # MeetingLinks have a PK of (tuition_id) or (tuition_id) is unique
+            if label == "MeetingLinks":
+                tuition_id = str(entry.get("tuition_id"))
+                if tuition_id in seen_unique_constraints:
+                    continue
+                seen_unique_constraints.add(tuition_id)
+
+            # 5. Unique Constraint Deduplication (for Admins - Single Master)
+            if label == "Admins":
+                privileges = entry.get("privileges")
+                if privileges == "Master":
+                    if "MasterAdmin" in seen_unique_constraints:
+                        continue
+                    seen_unique_constraints.add("MasterAdmin")
+
+            unique_data_list.append(entry)
+
+        for entry in unique_data_list:
             data = entry.copy()
             factory_name = data.pop("factory")
             factory_class = getattr(factories, factory_name)
