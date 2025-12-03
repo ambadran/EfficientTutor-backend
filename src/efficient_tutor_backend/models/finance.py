@@ -86,6 +86,7 @@ class LogChargeRead(BaseModel):
     student_id: UUID
     student_name: str
     cost: Decimal
+    paid_status: PaidStatus = PaidStatus.UNPAID # New field for granular tracking
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -255,10 +256,20 @@ class FinancialSummaryForParent(BaseModel):
     credit_balance: Decimal
     unpaid_count: int
 
+class ParentFinancialStatus(BaseModel):
+    """
+    Represents the financial standing of a single parent relative to a teacher.
+    """
+    parent_id: UUID
+    parent_name: str
+    balance: Decimal
+    unpaid_lessons_count: int
+
 class FinancialSummaryForTeacher(BaseModel):
     total_owed_to_teacher: Decimal
     total_credit_held: Decimal
     total_lessons_given_this_month: int
+    per_parent_breakdown: list[ParentFinancialStatus] = Field(default_factory=list) # New breakdown
 
 
 

@@ -245,8 +245,8 @@ def payment_log_service_sync() -> PaymentLogService:
     return PaymentLogService(db=None, user_service=None)
 
 @pytest.fixture(scope="function")
-def financial_summary_service(db_session: AsyncSession) -> FinancialSummaryService:
-    return FinancialSummaryService(db=db_session)
+def financial_summary_service(db_session: AsyncSession, tuition_log_service: TuitionLogService) -> FinancialSummaryService:
+    return FinancialSummaryService(db=db_session, tuition_log_service=tuition_log_service)
 
 @pytest.fixture(scope="function")
 async def notes_service(db_session: AsyncSession, user_service: UserService) -> NotesService:
