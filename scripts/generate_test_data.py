@@ -183,9 +183,9 @@ TABLE_CONFIG = [
         "var_name": "AUTO_MEETING_LINKS_DATA",
         "factory": "RawMeetingLinkFactory",
         "anonymize": {
-            "meeting_link": lambda x: "https://meet.google.com/auto-generated",
-            "meeting_id": lambda x: faker.bothify(text="???-####-???"),
-            "meeting_password": lambda x: "auto-pass"
+            "meeting_link": lambda x: x if not ANONYMIZE_PII else "https://meet.google.com/auto-generated",
+            "meeting_id": lambda x: x if not ANONYMIZE_PII else faker.bothify(text="???-####-???"),
+            "meeting_password": lambda x: x if not ANONYMIZE_PII else "auto-pass"
         }
     },
     {
@@ -217,7 +217,7 @@ TABLE_CONFIG = [
         "var_name": "AUTO_PAYMENT_LOGS_DATA",
         "factory": "RawPaymentLogFactory",
         "anonymize": {
-            "notes": lambda x: "Anonymized payment note"
+            "notes": lambda x: x if not ANONYMIZE_PII else "Anonymized payment note"
         }
     },
     
@@ -228,9 +228,9 @@ TABLE_CONFIG = [
         "var_name": "AUTO_NOTES_DATA",
         "factory": "RawNoteFactory",
         "anonymize": {
-            "name": lambda x: faker.sentence(nb_words=3),
-            "description": lambda x: faker.text(),
-            "url": lambda x: "https://example.com/anonymized-note"
+            "name": lambda x: x if not ANONYMIZE_PII else faker.sentence(nb_words=3),
+            "description": lambda x: x if not ANONYMIZE_PII else faker.text(),
+            "url": lambda x: x if not ANONYMIZE_PII else "https://example.com/anonymized-note"
         }
     },
     {
