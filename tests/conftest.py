@@ -36,7 +36,8 @@ from tests.constants import (
     TEST_UNRELATED_PARENT_ID,
     TEST_TUITION_ID_NO_LINK,
     TEST_ADMIN_ID,
-    TEST_NORMAL_ADMIN_ID
+    TEST_NORMAL_ADMIN_ID,
+    TEST_DELETABLE_TEACHER_ID,
 )
 
 # --- Application Imports ---
@@ -437,6 +438,13 @@ async def test_unrelated_teacher_orm(db_session: AsyncSession) -> db_models.Teac
     teacher = await db_session.get(db_models.Teachers, TEST_UNRELATED_TEACHER_ID)
     assert teacher is not None, f"Test unrelated teacher {TEST_UNRELATED_TEACHER_ID} not found in DB."
     assert teacher.id != TEST_TEACHER_ID, "TEST_UNRELATED_TEACHER_ID is the same as TEST_TEACHER_ID"
+    return teacher
+
+@pytest.fixture(scope="function")
+async def test_deletable_teacher_orm(db_session: AsyncSession) -> db_models.Teachers:
+    """Fetches a teacher with no relations, specifically for testing deletion."""
+    teacher = await db_session.get(db_models.Teachers, TEST_DELETABLE_TEACHER_ID)
+    assert teacher is not None, f"Test deletable teacher {TEST_DELETABLE_TEACHER_ID} not found in DB."
     return teacher
 
 @pytest.fixture(scope="function")

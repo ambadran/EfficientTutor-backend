@@ -13,7 +13,12 @@ from tests.constants import (
     TEST_STUDENT_ID,
     TEST_TUITION_LOG_ID_SCHEDULED,
     TEST_TUITION_LOG_ID_CUSTOM,
-    TEST_UNRELATED_TEACHER_ID
+    TEST_UNRELATED_TEACHER_ID,
+    TEST_TUITION_LOG_ID_UNRELATED_TEACHER,
+    TEST_UNRELATED_PARENT_ID,
+    TEST_UNRELATED_STUDENT_ID,
+    TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT,
+    TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER
 )
 
 # Helper to create auth headers
@@ -470,5 +475,156 @@ class TestTuitionLogsAPICorrection:
         assert response.status_code == 403
         assert response.json()["detail"] == "You do not have permission to perform this action."
         print("Parent was correctly forbidden from correcting a log.")
+
+
+@pytest.mark.anyio
+class TestTuitionLogsAPIGetListWithFilters:
+    """Test class for GET /tuition-logs/ with filter query parameters."""
+
+    # --- Teacher Perspective ---
+
+    async def test_list_logs_as_teacher_filter_by_parent(
+        self, client: TestClient, test_teacher_orm: db_models.Teachers
+    ):
+        """A teacher filters logs by a specific parent."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"parent_id": str(TEST_PARENT_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT not in log_ids
+        print("Teacher successfully filtered logs by parent.")
+
+    async def test_list_logs_as_teacher_filter_by_student(
+        self, client: TestClient, test_teacher_orm: db_models.Teachers
+    ):
+        """A teacher filters logs by a specific student."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"student_id": str(TEST_STUDENT_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT not in log_ids
+        print("Teacher successfully filtered logs by student.")
+
+    async def test_list_logs_as_teacher_filter_by_self(
+        self, client: TestClient, test_teacher_orm: db_models.Teachers
+    ):
+        """A teacher filters logs by their own ID."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"teacher_id": str(TEST_TEACHER_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT in log_ids
+        assert TEST_TUITION_LOG_ID_UNRELATED_TEACHER not in log_ids
+        print("Teacher successfully filtered logs by self.")
+
+    async def test_list_logs_as_teacher_filter_by_other_teacher_is_forbidden(
+        self, client: TestClient, test_teacher_orm: db_models.Teachers
+    ):
+        """A teacher is forbidden to filter logs by another teacher's ID."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"teacher_id": str(TEST_UNRELATED_TEACHER_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 403
+        assert "not authorized to view logs for this teacher" in response.json()["detail"]
+        print("Teacher was correctly forbidden from filtering by another teacher.")
+
+    # --- Parent Perspective ---
+
+    async def test_list_logs_as_parent_filter_by_teacher(
+        self, client: TestClient, test_parent_orm: db_models.Parents
+    ):
+        """A parent filters logs by a specific teacher."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"teacher_id": str(TEST_TEACHER_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER not in log_ids
+        print("Parent successfully filtered logs by teacher.")
+
+    async def test_list_logs_as_parent_filter_by_student(
+        self, client: TestClient, test_parent_orm: db_models.Parents
+    ):
+        """A parent filters logs by one of their own students."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"student_id": str(TEST_STUDENT_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        # Parent should see logs for their child from ALL teachers
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        print("Parent successfully filtered logs by their student.")
+
+    async def test_list_logs_as_parent_filter_by_unrelated_student_is_forbidden(
+        self, client: TestClient, test_parent_orm: db_models.Parents
+    ):
+        """A parent is forbidden from filtering by a student who is not their child."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"student_id": str(TEST_UNRELATED_STUDENT_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 403
+        assert "not authorized to view logs for this student" in response.json()["detail"]
+        print("Parent was correctly forbidden from filtering by an unrelated student.")
+
+    async def test_list_logs_as_parent_filter_by_self(
+        self, client: TestClient, test_parent_orm: db_models.Parents
+    ):
+        """A parent filters logs by their own ID."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"parent_id": str(TEST_PARENT_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        # Parent should see all logs they are charged for
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT not in log_ids
+        print("Parent successfully filtered logs by self.")
+
+    async def test_list_logs_as_parent_filter_by_other_parent_is_forbidden(
+        self, client: TestClient, test_parent_orm: db_models.Parents
+    ):
+        """A parent is forbidden from filtering by another parent's ID."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"parent_id": str(TEST_UNRELATED_PARENT_ID)}
+        response = client.get("/tuition-logs/", headers=headers, params=params)
+
+        assert response.status_code == 403
+        assert "not authorized to view logs for this parent" in response.json()["detail"]
+        print("Parent was correctly forbidden from filtering by another parent.")
 
 

@@ -52,12 +52,18 @@ class PaymentLogsAPI:
     async def list_payment_logs(
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
-        payment_log_service: Annotated[PaymentLogService, Depends(PaymentLogService)]
+        payment_log_service: Annotated[PaymentLogService, Depends(PaymentLogService)],
+        parent_id: UUID | None = None,
+        teacher_id: UUID | None = None
     ) -> list[Any]:
         """
         Retrieves a list of all payment logs relevant to the current user.
         """
-        return await payment_log_service.get_all_payment_logs_for_api(current_user)
+        return await payment_log_service.get_all_payment_logs_for_api(
+            current_user,
+            parent_id=parent_id,
+            teacher_id=teacher_id
+        )
 
     async def get_payment_log(
         self,

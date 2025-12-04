@@ -5,7 +5,16 @@ from datetime import datetime, timedelta, timezone
 
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.security import JWTHandler
-from tests.constants import TEST_PAYMENT_LOG_ID
+from tests.constants import (
+    TEST_PAYMENT_LOG_ID,
+    TEST_PARENT_ID,
+    TEST_TEACHER_ID,
+    TEST_UNRELATED_TEACHER_ID,
+    TEST_UNRELATED_PARENT_ID,
+    TEST_PAYMENT_LOG_ID_UNRELATED,
+    TEST_PAYMENT_LOG_ID_SAME_TEACHER_DIFF_PARENT,
+    TEST_PAYMENT_LOG_ID_SAME_PARENT_DIFF_TEACHER,
+)
 
 # Helper to create auth headers
 def auth_headers_for_user(user: db_models.Users) -> dict:
@@ -387,4 +396,103 @@ class TestPaymentLogsAPICorrection:
         assert response.status_code == 403
         assert response.json()["detail"] == "You do not have permission to perform this action."
         print("Parent was correctly forbidden from correcting a payment log.")
+
+
+@pytest.mark.anyio
+class TestPaymentLogsAPIGetListWithFilters:
+    """Test class for GET /payment-logs/ with filter query parameters."""
+
+    # --- Teacher Perspective ---
+
+    async def test_list_logs_as_teacher_filter_by_parent(
+        self, client: TestClient, test_teacher_orm: db_models.Teachers
+    ):
+        """A teacher filters payment logs by a specific parent."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"parent_id": str(TEST_PARENT_ID)}
+        response = client.get("/payment-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        assert TEST_PAYMENT_LOG_ID in log_ids
+        assert TEST_PAYMENT_LOG_ID_SAME_TEACHER_DIFF_PARENT not in log_ids
+        print("Teacher successfully filtered payment logs by parent.")
+
+    async def test_list_logs_as_teacher_filter_by_self(
+        self, client: TestClient, test_teacher_orm: db_models.Teachers
+    ):
+        """A teacher filters payment logs by their own ID."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"teacher_id": str(TEST_TEACHER_ID)}
+        response = client.get("/payment-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        assert TEST_PAYMENT_LOG_ID in log_ids
+        assert TEST_PAYMENT_LOG_ID_SAME_TEACHER_DIFF_PARENT in log_ids
+        assert TEST_PAYMENT_LOG_ID_UNRELATED not in log_ids
+        print("Teacher successfully filtered payment logs by self.")
+
+    async def test_list_logs_as_teacher_filter_by_other_teacher_is_forbidden(
+        self, client: TestClient, test_teacher_orm: db_models.Teachers
+    ):
+        """A teacher is forbidden to filter payment logs by another teacher's ID."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"teacher_id": str(TEST_UNRELATED_TEACHER_ID)}
+        response = client.get("/payment-logs/", headers=headers, params=params)
+
+        assert response.status_code == 403
+        assert "not authorized to view logs for this teacher" in response.json()["detail"]
+        print("Teacher was correctly forbidden from filtering payment logs by another teacher.")
+
+    # --- Parent Perspective ---
+
+    async def test_list_logs_as_parent_filter_by_teacher(
+        self, client: TestClient, test_parent_orm: db_models.Parents
+    ):
+        """A parent filters payment logs by a specific teacher."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"teacher_id": str(TEST_TEACHER_ID)}
+        response = client.get("/payment-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        assert TEST_PAYMENT_LOG_ID in log_ids
+        assert TEST_PAYMENT_LOG_ID_SAME_PARENT_DIFF_TEACHER not in log_ids
+        print("Parent successfully filtered payment logs by teacher.")
+
+    async def test_list_logs_as_parent_filter_by_self(
+        self, client: TestClient, test_parent_orm: db_models.Parents
+    ):
+        """A parent filters payment logs by their own ID."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"parent_id": str(TEST_PARENT_ID)}
+        response = client.get("/payment-logs/", headers=headers, params=params)
+
+        assert response.status_code == 200
+        response_data = response.json()
+        log_ids = {log["id"] for log in response_data}
+
+        assert TEST_PAYMENT_LOG_ID in log_ids
+        assert TEST_PAYMENT_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        assert TEST_PAYMENT_LOG_ID_UNRELATED not in log_ids
+        print("Parent successfully filtered payment logs by self.")
+
+    async def test_list_logs_as_parent_filter_by_other_parent_is_forbidden(
+        self, client: TestClient, test_parent_orm: db_models.Parents
+    ):
+        """A parent is forbidden from filtering payment logs by another parent's ID."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"parent_id": str(TEST_UNRELATED_PARENT_ID)}
+        response = client.get("/payment-logs/", headers=headers, params=params)
+
+        assert response.status_code == 403
+        assert "not authorized to view logs for this parent" in response.json()["detail"]
+        print("Parent was correctly forbidden from filtering payment logs by another parent.")
 

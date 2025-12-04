@@ -22,7 +22,15 @@ from src.efficient_tutor_backend.database.db_enums import (
 from tests.constants import (
     TEST_TEACHER_ID, 
     TEST_STUDENT_ID, 
-    TEST_PARENT_ID
+    TEST_PARENT_ID,
+    TEST_UNRELATED_TEACHER_ID,
+    TEST_UNRELATED_PARENT_ID,
+    TEST_UNRELATED_STUDENT_ID,
+    TEST_TUITION_LOG_ID_SCHEDULED,
+    TEST_TUITION_LOG_ID_CUSTOM,
+    TEST_TUITION_LOG_ID_UNRELATED_TEACHER,
+    TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT,
+    TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER
 )
 
 
@@ -36,7 +44,7 @@ class TestTuitionLogServiceRead:
         tuition_log_service: TuitionLogService,
         tuition_log_custom: db_models.TuitionLogs, # Get a log
         test_teacher_orm: db_models.Users
-    ):
+        ):
         """Tests that the OWNER (Teacher) can fetch a log."""
         log_id = tuition_log_custom.id
         print(f"\n--- Testing get_log_by_id_for_api as OWNER TEACHER ---")
@@ -389,4 +397,307 @@ class TestTuitionLogServiceCorrect:
         
         assert e.value.status_code == 403
         print(f"--- Correctly raised 403 FORBIDDEN ---")
+
+
+@pytest.mark.anyio
+class TestTuitionLogServiceReadFilter:
+    """
+    Tests for the new filtering functionality in get_all_tuition_logs_orm.
+    Testing Combinations:
+    Teacher -> Parent, Student, Unrelated Parent, Other Teacher
+    Parent -> Teacher, Unrelated Teacher, Other Parent
+    Student -> Self, Other
+    """
+
+    # --- TEACHER FILTERING ---
+
+    async def test_get_all_tuitions_orm_by_teacher_for_parent(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by a Parent."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_teacher_orm,
+            target_parent_id=TEST_PARENT_ID
+        )
+        
+        # Expected: SCHEDULED and CUSTOM logs (linked to TEST_PARENT_ID)
+        # Excluded: UNRELATED, SAME_TEACHER_DIFF_PARENT, SAME_PARENT_DIFF_TEACHER
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT not in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER not in log_ids
+        assert TEST_TUITION_LOG_ID_UNRELATED_TEACHER not in log_ids
+        print(f"Teacher filtered by Parent successfully. Found {len(logs)} logs.")
+
+    async def test_get_all_tuitions_orm_by_teacher_for_unrelated_parent(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by an Unrelated Parent (who is charged in a log)."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_teacher_orm,
+            target_parent_id=TEST_UNRELATED_PARENT_ID
+        )
+        
+        # Expected: SAME_TEACHER_DIFF_PARENT (this log exists for Teacher + Unrelated Parent)
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT in log_ids
+        assert TEST_TUITION_LOG_ID_SCHEDULED not in log_ids
+        print(f"Teacher filtered by Unrelated Parent successfully. Found {len(logs)} logs.")
+
+    async def test_get_all_tuitions_orm_by_teacher_for_student(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by Student."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_teacher_orm,
+            target_student_id=TEST_STUDENT_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT not in log_ids
+        print(f"Teacher filtered by Student successfully.")
+
+    async def test_get_all_tuitions_orm_by_teacher_for_unrelated_student(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by Unrelated Student."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_teacher_orm,
+            target_student_id=TEST_UNRELATED_STUDENT_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT in log_ids
+        print(f"Teacher filtered by Unrelated Student successfully.")
+
+    async def test_get_all_tuitions_orm_by_teacher_for_teacher_self(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by Self (Redundant but valid)."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_teacher_orm,
+            target_teacher_id=TEST_TEACHER_ID
+        )
+        
+        # Should return all logs for this teacher
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT in log_ids
+        assert TEST_TUITION_LOG_ID_UNRELATED_TEACHER not in log_ids
+        print("Teacher filtered by Self successfully.")
+
+    async def test_get_all_tuitions_orm_by_teacher_for_teacher_other(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by Other Teacher (Should return empty)."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_teacher_orm,
+            target_teacher_id=TEST_UNRELATED_TEACHER_ID
+        )
+        
+        assert len(logs) == 0
+        print("Teacher filtered by Other Teacher returned 0 logs as expected.")
+
+    # --- PARENT FILTERING ---
+
+    async def test_get_all_tuitions_orm_by_parent_for_teacher(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_parent_orm: db_models.Users
+    ):
+        """Test Parent filtering by Teacher."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_parent_orm,
+            target_teacher_id=TEST_TEACHER_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        # This log is for the parent, but a different teacher
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER not in log_ids
+        print("Parent filtered by Teacher successfully.")
+
+    async def test_get_all_tuitions_orm_by_parent_for_unrelated_teacher(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_parent_orm: db_models.Users
+    ):
+        """Test Parent filtering by Unrelated Teacher (who charges this parent)."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_parent_orm,
+            target_teacher_id=TEST_UNRELATED_TEACHER_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        assert TEST_TUITION_LOG_ID_SCHEDULED not in log_ids
+        print("Parent filtered by Unrelated Teacher successfully.")
+
+    async def test_get_all_tuitions_orm_by_parent_for_parent_other(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_parent_orm: db_models.Users
+    ):
+        """Test Parent filtering by Other Parent (Should return empty)."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_parent_orm,
+            target_parent_id=TEST_UNRELATED_PARENT_ID
+        )
+        
+        assert len(logs) == 0
+        print("Parent filtered by Other Parent returned 0 logs as expected.")
+
+    async def test_get_all_tuitions_orm_by_parent_for_student(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_parent_orm: db_models.Users
+    ):
+        """Test Parent filtering by their Student."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_parent_orm,
+            target_student_id=TEST_STUDENT_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        print("Parent filtered by Student successfully.")
+
+    async def test_get_all_tuitions_orm_by_parent_for_unrelated_student(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_parent_orm: db_models.Users
+    ):
+        """Test Parent filtering by Unrelated Student (Should return empty)."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_parent_orm,
+            target_student_id=TEST_UNRELATED_STUDENT_ID
+        )
+        
+        assert len(logs) == 0
+        print("Parent filtered by Unrelated Student returned 0 logs as expected.")
+
+    # --- STUDENT FILTERING ---
+
+    async def test_get_all_tuitions_orm_by_student_for_self(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_student_orm: db_models.Users
+    ):
+        """Test Student filtering by Self."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_student_orm,
+            target_student_id=TEST_STUDENT_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        # Student sees all logs where they are charged
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        
+        assert TEST_TUITION_LOG_ID_SAME_TEACHER_DIFF_PARENT not in log_ids
+        print("Student filtered by Self successfully.")
+
+    async def test_get_all_tuitions_orm_by_student_for_other(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_student_orm: db_models.Users
+    ):
+        """Test Student filtering by Other Student (Should return empty)."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_student_orm,
+            target_student_id=TEST_UNRELATED_STUDENT_ID
+        )
+        assert len(logs) == 0
+        print("Student filtered by Other Student returned 0 logs as expected.")
+
+    async def test_get_all_tuitions_orm_by_student_for_teacher(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_student_orm: db_models.Users
+    ):
+        """Test Student filtering by Teacher (related)."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_student_orm,
+            target_teacher_id=TEST_TEACHER_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER not in log_ids
+        print("Student filtered by Teacher successfully.")
+
+    async def test_get_all_tuitions_orm_by_student_for_unrelated_teacher(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_student_orm: db_models.Users
+    ):
+        """
+        Test Student filtering by Unrelated Teacher.
+        Note: TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER connects 
+        TEST_STUDENT_ID to TEST_UNRELATED_TEACHER_ID.
+        So this should return exactly that one log.
+        """
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_student_orm,
+            target_teacher_id=TEST_UNRELATED_TEACHER_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert len(logs) == 1
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        print("Student filtered by Unrelated Teacher returned the single shared log.")
+
+    async def test_get_all_tuitions_orm_by_student_for_parent(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_student_orm: db_models.Users
+    ):
+        """Test Student filtering by Parent."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_student_orm,
+            target_parent_id=TEST_PARENT_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_TUITION_LOG_ID_SCHEDULED in log_ids
+        assert TEST_TUITION_LOG_ID_CUSTOM in log_ids
+        assert TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        print("Student filtered by Parent successfully.")
+
+    async def test_get_all_tuitions_orm_by_student_for_unrelated_parent(
+        self,
+        tuition_log_service: TuitionLogService,
+        test_student_orm: db_models.Users
+    ):
+        """Test Student filtering by Unrelated Parent."""
+        logs = await tuition_log_service.get_all_tuition_logs_orm(
+            current_user=test_student_orm,
+            target_parent_id=TEST_UNRELATED_PARENT_ID
+        )
+        
+        # Student is not in any log with Unrelated Parent
+        assert len(logs) == 0
+        print("Student filtered by Unrelated Parent returned 0 logs as expected.")
 
