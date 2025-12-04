@@ -2,6 +2,7 @@
 API endpoint for retrieving role-based financial summaries.
 '''
 from typing import Annotated, Any, Union
+from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from ..database import models as db_models
@@ -31,14 +32,22 @@ class FinancialSummariesAPI:
     async def get_financial_summary(
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
-        summary_service: Annotated[FinancialSummaryService, Depends(FinancialSummaryService)]
+        summary_service: Annotated[FinancialSummaryService, Depends(FinancialSummaryService)],
+        parent_id: UUID | None = None,
+        student_id: UUID | None = None,
+        teacher_id: UUID | None = None
     ) -> Any:
         """
         Retrieves a financial summary for the current user.
         - For a Teacher, shows total owed, credit held, and lessons given.
         - For a Parent, shows total due, credit balance, and unpaid lesson count.
         """
-        return await summary_service.get_financial_summary_for_api(current_user)
+        return await summary_service.get_financial_summary_for_api(
+            current_user,
+            parent_id=parent_id,
+            student_id=student_id,
+            teacher_id=teacher_id
+        )
 
 # Instantiate the class and export its router
 financial_summaries_api = FinancialSummariesAPI()

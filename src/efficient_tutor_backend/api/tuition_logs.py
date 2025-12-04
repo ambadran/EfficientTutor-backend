@@ -53,13 +53,21 @@ class TuitionLogsAPI:
     async def list_tuition_logs(
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
-        tuition_log_service: Annotated[TuitionLogService, Depends(TuitionLogService)]
+        tuition_log_service: Annotated[TuitionLogService, Depends(TuitionLogService)],
+        student_id: UUID | None = None,
+        parent_id: UUID | None = None,
+        teacher_id: UUID | None = None
     ) -> list[Any]:
         """
         Retrieves a list of all tuition logs relevant to the current user.
         The response model varies based on the user's role.
         """
-        return await tuition_log_service.get_all_tuition_logs_for_api(current_user)
+        return await tuition_log_service.get_all_tuition_logs_for_api(
+            current_user,
+            student_id=student_id,
+            parent_id=parent_id,
+            teacher_id=teacher_id
+        )
 
     async def get_tuition_log(
         self,

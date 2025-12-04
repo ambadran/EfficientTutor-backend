@@ -258,11 +258,11 @@ class TestTeacherAPIDELETE:
     async def test_delete_teacher_by_self_success(
         self,
         client: TestClient,
-        test_unrelated_teacher_orm: db_models.Teachers # This teacher has no logs
+        test_deletable_teacher_orm: db_models.Teachers # This teacher has no logs
     ):
         """Test a teacher without active logs successfully deleting their own account."""
-        teacher_id = test_unrelated_teacher_orm.id
-        headers = auth_headers_for_user(test_unrelated_teacher_orm)
+        teacher_id = test_deletable_teacher_orm.id
+        headers = auth_headers_for_user(test_deletable_teacher_orm)
 
         print(f"Teacher {teacher_id} without logs attempting to self-delete.")
         response = client.delete(f"/teachers/{teacher_id}", headers=headers)
@@ -273,11 +273,11 @@ class TestTeacherAPIDELETE:
     async def test_delete_teacher_by_admin_success(
         self,
         client: TestClient,
-        test_unrelated_teacher_orm: db_models.Teachers, # This teacher has no logs
+        test_deletable_teacher_orm: db_models.Teachers, # This teacher has no logs
         test_admin_orm: db_models.Admins
     ):
         """Test an admin successfully deleting a teacher without active logs."""
-        teacher_id = test_unrelated_teacher_orm.id
+        teacher_id = test_deletable_teacher_orm.id
         headers = auth_headers_for_user(test_admin_orm)
 
         print(f"Admin attempting to delete teacher {teacher_id} who has no logs.")

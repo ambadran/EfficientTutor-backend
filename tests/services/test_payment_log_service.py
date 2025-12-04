@@ -17,7 +17,12 @@ from tests.constants import (
     TEST_TEACHER_ID, 
     TEST_PARENT_ID, 
     TEST_STUDENT_ID,
-    TEST_PAYMENT_LOG_ID # Assumes this is in your constants.py
+    TEST_PAYMENT_LOG_ID, # Assumes this is in your constants.py
+    TEST_UNRELATED_PARENT_ID,
+    TEST_UNRELATED_TEACHER_ID,
+    TEST_PAYMENT_LOG_ID_SAME_TEACHER_DIFF_PARENT,
+    TEST_PAYMENT_LOG_ID_SAME_PARENT_DIFF_TEACHER,
+    TEST_PAYMENT_LOG_ID_UNRELATED
 )
 
 
@@ -323,4 +328,145 @@ class TestPaymentLogServiceWrite:
         assert e.value.status_code == 404
         assert "Parent not found" in e.value.detail
         print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
+
+
+@pytest.mark.anyio
+class TestPaymentLogServiceReadFilter:
+    """
+    Tests for the new filtering functionality in get_all_payment_logs.
+    Testing Combinations:
+    Teacher -> Parent, Unrelated Parent
+    Parent -> Teacher, Unrelated Teacher
+    Student -> Forbidden
+    """
+
+    # --- TEACHER FILTERING ---
+
+    async def test_get_all_payments_orm_by_teacher_for_parent(
+        self,
+        payment_log_service: PaymentLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by a Parent."""
+        logs = await payment_log_service.get_all_payment_logs(
+            current_user=test_teacher_orm,
+            target_parent_id=TEST_PARENT_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_PAYMENT_LOG_ID in log_ids
+        assert TEST_PAYMENT_LOG_ID_SAME_TEACHER_DIFF_PARENT not in log_ids
+        print(f"Teacher filtered by Parent successfully.")
+
+    async def test_get_all_payments_orm_by_teacher_for_unrelated_parent(
+        self,
+        payment_log_service: PaymentLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by an Unrelated Parent (who has a log with this teacher)."""
+        logs = await payment_log_service.get_all_payment_logs(
+            current_user=test_teacher_orm,
+            target_parent_id=TEST_UNRELATED_PARENT_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_PAYMENT_LOG_ID_SAME_TEACHER_DIFF_PARENT in log_ids
+        assert TEST_PAYMENT_LOG_ID not in log_ids
+        print(f"Teacher filtered by Unrelated Parent successfully.")
+
+    async def test_get_all_payments_orm_by_teacher_for_teacher_self(
+        self,
+        payment_log_service: PaymentLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by Self (Should return all their logs)."""
+        logs = await payment_log_service.get_all_payment_logs(
+            current_user=test_teacher_orm,
+            target_teacher_id=TEST_TEACHER_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_PAYMENT_LOG_ID in log_ids
+        assert TEST_PAYMENT_LOG_ID_SAME_TEACHER_DIFF_PARENT in log_ids
+        # Should exclude logs owned by other teachers
+        assert TEST_PAYMENT_LOG_ID_UNRELATED not in log_ids
+        print("Teacher filtered by Self successfully.")
+
+    async def test_get_all_payments_orm_by_teacher_for_teacher_other(
+        self,
+        payment_log_service: PaymentLogService,
+        test_teacher_orm: db_models.Users
+    ):
+        """Test Teacher filtering by Other Teacher (Should return empty)."""
+        logs = await payment_log_service.get_all_payment_logs(
+            current_user=test_teacher_orm,
+            target_teacher_id=TEST_UNRELATED_TEACHER_ID
+        )
+        
+        assert len(logs) == 0
+        print("Teacher filtered by Other Teacher returned 0 logs as expected.")
+
+    # --- PARENT FILTERING ---
+
+    async def test_get_all_payments_orm_by_parent_for_teacher(
+        self,
+        payment_log_service: PaymentLogService,
+        test_parent_orm: db_models.Users
+    ):
+        """Test Parent filtering by Teacher."""
+        logs = await payment_log_service.get_all_payment_logs(
+            current_user=test_parent_orm,
+            target_teacher_id=TEST_TEACHER_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_PAYMENT_LOG_ID in log_ids
+        assert TEST_PAYMENT_LOG_ID_SAME_PARENT_DIFF_TEACHER not in log_ids
+        print("Parent filtered by Teacher successfully.")
+
+    async def test_get_all_payments_orm_by_parent_for_unrelated_teacher(
+        self,
+        payment_log_service: PaymentLogService,
+        test_parent_orm: db_models.Users
+    ):
+        """Test Parent filtering by Unrelated Teacher (who has a log with this parent)."""
+        logs = await payment_log_service.get_all_payment_logs(
+            current_user=test_parent_orm,
+            target_teacher_id=TEST_UNRELATED_TEACHER_ID
+        )
+        
+        log_ids = {log.id for log in logs}
+        assert TEST_PAYMENT_LOG_ID_SAME_PARENT_DIFF_TEACHER in log_ids
+        assert TEST_PAYMENT_LOG_ID not in log_ids
+        print("Parent filtered by Unrelated Teacher successfully.")
+
+    async def test_get_all_payments_orm_by_parent_for_parent_other(
+        self,
+        payment_log_service: PaymentLogService,
+        test_parent_orm: db_models.Users
+    ):
+        """Test Parent filtering by Other Parent (Should return empty)."""
+        logs = await payment_log_service.get_all_payment_logs(
+            current_user=test_parent_orm,
+            target_parent_id=TEST_UNRELATED_PARENT_ID
+        )
+        
+        assert len(logs) == 0
+        print("Parent filtered by Other Parent returned 0 logs as expected.")
+
+    # --- STUDENT FILTERING ---
+
+    async def test_get_all_payments_orm_as_student_forbidden(
+        self,
+        payment_log_service: PaymentLogService,
+        test_student_orm: db_models.Users
+    ):
+        """Test Student attempt to get all logs (Forbidden)."""
+        with pytest.raises(HTTPException) as e:
+            await payment_log_service.get_all_payment_logs(
+                current_user=test_student_orm
+            )
+        
+        assert e.value.status_code == 403
+        print("Student was correctly forbidden from fetching payment logs.")
 

@@ -134,6 +134,7 @@ class TuitionLogService:
         )
         
         # 1. MANDATORY ROLE FILTER (The "NO MATTER WHAT" clause)
+        charges_joined = False
         if current_user.role == UserRole.TEACHER.value:
             stmt = stmt.filter(db_models.TuitionLogs.teacher_id == current_user.id)
         elif current_user.role == UserRole.PARENT.value:
@@ -141,11 +142,13 @@ class TuitionLogService:
             stmt = stmt.join(db_models.TuitionLogCharges).filter(
                 db_models.TuitionLogCharges.parent_id == current_user.id
             )
+            charges_joined = True
         elif current_user.role == UserRole.STUDENT.value:
              # Student can only access logs where they are in the charges
             stmt = stmt.join(db_models.TuitionLogCharges).filter(
                 db_models.TuitionLogCharges.student_id == current_user.id
             )
+            charges_joined = True
         else:
             return [] # Other roles see no logs
 
@@ -153,19 +156,17 @@ class TuitionLogService:
         if target_teacher_id:
             stmt = stmt.filter(db_models.TuitionLogs.teacher_id == target_teacher_id)
         
+        # If we need to filter by student or parent, and we haven't joined yet (i.e., for a Teacher)
+        if (target_student_id or target_parent_id) and not charges_joined:
+            stmt = stmt.join(db_models.TuitionLogCharges)
+
         if target_student_id:
-             # Join is already done for PARENT/STUDENT roles above, but safe to join again or check if needed.
-             # SQLAlchemy creates aliases or reuses joins smartly, but explicit join is safer if not already done.
-             # To be safe and efficient, we check if we haven't joined yet (Teacher case).
-             # Actually, .join() repeatedly on same table adds multiple joins. 
-             # Use distinct() to avoid duplicates if multiple charges match.
-             stmt = stmt.join(db_models.TuitionLogCharges).filter(
+             stmt = stmt.filter(
                  db_models.TuitionLogCharges.student_id == target_student_id
              )
 
         if target_parent_id:
-             # Same logic as student_id
-             stmt = stmt.join(db_models.TuitionLogCharges).filter(
+             stmt = stmt.filter(
                  db_models.TuitionLogCharges.parent_id == target_parent_id
              )
 
@@ -1161,15 +1162,23 @@ class FinancialSummaryService:
 
         if balance < 0:
             total_due = -balance
-            # Count unpaid logs
-            count_stmt = select(func.count(db_models.TuitionLogs.id.distinct())).join(
-                db_models.TuitionLogCharges
-            ).filter(
-                db_models.TuitionLogCharges.parent_id == parent_id,
+            
+            # CORRECTED: Use ledger to get accurate unpaid count
+            ledger = await self.tuition_log_service._calculate_teacher_ledger(teacher_id)
+            
+            logs_stmt = select(
+                db_models.TuitionLogCharges.tuition_log_id,
+                db_models.TuitionLogCharges.student_id
+            ).join(db_models.TuitionLogs).filter(
                 db_models.TuitionLogs.teacher_id == teacher_id,
+                db_models.TuitionLogCharges.parent_id == parent_id,
                 db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
             )
-            unpaid_count = (await self.db.execute(count_stmt)).scalar() or 0
+            log_charges = (await self.db.execute(logs_stmt)).all()
+
+            for log_id, student_id in log_charges:
+                if ledger.get((log_id, student_id), PaidStatus.UNPAID) == PaidStatus.UNPAID:
+                    unpaid_count += 1
         else:
             credit_balance = balance
 
@@ -1207,6 +1216,8 @@ class FinancialSummaryService:
             # Fetch all logs for this student & teacher
             logs_stmt = select(db_models.TuitionLogs).join(
                 db_models.TuitionLogCharges
+            ).options(
+                selectinload(db_models.TuitionLogs.tuition_log_charges) # FIX: Eager load charges
             ).filter(
                 db_models.TuitionLogs.teacher_id == tid,
                 db_models.TuitionLogCharges.student_id == student_id,
@@ -1266,41 +1277,9 @@ class FinancialSummaryService:
         
         all_parent_ids = list(set(charges_map.keys()) | set(payments_map.keys()))
         
-        # 3. Fetch Parent Names
-        parents_map = {}
-        if all_parent_ids:
-             parent_details_stmt = select(db_models.Parents).filter(db_models.Parents.id.in_(all_parent_ids))
-             parents_res = await self.db.execute(parent_details_stmt)
-             for p in parents_res.scalars().all():
-                 parents_map[p.id] = f"{p.first_name} {p.last_name}"
-
-        # 4. Run Ledger for Unpaid Counts
-        ledger_status_map = await self.tuition_log_service._calculate_teacher_ledger(teacher_id)
-        
-        mapping_stmt = select(
-            db_models.TuitionLogCharges.tuition_log_id,
-            db_models.TuitionLogCharges.student_id,
-            db_models.TuitionLogCharges.parent_id
-        ).join(db_models.TuitionLogs).filter(
-            db_models.TuitionLogs.teacher_id == teacher_id,
-            db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
-        )
-        mapping_res = await self.db.execute(mapping_stmt)
-        
-        # Count UNPAID items per parent
-        unpaid_counts_map = {pid: 0 for pid in all_parent_ids}
-        
-        for row in mapping_res:
-            key = (row.tuition_log_id, row.student_id)
-            status = ledger_status_map.get(key, PaidStatus.UNPAID)
-            if status == PaidStatus.UNPAID:
-                if row.parent_id in unpaid_counts_map:
-                    unpaid_counts_map[row.parent_id] += 1
-
-        # 5. Aggregate Final Results
+        # 3. Aggregate Final Results
         total_owed_to_teacher = Decimal(0)
         total_credit_held = Decimal(0)
-        breakdown_list = []
 
         for parent_id in all_parent_ids:
             c = charges_map.get(parent_id, Decimal(0))
@@ -1312,14 +1291,7 @@ class FinancialSummaryService:
             elif balance > 0:
                 total_credit_held += balance
             
-            breakdown_list.append(finance_models.ParentFinancialStatus(
-                parent_id=parent_id,
-                parent_name=parents_map.get(parent_id, "Unknown Parent"),
-                balance=balance,
-                unpaid_lessons_count=unpaid_counts_map.get(parent_id, 0)
-            ))
-            
-        # 6. Lessons this month
+        # 4. Lessons this month
         month_count_stmt = select(func.count(db_models.TuitionLogs.id)).filter(
             db_models.TuitionLogs.teacher_id == teacher_id,
             db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value,
@@ -1331,8 +1303,7 @@ class FinancialSummaryService:
         return finance_models.FinancialSummaryForTeacher(
             total_owed_to_teacher=total_owed_to_teacher,
             total_credit_held=total_credit_held,
-            total_lessons_given_this_month=lessons_this_month,
-            per_parent_breakdown=breakdown_list
+            total_lessons_given_this_month=lessons_this_month
         )
 
     async def _get_summary_for_teacher_for_specific_parent(self, teacher_id: UUID, target_parent_id: UUID) -> finance_models.FinancialSummaryForTeacher:
@@ -1366,30 +1337,7 @@ class FinancialSummaryService:
         else:
             total_credit = balance
 
-        # 3. Unpaid Count (using ledger)
-        ledger_status_map = await self.tuition_log_service._calculate_teacher_ledger(teacher_id)
-        
-        mapping_stmt = select(
-            db_models.TuitionLogCharges.tuition_log_id,
-            db_models.TuitionLogCharges.student_id
-        ).join(db_models.TuitionLogs).filter(
-            db_models.TuitionLogs.teacher_id == teacher_id,
-            db_models.TuitionLogCharges.parent_id == target_parent_id,
-            db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
-        )
-        mapping_res = await self.db.execute(mapping_stmt)
-        
-        unpaid_count = 0
-        for row in mapping_res:
-            key = (row.tuition_log_id, row.student_id)
-            if ledger_status_map.get(key, PaidStatus.UNPAID) == PaidStatus.UNPAID:
-                unpaid_count += 1
-
-        # 4. Get Parent Name
-        parent = await self.db.get(db_models.Parents, target_parent_id)
-        parent_name = f"{parent.first_name} {parent.last_name}" if parent else "Unknown"
-
-        # 5. Lessons this month (for this parent's students)
+        # 3. Lessons this month (for this parent's students)
         month_count_stmt = select(func.count(db_models.TuitionLogs.id.distinct())).join(
             db_models.TuitionLogCharges
         ).filter(
@@ -1401,18 +1349,10 @@ class FinancialSummaryService:
         )
         lessons_this_month = (await self.db.execute(month_count_stmt)).scalar() or 0
 
-        breakdown = finance_models.ParentFinancialStatus(
-            parent_id=target_parent_id,
-            parent_name=parent_name,
-            balance=balance,
-            unpaid_lessons_count=unpaid_count
-        )
-
         return finance_models.FinancialSummaryForTeacher(
             total_owed_to_teacher=total_owed,
             total_credit_held=total_credit,
-            total_lessons_given_this_month=lessons_this_month,
-            per_parent_breakdown=[breakdown]
+            total_lessons_given_this_month=lessons_this_month
         )
 
     async def _get_summary_for_teacher_for_specific_student(self, teacher_id: UUID, target_student_id: UUID) -> finance_models.FinancialSummaryForTeacher:
@@ -1441,15 +1381,11 @@ class FinancialSummaryService:
         rows = logs_res.all() # [(log_id, cost, parent_id), ...]
 
         total_unpaid_cost = Decimal(0)
-        unpaid_count = 0
-        parent_id = None
 
         for log_id, cost, pid in rows:
-            parent_id = pid # Capture parent ID (assuming student has 1 parent in this context)
             status = ledger.get((log_id, target_student_id), PaidStatus.UNPAID)
             if status == PaidStatus.UNPAID:
                 total_unpaid_cost += cost
-                unpaid_count += 1
         
         # 2. Lessons this month for this student
         month_count_stmt = select(func.count(db_models.TuitionLogs.id)).join(
@@ -1463,25 +1399,10 @@ class FinancialSummaryService:
         )
         lessons_this_month = (await self.db.execute(month_count_stmt)).scalar() or 0
 
-        # 3. Construct Breakdown (Using unpaid cost as "balance" (negative))
-        parent_name = "Unknown"
-        if parent_id:
-            parent = await self.db.get(db_models.Parents, parent_id)
-            if parent:
-                parent_name = f"{parent.first_name} {parent.last_name}"
-        
-        breakdown = finance_models.ParentFinancialStatus(
-            parent_id=parent_id or UUID('00000000-0000-0000-0000-000000000000'), # Fallback if no logs found
-            parent_name=parent_name,
-            balance=-total_unpaid_cost, # Negative balance = Owed
-            unpaid_lessons_count=unpaid_count
-        )
-
         return finance_models.FinancialSummaryForTeacher(
             total_owed_to_teacher=total_unpaid_cost,
             total_credit_held=Decimal(0),
-            total_lessons_given_this_month=lessons_this_month,
-            per_parent_breakdown=[breakdown]
+            total_lessons_given_this_month=lessons_this_month
         )
 
 
