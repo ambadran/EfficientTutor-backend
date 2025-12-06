@@ -38,6 +38,9 @@ from tests.constants import (
     TEST_ADMIN_ID,
     TEST_NORMAL_ADMIN_ID,
     TEST_DELETABLE_TEACHER_ID,
+    FIN_TEACHER_A_ID, FIN_TEACHER_B_ID,
+    FIN_PARENT_A_ID, FIN_PARENT_B_ID,
+    FIN_STUDENT_A1_ID, FIN_STUDENT_A2_ID, FIN_STUDENT_B1_ID
 )
 
 # --- Application Imports ---
@@ -489,5 +492,77 @@ def valid_student_data() -> dict:
             }
         ]
     }
+
+# --- FINANCIAL SANDBOX FIXTURES ---
+
+@pytest.fixture(scope="function")
+async def fin_teacher_a(db_session: AsyncSession) -> db_models.Teachers:
+    stmt = select(db_models.Teachers).options(
+        selectinload(db_models.Teachers.teacher_specialties)
+    ).filter(db_models.Teachers.id == FIN_TEACHER_A_ID)
+    result = await db_session.execute(stmt)
+    teacher = result.scalars().first()
+    assert teacher is not None, f"Fin Teacher A {FIN_TEACHER_A_ID} not found."
+    return teacher
+
+@pytest.fixture(scope="function")
+async def fin_teacher_b(db_session: AsyncSession) -> db_models.Teachers:
+    stmt = select(db_models.Teachers).options(
+        selectinload(db_models.Teachers.teacher_specialties)
+    ).filter(db_models.Teachers.id == FIN_TEACHER_B_ID)
+    result = await db_session.execute(stmt)
+    teacher = result.scalars().first()
+    assert teacher is not None, f"Fin Teacher B {FIN_TEACHER_B_ID} not found."
+    return teacher
+
+@pytest.fixture(scope="function")
+async def fin_parent_a(db_session: AsyncSession) -> db_models.Parents:
+    stmt = select(db_models.Parents).options(
+        selectinload(db_models.Parents.students)
+    ).filter(db_models.Parents.id == FIN_PARENT_A_ID)
+    result = await db_session.execute(stmt)
+    parent = result.scalars().first()
+    assert parent is not None, f"Fin Parent A {FIN_PARENT_A_ID} not found."
+    return parent
+
+@pytest.fixture(scope="function")
+async def fin_parent_b(db_session: AsyncSession) -> db_models.Parents:
+    stmt = select(db_models.Parents).options(
+        selectinload(db_models.Parents.students)
+    ).filter(db_models.Parents.id == FIN_PARENT_B_ID)
+    result = await db_session.execute(stmt)
+    parent = result.scalars().first()
+    assert parent is not None, f"Fin Parent B {FIN_PARENT_B_ID} not found."
+    return parent
+
+@pytest.fixture(scope="function")
+async def fin_student_a1(db_session: AsyncSession) -> db_models.Students:
+    stmt = select(db_models.Students).options(
+        selectinload(db_models.Students.student_subjects)
+    ).filter(db_models.Students.id == FIN_STUDENT_A1_ID)
+    result = await db_session.execute(stmt)
+    student = result.scalars().first()
+    assert student is not None, f"Fin Student A1 {FIN_STUDENT_A1_ID} not found."
+    return student
+
+@pytest.fixture(scope="function")
+async def fin_student_a2(db_session: AsyncSession) -> db_models.Students:
+    stmt = select(db_models.Students).options(
+        selectinload(db_models.Students.student_subjects)
+    ).filter(db_models.Students.id == FIN_STUDENT_A2_ID)
+    result = await db_session.execute(stmt)
+    student = result.scalars().first()
+    assert student is not None, f"Fin Student A2 {FIN_STUDENT_A2_ID} not found."
+    return student
+
+@pytest.fixture(scope="function")
+async def fin_student_b1(db_session: AsyncSession) -> db_models.Students:
+    stmt = select(db_models.Students).options(
+        selectinload(db_models.Students.student_subjects)
+    ).filter(db_models.Students.id == FIN_STUDENT_B1_ID)
+    result = await db_session.execute(stmt)
+    student = result.scalars().first()
+    assert student is not None, f"Fin Student B1 {FIN_STUDENT_B1_ID} not found."
+    return student
 
 

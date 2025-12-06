@@ -1,4 +1,7 @@
-from tests.constants import TEST_TEACHER_ID, TEST_UNRELATED_TEACHER_ID
+from tests.constants import (
+    TEST_TEACHER_ID, TEST_UNRELATED_TEACHER_ID,
+    FIN_TEACHER_A_ID, FIN_TEACHER_B_ID
+)
 from src.efficient_tutor_backend.database.db_enums import SubjectEnum, EducationalSystemEnum
 
 TEACHER_SPECIALTIES_DATA = [
@@ -150,6 +153,19 @@ TEACHER_SPECIALTIES_DATA = [
         "educational_system": EducationalSystemEnum.SAT.value,
         "grade": 8,
     },
-
-
+    # --- Financial Sandbox Specialties ---
+    {
+        "factory": "RawTeacherSpecialtyFactory",
+        "teacher_id": FIN_TEACHER_A_ID,
+        "subject": SubjectEnum.MATH.value,
+        "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
+    },
+    {
+        "factory": "RawTeacherSpecialtyFactory",
+        "teacher_id": FIN_TEACHER_B_ID,
+        "subject": SubjectEnum.MATH.value,
+        "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
+    },
 ]
