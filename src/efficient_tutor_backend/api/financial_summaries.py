@@ -3,7 +3,7 @@ API endpoint for retrieving role-based financial summaries.
 '''
 from typing import Annotated, Any, Union
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from ..database import models as db_models
 from ..models import finance as finance_models
@@ -33,9 +33,9 @@ class FinancialSummariesAPI:
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
         summary_service: Annotated[FinancialSummaryService, Depends(FinancialSummaryService)],
-        parent_id: UUID | None = None,
-        student_id: UUID | None = None,
-        teacher_id: UUID | None = None
+        parent_id: Annotated[UUID | None, Query(description="Optional filter for Parent ID")] = None,
+        student_id: Annotated[UUID | None, Query(description="Optional filter for Student ID")] = None,
+        teacher_id: Annotated[UUID | None, Query(description="Optional filter for Teacher ID")] = None
     ) -> Any:
         """
         Retrieves a financial summary for the current user.
