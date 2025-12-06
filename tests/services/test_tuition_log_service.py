@@ -174,15 +174,17 @@ class TestTuitionLogServiceRead:
         test_student_orm: db_models.Users
     ):
         """Tests that a STUDENT is now FORBIDDEN from fetching all logs."""
-        print(f"\n--- Testing get_all_tuition_logs_for_api as STUDENT (expect 403) ---")
-        
-        # --- Act & Assert ---
-        with pytest.raises(HTTPException) as e:
-            await tuition_log_service.get_all_tuition_logs_for_api(test_student_orm)
-        
-        assert e.value.status_code == 403
+        print(f"\n--- Testing get_all_tuition_logs_for_api as STUDENT '{test_student_orm.first_name} {test_student_orm.last_name}'---")
 
-        print(f"--- Correctly raised HTTPException: {e.value.status_code} {e.value.detail} ---")
+        logs = await tuition_log_service.get_all_tuition_logs_for_api(test_student_orm)
+        
+        assert isinstance(logs, list)
+        print(f"--- Found {len(logs)} API logs for Student ---")
+        assert isinstance(logs, list)
+        assert isinstance(logs[0], finance_models.TuitionLogReadForStudent)
+        assert not hasattr(logs[0], 'cost')
+        pprint(logs[0].__dict__)
+
 
 @pytest.mark.anyio
 class TestTuitionLogServiceCreate:

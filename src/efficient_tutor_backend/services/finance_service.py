@@ -49,6 +49,95 @@ class TuitionLogService:
                 detail="You do not have permission to perform this action."
             )
 
+    async def _authorize_for_filtering(
+        self, 
+        current_user: db_models.Users, 
+        student_id: Optional[UUID], 
+        parent_id: Optional[UUID], 
+        teacher_id: Optional[UUID]
+    ) -> None:
+        """
+        Validates filtering parameters against the current user's role and permissions.
+        Raises HTTPException(403) if the user attempts to filter by an ID they are not
+        authorized to access or view.
+        """
+        # 1. Admin: Full Access
+        if current_user.role == UserRole.ADMIN.value:
+            return
+
+        # 2. Teacher Rules
+        elif current_user.role == UserRole.TEACHER.value:
+            # Identity Check
+            if teacher_id and teacher_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Teachers can only filter by their own ID.")
+            
+            # Relationship Check: Student
+            if student_id:
+                # Check if student is in any of this teacher's tuitions
+                stmt = select(db_models.TuitionTemplateCharges.id).join(
+                    db_models.Tuitions
+                ).filter(
+                    db_models.Tuitions.teacher_id == current_user.id,
+                    db_models.TuitionTemplateCharges.student_id == student_id
+                ).limit(1)
+                result = await self.db.execute(stmt)
+                if not result.scalars().first():
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not associated with this student.")
+
+            # Relationship Check: Parent
+            if parent_id:
+                # Check if parent is in any of this teacher's tuitions
+                stmt = select(db_models.TuitionTemplateCharges.id).join(
+                    db_models.Tuitions
+                ).filter(
+                    db_models.Tuitions.teacher_id == current_user.id,
+                    db_models.TuitionTemplateCharges.parent_id == parent_id
+                ).limit(1)
+                result = await self.db.execute(stmt)
+                if not result.scalars().first():
+                     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not associated with this parent.")
+
+        # 3. Parent Rules
+        elif current_user.role == UserRole.PARENT.value:
+            # Identity Check
+            if parent_id and parent_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Parents can only filter by their own ID.")
+
+            # Relationship Check: Student (In-Memory)
+            if student_id:
+                # UserService ensures 'students' relationship is loaded for Parents
+                if not any(s.id == student_id for s in current_user.students):
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only filter by your own children.")
+
+            # Relationship Check: Teacher (DB Check)
+            if teacher_id:
+                # Check if this teacher teaches any of the parent's children
+                stmt = select(db_models.Tuitions.id).join(
+                    db_models.TuitionTemplateCharges
+                ).filter(
+                    db_models.TuitionTemplateCharges.parent_id == current_user.id,
+                    db_models.Tuitions.teacher_id == teacher_id
+                ).limit(1)
+                result = await self.db.execute(stmt)
+                if not result.scalars().first():
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not associated with this teacher.")
+
+        # 4. Student Rules
+        elif current_user.role == UserRole.STUDENT.value:
+            # Strict Ban on Parent/Teacher filters
+            if parent_id is not None:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Students cannot filter by parent_id.")
+            if teacher_id is not None:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Students cannot filter by teacher_id.")
+            
+            # Identity Check
+            if student_id and student_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Students can only filter by their own ID.")
+
+        else:
+            # Fallback for unknown roles
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized role.")
+
     async def _authorize_related_id(self, current_user: db_models.Users, log_obj: db_models.TuitionLogs):
         """
         Checks if the passed user is related to the log
@@ -229,14 +318,14 @@ class TuitionLogService:
     ) -> list[finance_models.TuitionLogReadRoleBased]:
         """
         REFACTORED: API-facing method.
-        1. Authorizes Role
+        1. Authorizes Filtering Rules (Identity & Relationship checks)
         2. Fetches Data with Filters
         3. Formats
         """
         log.info(f"User {current_user.id} (Role: {current_user.role}) requesting all tuition logs for API.")
         try:
-            # 1. Authorize Role (Teacher, Parent, Student can read)
-            self._authorize_role(current_user, [UserRole.TEACHER, UserRole.PARENT])
+            # 1. Authorize Filtering Rules (Strict Security Check)
+            await self._authorize_for_filtering(current_user, student_id, parent_id, teacher_id)
             
             # 2. Fetch Data (uses the internal fetcher with filters)
             rich_logs = await self.get_all_tuition_logs_orm(
@@ -723,6 +812,65 @@ class PaymentLogService:
         self.user_service = user_service
 
     # --- Private Authorization Helper ---
+
+    async def _authorize_for_filtering(
+        self, 
+        current_user: db_models.Users, 
+        parent_id: Optional[UUID], 
+        teacher_id: Optional[UUID]
+    ) -> None:
+        """
+        Validates filtering parameters against the current user's role and permissions.
+        Raises HTTPException(403) for unauthorized access or relationship mismatches.
+        """
+        # 1. Admin: Full Access
+        if current_user.role == UserRole.ADMIN.value:
+            return
+
+        # 2. Teacher Rules
+        elif current_user.role == UserRole.TEACHER.value:
+            # Identity Check
+            if teacher_id and teacher_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Teachers can only filter by their own ID.")
+            
+            # Relationship Check: Parent
+            if parent_id:
+                # Check if parent has a student in this teacher's tuitions
+                stmt = select(db_models.TuitionTemplateCharges.id).join(
+                    db_models.Tuitions
+                ).filter(
+                    db_models.Tuitions.teacher_id == current_user.id,
+                    db_models.TuitionTemplateCharges.parent_id == parent_id
+                ).limit(1)
+                result = await self.db.execute(stmt)
+                if not result.scalars().first():
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not associated with this parent.")
+
+        # 3. Parent Rules
+        elif current_user.role == UserRole.PARENT.value:
+            # Identity Check
+            if parent_id and parent_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Parents can only filter by their own ID.")
+
+            # Relationship Check: Teacher
+            if teacher_id:
+                # Check if this teacher teaches any of the parent's children
+                stmt = select(db_models.Tuitions.id).join(
+                    db_models.TuitionTemplateCharges
+                ).filter(
+                    db_models.TuitionTemplateCharges.parent_id == current_user.id,
+                    db_models.Tuitions.teacher_id == teacher_id
+                ).limit(1)
+                result = await self.db.execute(stmt)
+                if not result.scalars().first():
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not associated with this teacher.")
+
+        # 4. Student Rules
+        elif current_user.role == UserRole.STUDENT.value:
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Students cannot access payment logs.")
+
+        else:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized role.")
     
     def _authorize(self, current_user: db_models.Users, allowed_roles: list[UserRole]):
         """
@@ -807,6 +955,8 @@ class PaymentLogService:
                 stmt = stmt.filter(db_models.PaymentLogs.teacher_id == current_user.id)
             elif current_user.role == UserRole.PARENT.value:
                 stmt = stmt.filter(db_models.PaymentLogs.parent_id == current_user.id)
+            elif current_user.role == UserRole.ADMIN.value:
+                pass # Admin sees all
             else:
                 # CHANGED: Raise an error instead of returning []
                 log.warning(f"User {current_user.id} (Role: {current_user.role}) is not authorized to get payment logs.")
@@ -865,14 +1015,17 @@ class PaymentLogService:
         The authorization logic is now handled by the get_all_payment_logs method.
         """
         try:
-            # 1. Fetch data (this will raise 403 for Students)
+            # 1. Authorize Filtering Rules (Strict Security Check)
+            await self._authorize_for_filtering(current_user, parent_id, teacher_id)
+            
+            # 2. Fetch data (this will raise 403 for Students)
             rich_logs = await self.get_all_payment_logs(
                 current_user=current_user,
                 target_parent_id=parent_id,
                 target_teacher_id=teacher_id
             )
             
-            # 2. Format and return
+            # 3. Format and return
             return [self._format_payment_log_for_api(log) for log in rich_logs]
             
         except HTTPException as http_exc:
@@ -1021,6 +1174,66 @@ class FinancialSummaryService:
         self.db = db
         self.tuition_log_service = tuition_log_service
 
+    async def _authorize_for_filtering(
+        self, 
+        current_user: db_models.Users, 
+        parent_id: Optional[UUID], 
+        student_id: Optional[UUID], 
+        teacher_id: Optional[UUID]
+    ) -> None:
+        """
+        Validates filtering parameters for financial summaries.
+        Raises HTTPException(403) for unauthorized access.
+        """
+        # 1. Teacher Rules
+        if current_user.role == UserRole.TEACHER.value:
+            # Target Check: Parent
+            if parent_id:
+                stmt = select(db_models.TuitionTemplateCharges.id).join(
+                    db_models.Tuitions
+                ).filter(
+                    db_models.Tuitions.teacher_id == current_user.id,
+                    db_models.TuitionTemplateCharges.parent_id == parent_id
+                ).limit(1)
+                result = await self.db.execute(stmt)
+                if not result.scalars().first():
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not associated with this parent.")
+
+            # Target Check: Student
+            if student_id:
+                stmt = select(db_models.TuitionTemplateCharges.id).join(
+                    db_models.Tuitions
+                ).filter(
+                    db_models.Tuitions.teacher_id == current_user.id,
+                    db_models.TuitionTemplateCharges.student_id == student_id
+                ).limit(1)
+                result = await self.db.execute(stmt)
+                if not result.scalars().first():
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not associated with this student.")
+
+        # 2. Parent Rules
+        elif current_user.role == UserRole.PARENT.value:
+            # Target Check: Teacher
+            if teacher_id:
+                stmt = select(db_models.Tuitions.id).join(
+                    db_models.TuitionTemplateCharges
+                ).filter(
+                    db_models.TuitionTemplateCharges.parent_id == current_user.id,
+                    db_models.Tuitions.teacher_id == teacher_id
+                ).limit(1)
+                result = await self.db.execute(stmt)
+                if not result.scalars().first():
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not associated with this teacher.")
+
+            # Target Check: Student (In-Memory)
+            if student_id:
+                if not any(s.id == student_id for s in current_user.students):
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only view summaries for your own children.")
+
+        # 3. Unauthorized Roles (Student, Admin, etc.)
+        else:
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User role not authorized for financial summaries.")
+
     async def get_financial_summary_for_api(
         self, 
         current_user: db_models.Users,
@@ -1035,6 +1248,9 @@ class FinancialSummaryService:
         log.info(f"Generating financial summary for user {current_user.id}")
         
         try:
+            # 1. Authorize Filtering Rules (Strict Security Check)
+            await self._authorize_for_filtering(current_user, parent_id, student_id, teacher_id)
+
             summary_model: Optional[finance_models.FinancialSummaryForParent | finance_models.FinancialSummaryForTeacher] = None
             
             if current_user.role == UserRole.PARENT.value:
@@ -1053,6 +1269,8 @@ class FinancialSummaryService:
                 else:
                     summary_model = await self._get_summary_for_teacher(current_user.id)
             else:
+                # This branch is technically unreachable now due to _authorize_for_filtering, 
+                # but good to keep as a fallback safety net.
                 log.warning(f"SECURITY: User {current_user.id} tried to get financial summary. ")
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User role not authorized for financial summaries.")
             

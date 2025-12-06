@@ -28,7 +28,7 @@ class TestFinancialSummaryTeacher:
     async def test_summary_full_for_teacher_a(
         self,
         financial_summary_service: FinancialSummaryService,
-        db_session: AsyncSession
+        fin_teacher_a: db_models.Users
     ):
         """
         Test Full Summary for Teacher A.
@@ -49,8 +49,7 @@ class TestFinancialSummaryTeacher:
         """
         print(f"\n--- Testing Full Summary for TEACHER A ---")
         
-        teacher_a = await db_session.get(db_models.Users, FIN_TEACHER_A_ID)
-        summary = await financial_summary_service.get_financial_summary_for_api(teacher_a)
+        summary = await financial_summary_service.get_financial_summary_for_api(fin_teacher_a)
         
         assert isinstance(summary, finance_models.FinancialSummaryForTeacher)
         print(f"Summary: {summary}")
@@ -62,14 +61,13 @@ class TestFinancialSummaryTeacher:
     async def test_summary_specific_parent_a_for_teacher_a(
         self,
         financial_summary_service: FinancialSummaryService,
-        db_session: AsyncSession
+        fin_teacher_a: db_models.Users
     ):
         """Test Summary for Teacher A specific to Parent A."""
         print(f"\n--- Testing Specific Parent A Summary for TEACHER A ---")
         
-        teacher_a = await db_session.get(db_models.Users, FIN_TEACHER_A_ID)
         summary = await financial_summary_service.get_financial_summary_for_api(
-            teacher_a, parent_id=FIN_PARENT_A_ID
+            fin_teacher_a, parent_id=FIN_PARENT_A_ID
         )
         
         assert summary.total_owed_to_teacher == Decimal("130.00")
@@ -80,7 +78,7 @@ class TestFinancialSummaryTeacher:
     async def test_summary_specific_student_a1_for_teacher_a(
         self,
         financial_summary_service: FinancialSummaryService,
-        db_session: AsyncSession
+        fin_teacher_a: db_models.Users
     ):
         """
         Test Summary for Teacher A specific to Student A1.
@@ -94,9 +92,8 @@ class TestFinancialSummaryTeacher:
         """
         print(f"\n--- Testing Specific Student A1 Summary for TEACHER A ---")
         
-        teacher_a = await db_session.get(db_models.Users, FIN_TEACHER_A_ID)
         summary = await financial_summary_service.get_financial_summary_for_api(
-            teacher_a, student_id=FIN_STUDENT_A1_ID
+            fin_teacher_a, student_id=FIN_STUDENT_A1_ID
         )
         
         assert summary.total_owed_to_teacher == Decimal("100.00")
@@ -105,7 +102,7 @@ class TestFinancialSummaryTeacher:
     async def test_summary_specific_student_a2_for_teacher_a(
         self,
         financial_summary_service: FinancialSummaryService,
-        db_session: AsyncSession
+        fin_teacher_a: db_models.Users
     ):
         """
         Test Summary for Teacher A specific to Student A2.
@@ -119,9 +116,8 @@ class TestFinancialSummaryTeacher:
         """
         print(f"\n--- Testing Specific Student A2 Summary for TEACHER A ---")
         
-        teacher_a = await db_session.get(db_models.Users, FIN_TEACHER_A_ID)
         summary = await financial_summary_service.get_financial_summary_for_api(
-            teacher_a, student_id=FIN_STUDENT_A2_ID
+            fin_teacher_a, student_id=FIN_STUDENT_A2_ID
         )
         
         assert summary.total_owed_to_teacher == Decimal("50.00")
@@ -135,7 +131,7 @@ class TestFinancialSummaryParent:
     async def test_summary_full_for_parent_a(
         self,
         financial_summary_service: FinancialSummaryService,
-        db_session: AsyncSession
+        fin_parent_a: db_models.Users
     ):
         """
         Test Full Summary for Parent A.
@@ -152,8 +148,7 @@ class TestFinancialSummaryParent:
         """
         print(f"\n--- Testing Full Summary for PARENT A ---")
         
-        parent_a = await db_session.get(db_models.Users, FIN_PARENT_A_ID)
-        summary = await financial_summary_service.get_financial_summary_for_api(parent_a)
+        summary = await financial_summary_service.get_financial_summary_for_api(fin_parent_a)
         
         assert isinstance(summary, finance_models.FinancialSummaryForParent)
         print(f"Summary: {summary}")
@@ -170,7 +165,7 @@ class TestFinancialSummaryParent:
     async def test_summary_full_for_parent_b(
         self,
         financial_summary_service: FinancialSummaryService,
-        db_session: AsyncSession
+        fin_parent_b: db_models.Users
     ):
         """
         Test Full Summary for Parent B.
@@ -184,8 +179,8 @@ class TestFinancialSummaryParent:
         - Unpaid Count: 0.
         """
         print(f"\n--- Testing Full Summary for PARENT B ---")
-        parent_b = await db_session.get(db_models.Users, FIN_PARENT_B_ID)
-        summary = await financial_summary_service.get_financial_summary_for_api(parent_b)
+        
+        summary = await financial_summary_service.get_financial_summary_for_api(fin_parent_b)
         
         assert summary.total_due == Decimal("0.00")
         assert summary.credit_balance == Decimal("10.00")
@@ -194,7 +189,7 @@ class TestFinancialSummaryParent:
     async def test_summary_specific_teacher_a_for_parent_a(
         self,
         financial_summary_service: FinancialSummaryService,
-        db_session: AsyncSession
+        fin_parent_a: db_models.Users
     ):
         """
         Test Summary for Parent A specific to Teacher A.
@@ -202,9 +197,9 @@ class TestFinancialSummaryParent:
         - Unpaid Count: 2 (Ledger logic is used here).
         """
         print(f"\n--- Testing Specific Teacher A Summary for PARENT A ---")
-        parent_a = await db_session.get(db_models.Users, FIN_PARENT_A_ID)
+        
         summary = await financial_summary_service.get_financial_summary_for_api(
-            parent_a, teacher_id=FIN_TEACHER_A_ID
+            fin_parent_a, teacher_id=FIN_TEACHER_A_ID
         )
         
         assert summary.total_due == Decimal("130.00")
@@ -214,7 +209,7 @@ class TestFinancialSummaryParent:
     async def test_summary_specific_student_a1_for_parent_a(
         self,
         financial_summary_service: FinancialSummaryService,
-        db_session: AsyncSession
+        fin_parent_a: db_models.Users
     ):
         """
         Test Summary for Parent A specific to Student A1.
@@ -227,11 +222,10 @@ class TestFinancialSummaryParent:
         - Unpaid Count: 2.
         """
         print(f"\n--- Testing Specific Student A1 Summary for PARENT A ---")
-        parent_a = await db_session.get(db_models.Users, FIN_PARENT_A_ID)
         
         # This will FAIL with MissingGreenlet due to the source code bug
         summary = await financial_summary_service.get_financial_summary_for_api(
-            parent_a, student_id=FIN_STUDENT_A1_ID
+            fin_parent_a, student_id=FIN_STUDENT_A1_ID
         )
         assert summary.total_due == Decimal("300.00")
         assert summary.unpaid_count == 2
