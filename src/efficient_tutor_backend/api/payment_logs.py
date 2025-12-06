@@ -3,7 +3,7 @@ API endpoints for managing Payment Logs.
 '''
 from typing import Annotated, Any
 from uuid import UUID
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Query
 
 from ..database import models as db_models
 from ..models import finance as finance_models
@@ -53,8 +53,8 @@ class PaymentLogsAPI:
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
         payment_log_service: Annotated[PaymentLogService, Depends(PaymentLogService)],
-        parent_id: UUID | None = None,
-        teacher_id: UUID | None = None
+        parent_id: Annotated[UUID | None, Query(description="Optional filter for Parent ID")] = None,
+        teacher_id: Annotated[UUID | None, Query(description="Optional filter for Teacher ID")] = None
     ) -> list[Any]:
         """
         Retrieves a list of all payment logs relevant to the current user.

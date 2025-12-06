@@ -3,7 +3,7 @@ API endpoints for managing Tuition Logs.
 '''
 from typing import Annotated, Any, Union
 from uuid import UUID
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Query
 
 from ..database import models as db_models
 from ..models import finance as finance_models
@@ -54,9 +54,9 @@ class TuitionLogsAPI:
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
         tuition_log_service: Annotated[TuitionLogService, Depends(TuitionLogService)],
-        student_id: UUID | None = None,
-        parent_id: UUID | None = None,
-        teacher_id: UUID | None = None
+        student_id: Annotated[UUID | None, Query(description="Optional filter for Student ID")] = None,
+        parent_id: Annotated[UUID | None, Query(description="Optional filter for Parent ID")] = None,
+        teacher_id: Annotated[UUID | None, Query(description="Optional filter for Teacher ID")] = None
     ) -> list[Any]:
         """
         Retrieves a list of all tuition logs relevant to the current user.
