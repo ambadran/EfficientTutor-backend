@@ -927,6 +927,112 @@ class StudentService(UserService):
         
         return True
 
+    async def add_student_subject(
+        self,
+        student_id: UUID,
+        subject_data: user_models.StudentSubjectWrite,
+        current_user: db_models.Users
+    ) -> user_models.StudentSubjectRead:
+        """Adds a single subject enrollment to a student."""
+        log.info(f"User {current_user.id} adding subject to student {student_id}.")
+
+        student = await self.get_user_by_id(student_id)
+        if not student or student.role != UserRole.STUDENT.value:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+
+        # Auth check
+        if current_user.role == UserRole.PARENT.value:
+            if student.parent_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Parents can only edit their own children.")
+        elif current_user.role != UserRole.TEACHER.value:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
+        # Validation: Check teacher exists
+        teacher = await self.db.get(db_models.Teachers, subject_data.teacher_id)
+        if not teacher:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found.")
+
+        # Validation: Check shared students exist
+        shared_students = []
+        if subject_data.shared_with_student_ids:
+            stmt = select(db_models.Students).filter(db_models.Students.id.in_(subject_data.shared_with_student_ids))
+            result = await self.db.execute(stmt)
+            shared_students = result.scalars().all()
+            if len(shared_students) != len(set(subject_data.shared_with_student_ids)):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more shared students not found.")
+
+        # Uniqueness check (handled by DB unique constraint, but good to check early)
+        stmt = select(db_models.StudentSubjects).filter_by(
+            student_id=student_id,
+            subject=subject_data.subject.value,
+            teacher_id=subject_data.teacher_id,
+            educational_system=subject_data.educational_system.value,
+            grade=subject_data.grade
+        )
+        result = await self.db.execute(stmt)
+        if result.scalars().first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Student is already enrolled in this subject with this teacher.")
+
+        new_subject = db_models.StudentSubjects(
+            student_id=student.id,
+            subject=subject_data.subject.value,
+            lessons_per_week=subject_data.lessons_per_week,
+            teacher_id=subject_data.teacher_id,
+            educational_system=subject_data.educational_system.value,
+            grade=subject_data.grade
+        )
+        
+        # Add shared students
+        for s in shared_students:
+            new_subject.shared_with_student.append(s)
+
+        self.db.add(new_subject)
+        await self.db.flush()
+        await self.db.refresh(new_subject, ['shared_with_student']) # Refresh to get the ID and relationships
+
+        return user_models.StudentSubjectRead(
+            id=new_subject.id,
+            subject=new_subject.subject,
+            lessons_per_week=new_subject.lessons_per_week,
+            teacher_id=new_subject.teacher_id,
+            educational_system=new_subject.educational_system,
+            grade=new_subject.grade,
+            shared_with_student_ids=[s.id for s in new_subject.shared_with_student]
+        )
+
+    async def delete_student_subject(
+        self,
+        student_id: UUID,
+        subject_id: UUID,
+        current_user: db_models.Users
+    ) -> bool:
+        """Deletes a single subject enrollment from a student."""
+        log.info(f"User {current_user.id} deleting subject {subject_id} for student {student_id}.")
+
+        student_subject = await self.db.get(db_models.StudentSubjects, subject_id)
+        if not student_subject:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student Subject enrollment not found.")
+        
+        if student_subject.student_id != student_id:
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Subject enrollment does not belong to this student.")
+
+        student = await self.get_user_by_id(student_id)
+
+        # Auth check
+        if current_user.role == UserRole.PARENT.value:
+            if student.parent_id != current_user.id:
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+        elif current_user.role != UserRole.TEACHER.value:
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
+        # Manually remove M2M associations first (SQLAlchemy usually handles this, but explicit is safer)
+        # Actually, delete-orphan on the relationship or cascade rules in DB should handle the association table rows.
+        # But `t_student_subject_sharings` has CASCADE on delete of student_subject_id, so we are good.
+
+        await self.db.delete(student_subject)
+        await self.db.flush()
+        return True
+
 
 class TeacherService(UserService):
     """Service for teacher-specific logic."""

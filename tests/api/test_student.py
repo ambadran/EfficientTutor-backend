@@ -468,3 +468,211 @@ class TestStudentAPIAvailability:
         print("Correctly received 404 for non-existent interval.")
 
 
+@pytest.mark.anyio
+class TestStudentAPISubjects:
+    """Test class for Student Subject endpoints of the Students API."""
+
+    async def test_add_subject_as_parent_success(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test a parent successfully adding a subject enrollment for their child."""
+        headers = auth_headers_for_user(test_parent_orm)
+        student_id = test_student_orm.id
+        
+        payload = {
+            "subject": "Math",
+            "educational_system": "SAT",
+            "grade": 11,
+            "lessons_per_week": 3,
+            "teacher_id": str(test_teacher_orm.id),
+            "shared_with_student_ids": []
+        }
+
+        print(f"Parent adding subject for student {student_id}.")
+        response = client.post(f"/students/{student_id}/subjects", headers=headers, json=payload)
+
+        assert response.status_code == 201, response.json()
+        data = response.json()
+        assert data["subject"] == "Math"
+        assert data["teacher_id"] == str(test_teacher_orm.id)
+        print("Successfully added subject enrollment.")
+
+    async def test_add_subject_as_teacher_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_student_orm: db_models.Students
+    ):
+        """Test a teacher successfully adding a subject enrollment for a student."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        student_id = test_student_orm.id
+        
+        payload = {
+            "subject": "Chemistry",
+            "educational_system": "IGCSE",
+            "grade": 10,
+            "lessons_per_week": 1,
+            "teacher_id": str(test_teacher_orm.id), # Assigning themselves
+            "shared_with_student_ids": []
+        }
+
+        print(f"Teacher adding subject for student {student_id}.")
+        response = client.post(f"/students/{student_id}/subjects", headers=headers, json=payload)
+
+        assert response.status_code == 201, response.json()
+        data = response.json()
+        assert data["subject"] == "Chemistry"
+        print("Successfully added subject enrollment.")
+
+    async def test_add_subject_unrelated_parent_forbidden(
+        self,
+        client: TestClient,
+        test_unrelated_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test an unrelated parent is forbidden from adding a subject."""
+        headers = auth_headers_for_user(test_unrelated_parent_orm)
+        student_id = test_student_orm.id
+        
+        payload = {
+            "subject": "Physics",
+            "educational_system": "IGCSE",
+            "grade": 10,
+            "teacher_id": str(test_teacher_orm.id)
+        }
+
+        print(f"Unrelated parent attempting to add subject.")
+        response = client.post(f"/students/{student_id}/subjects", headers=headers, json=payload)
+
+        assert response.status_code == 403
+        assert "Parents can only edit their own children" in response.json()["detail"]
+        print("Unrelated parent correctly forbidden.")
+
+    async def test_add_subject_student_not_found(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test adding subject to non-existent student returns 404."""
+        headers = auth_headers_for_user(test_parent_orm)
+        non_existent_id = uuid4()
+        
+        payload = {
+            "subject": "Math",
+            "educational_system": "SAT",
+            "grade": 10,
+            "teacher_id": str(test_teacher_orm.id)
+        }
+
+        print(f"Attempting to add subject to non-existent student {non_existent_id}.")
+        response = client.post(f"/students/{non_existent_id}/subjects", headers=headers, json=payload)
+
+        assert response.status_code == 404
+        assert "Student not found" in response.json()["detail"]
+        print("Correctly received 404 for non-existent student.")
+
+    async def test_add_subject_invalid_payload(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test adding subject with missing fields returns 422."""
+        headers = auth_headers_for_user(test_parent_orm)
+        student_id = test_student_orm.id
+        
+        # Missing teacher_id
+        payload = {
+            "subject": "Math",
+            "educational_system": "SAT",
+            "grade": 10
+        }
+
+        response = client.post(f"/students/{student_id}/subjects", headers=headers, json=payload)
+
+        assert response.status_code == 422
+        print("Correctly received 422 for invalid payload.")
+
+    async def test_delete_subject_as_parent_success(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test a parent successfully deleting a subject enrollment."""
+        headers = auth_headers_for_user(test_parent_orm)
+        student_id = test_student_orm.id
+        
+        # Assume seeded student has at least one subject
+        assert len(test_student_orm.student_subjects) > 0
+        subject_id = test_student_orm.student_subjects[0].id
+
+        print(f"Parent deleting subject {subject_id}.")
+        response = client.delete(f"/students/{student_id}/subjects/{subject_id}", headers=headers)
+
+        assert response.status_code == 204
+        print("Successfully deleted subject enrollment.")
+
+    async def test_delete_subject_as_teacher_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_student_orm: db_models.Students
+    ):
+        """Test a teacher successfully deleting a subject enrollment."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        student_id = test_student_orm.id
+        
+        # Assume seeded student has at least one subject
+        assert len(test_student_orm.student_subjects) > 0
+        subject_id = test_student_orm.student_subjects[0].id
+
+        print(f"Teacher deleting subject {subject_id}.")
+        response = client.delete(f"/students/{student_id}/subjects/{subject_id}", headers=headers)
+
+        assert response.status_code == 204
+        print("Successfully deleted subject enrollment.")
+
+    async def test_delete_subject_unrelated_parent_forbidden(
+        self,
+        client: TestClient,
+        test_unrelated_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test an unrelated parent is forbidden from deleting a subject."""
+        headers = auth_headers_for_user(test_unrelated_parent_orm)
+        student_id = test_student_orm.id
+        subject_id = test_student_orm.student_subjects[0].id
+
+        print(f"Unrelated parent attempting to delete subject.")
+        response = client.delete(f"/students/{student_id}/subjects/{subject_id}", headers=headers)
+
+        assert response.status_code == 403
+        assert "Unauthorized" in response.json()["detail"]
+        print("Unrelated parent correctly forbidden.")
+
+    async def test_delete_subject_not_found(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test deleting non-existent subject returns 404."""
+        headers = auth_headers_for_user(test_parent_orm)
+        student_id = test_student_orm.id
+        non_existent_id = uuid4()
+
+        print(f"Attempting to delete non-existent subject {non_existent_id}.")
+        response = client.delete(f"/students/{student_id}/subjects/{non_existent_id}", headers=headers)
+
+        assert response.status_code == 404
+        assert "Student Subject enrollment not found" in response.json()["detail"]
+        print("Correctly received 404 for non-existent subject.")
+
+

@@ -8,7 +8,7 @@ from decimal import Decimal
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import UserService
 from src.efficient_tutor_backend.models import user as user_models
-from src.efficient_tutor_backend.database.db_enums import SubjectEnum, UserRole
+from src.efficient_tutor_backend.database.db_enums import SubjectEnum, UserRole, EducationalSystemEnum
 from unittest.mock import MagicMock
 
 from pprint import pp as pprint
@@ -122,8 +122,8 @@ class TestUserService:
         pprint(user.student_subjects[0].__dict__)
         pprint(user.availability_intervals[0].__dict__)
  
-        
         assert user is not None
+        assert user.educational_system == EducationalSystemEnum.IGCSE.value
         assert user.id == test_student_orm.id
 
     async def test_get_users_by_ids(

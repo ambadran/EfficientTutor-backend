@@ -301,7 +301,8 @@ async def test_student_orm(db_session: AsyncSession) -> db_models.Students: # <-
     """Fetches the main test student ORM object from the test DB."""
     # --- CHANGED ---
     stmt = select(db_models.Students).options(
-        selectinload(db_models.Students.availability_intervals)
+        selectinload(db_models.Students.availability_intervals),
+        selectinload(db_models.Students.student_subjects)
     ).filter(db_models.Students.id == TEST_STUDENT_ID)
     
     result = await db_session.execute(stmt)
@@ -479,6 +480,7 @@ def valid_student_data() -> dict:
         "min_duration_mins": 60,
         "max_duration_mins": 120,
         "grade": 10,
+        "educational_system": 'IGCSE',
         "student_subjects": [
             {
                 "subject": SubjectEnum.PHYSICS.value,
