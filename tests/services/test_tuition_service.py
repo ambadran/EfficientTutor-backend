@@ -245,7 +245,7 @@ async def _create_student_with_subjects(
         max_duration_mins=max_duration,
         student_subjects=subjects_data,
         student_availability_intervals=[
-            user_models.StudentAvailabilityIntervalWrite(
+            user_models.AvailabilityIntervalCreate(
                 day_of_week=1, 
                 start_time=time(9, 0), 
                 end_time=time(10, 0), 

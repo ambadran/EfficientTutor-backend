@@ -166,6 +166,22 @@ class StudentsAPI:
                 self.delete, 
                 methods=["DELETE"], 
                 status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/{student_id}/availability",
+                self.add_availability_interval,
+                methods=["POST"],
+                status_code=status.HTTP_201_CREATED,
+                response_model=user_models.AvailabilityIntervalRead)
+        self.router.add_api_route(
+                "/{student_id}/availability/{interval_id}",
+                self.update_availability_interval,
+                methods=["PATCH"],
+                response_model=user_models.AvailabilityIntervalRead)
+        self.router.add_api_route(
+                "/{student_id}/availability/{interval_id}",
+                self.delete_availability_interval,
+                methods=["DELETE"],
+                status_code=status.HTTP_204_NO_CONTENT)
 
     async def create(
         self,
@@ -210,6 +226,35 @@ class StudentsAPI:
     ):
         await student_service.delete_student(student_id, current_user)
         await tuition_service.regenerate_all_tuitions() # Call regenerate
+
+    async def add_availability_interval(
+        self,
+        student_id: UUID,
+        interval_data: user_models.AvailabilityIntervalCreate,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        student_service: Annotated[StudentService, Depends(StudentService)]
+    ):
+        return await student_service.add_availability_interval(student_id, interval_data, current_user)
+
+    async def update_availability_interval(
+        self,
+        student_id: UUID,
+        interval_id: UUID,
+        update_data: user_models.AvailabilityIntervalUpdate,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        student_service: Annotated[StudentService, Depends(StudentService)]
+    ):
+        return await student_service.update_availability_interval(student_id, interval_id, update_data, current_user)
+
+    async def delete_availability_interval(
+        self,
+        student_id: UUID,
+        interval_id: UUID,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        student_service: Annotated[StudentService, Depends(StudentService)]
+    ):
+        await student_service.delete_availability_interval(student_id, interval_id, current_user)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 class TeachersAPI:
@@ -260,6 +305,22 @@ class TeachersAPI:
         self.router.add_api_route(
                 "/{teacher_id}/specialties/{specialty_id}",
                 self.delete_specialty,
+                methods=["DELETE"],
+                status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/{teacher_id}/availability",
+                self.add_availability_interval,
+                methods=["POST"],
+                status_code=status.HTTP_201_CREATED,
+                response_model=user_models.AvailabilityIntervalRead)
+        self.router.add_api_route(
+                "/{teacher_id}/availability/{interval_id}",
+                self.update_availability_interval,
+                methods=["PATCH"],
+                response_model=user_models.AvailabilityIntervalRead)
+        self.router.add_api_route(
+                "/{teacher_id}/availability/{interval_id}",
+                self.delete_availability_interval,
                 methods=["DELETE"],
                 status_code=status.HTTP_204_NO_CONTENT)
 
@@ -326,6 +387,35 @@ class TeachersAPI:
         success = await teacher_service.delete_teacher_specialty(teacher_id, specialty_id, current_user)
         if not success:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Specialty not found or could not be deleted.")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    async def add_availability_interval(
+        self,
+        teacher_id: UUID,
+        interval_data: user_models.AvailabilityIntervalCreate,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        teacher_service: Annotated[TeacherService, Depends(TeacherService)]
+    ):
+        return await teacher_service.add_availability_interval(teacher_id, interval_data, current_user)
+
+    async def update_availability_interval(
+        self,
+        teacher_id: UUID,
+        interval_id: UUID,
+        update_data: user_models.AvailabilityIntervalUpdate,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        teacher_service: Annotated[TeacherService, Depends(TeacherService)]
+    ):
+        return await teacher_service.update_availability_interval(teacher_id, interval_id, update_data, current_user)
+
+    async def delete_availability_interval(
+        self,
+        teacher_id: UUID,
+        interval_id: UUID,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        teacher_service: Annotated[TeacherService, Depends(TeacherService)]
+    ):
+        await teacher_service.delete_availability_interval(teacher_id, interval_id, current_user)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

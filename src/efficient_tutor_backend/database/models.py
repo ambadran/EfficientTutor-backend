@@ -233,6 +233,12 @@ class Teachers(Users):
         back_populates='teacher',
         foreign_keys='[Notes.teacher_id]'
     )
+
+    availability_intervals: Mapped[list['AvailabilityIntervals']] = relationship(
+        'AvailabilityIntervals',
+        primaryjoin="foreign(AvailabilityIntervals.user_id) == Teachers.id",
+        cascade='all, delete-orphan'
+    )
     student_subjects: Mapped[list['StudentSubjects']] = relationship('StudentSubjects', back_populates='teacher')
     teacher_specialties: Mapped[list['TeacherSpecialties']] = relationship('TeacherSpecialties', back_populates='teacher', cascade='all, delete-orphan')
 
@@ -298,6 +304,7 @@ class Students(Users):
     max_duration_mins: Mapped[int] = mapped_column(Integer, server_default=text('90'))
     parent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     grade: Mapped[Optional[int]] = mapped_column(Integer)
+    educational_system: Mapped[Optional[str]] = mapped_column(Enum('IGCSE', 'SAT', 'National-EG', 'National-KW', name='educational_system_enum'))
     generated_password: Mapped[Optional[str]] = mapped_column(Text)
 
     parent: Mapped['Parents'] = relationship(
@@ -337,9 +344,9 @@ class Students(Users):
         cascade='all, delete-orphan'
     )
 
-    student_availability_intervals: Mapped[list['StudentAvailabilityIntervals']] = relationship(
-        'StudentAvailabilityIntervals', 
-        back_populates='student',
+    availability_intervals: Mapped[list['AvailabilityIntervals']] = relationship(
+        'AvailabilityIntervals', 
+        primaryjoin="foreign(AvailabilityIntervals.user_id) == Students.id",
         cascade='all, delete-orphan'
     )
 
@@ -551,23 +558,21 @@ t_student_subject_sharings = Table(
     Index('idx_student_subject_sharings_subject_id', 'student_subject_id')
 )
 
-class StudentAvailabilityIntervals(Base):
-    __tablename__ = 'student_availability_intervals'
+class AvailabilityIntervals(Base):
+    __tablename__ = 'availability_intervals'
     __table_args__ = (
-        CheckConstraint('day_of_week >= 1 AND day_of_week <= 7', name='student_availability_intervals_day_of_week_check'),
-        ForeignKeyConstraint(['student_id'], ['students.id'], ondelete='CASCADE', name='student_availability_intervals_student_id_fkey'),
-        PrimaryKeyConstraint('id', name='student_availability_intervals_pkey'),
-        Index('idx_student_availability_student_id', 'student_id')
+        CheckConstraint('day_of_week >= 1 AND day_of_week <= 7', name='availability_intervals_day_of_week_check'),
+        ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE', name='availability_intervals_user_id_fkey'),
+        PrimaryKeyConstraint('id', name='availability_intervals_pkey'),
+        Index('idx_availability_intervals_user_id', 'user_id')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    student_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     day_of_week: Mapped[int] = mapped_column(Integer)
     start_time: Mapped[datetime.time] = mapped_column(Time)
     end_time: Mapped[datetime.time] = mapped_column(Time)
-    availability_type: Mapped[str] = mapped_column(Enum('sleep', 'school', 'sports', 'others', name='availability_type_enum'))
-
-    student: Mapped['Students'] = relationship('Students', back_populates='student_availability_intervals')
+    availability_type: Mapped[str] = mapped_column(Enum('sleep', 'school', 'sports', 'work', 'personal', 'others', name='availability_type_enum'))
 
 
 class TeacherSpecialties(Base):

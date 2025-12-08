@@ -64,7 +64,7 @@ class TestUserService:
         print(type(user))
         pprint(user.__dict__)
         pprint(user.student_subjects[0].__dict__)
-        pprint(user.student_availability_intervals[0].__dict__)
+        pprint(user.availability_intervals[0].__dict__)
         
         assert user is not None
         assert user.id == test_student_orm.id
@@ -120,7 +120,7 @@ class TestUserService:
         print(type(user))
         pprint(user.__dict__)
         pprint(user.student_subjects[0].__dict__)
-        pprint(user.student_availability_intervals[0].__dict__)
+        pprint(user.availability_intervals[0].__dict__)
  
         
         assert user is not None

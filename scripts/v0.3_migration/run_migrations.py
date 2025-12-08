@@ -33,7 +33,9 @@ MIGRATION_FILES = [
     'create_admins_table.sql',
     'teacher_specialty_migration.sql',
     'student_subject_educational_system_migration.sql',
-    'grade_migration.sql'
+    'grade_migration.sql',
+    'generalize_availability.sql',
+    'add_student_educational_system.sql'
 ]
 
 def load_env():

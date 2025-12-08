@@ -15,8 +15,8 @@ STUDENT_DETAILS_DATA = [
         "grade": 10,
     },
     {
-        "factory": "RawStudentAvailabilityIntervalFactory",
-        "student_id": TEST_STUDENT_ID,
+        "factory": "RawAvailabilityIntervalFactory",
+        "user_id": TEST_STUDENT_ID,
         "day_of_week": 1,
         "start_time": time(9, 0),
         "end_time": time(17, 0),
