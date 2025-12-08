@@ -39,6 +39,7 @@ class TestStudentServiceREAD:
         
         # Verify that nested relationships are loaded to prevent MissingGreenlet errors
         assert students[0].student_subjects is not None
+        assert students[0].educational_system is not None
         assert students[0].availability_intervals is not None
 
     async def test_get_all_as_parent(
@@ -113,6 +114,7 @@ class TestStudentServiceWRITE:
         db_student = await student_service.get_user_by_id(new_student.id)
         assert db_student.first_name == "Pytest"
         assert db_student.parent_id == TEST_PARENT_ID
+        assert db_student.educational_system == 'IGCSE'
         assert db_student.generated_password is not None # Generated password should be present
 
         print("--- Successfully created student (API model) ---")
@@ -292,7 +294,8 @@ class TestStudentServiceUPDATE:
         assert test_student_orm.parent_id == test_parent_orm.id
 
         update_payload = user_models.StudentUpdate(
-            cost=Decimal("99.99")
+            cost=Decimal("99.99"),
+            educational_system="SAT"
         )
         
         updated_student = await student_service.update_student(
@@ -574,6 +577,339 @@ class TestStudentServiceAvailability:
             )
         assert e.value.status_code == 403
         print("--- Successfully verified forbidden access ---")
+
+
+@pytest.mark.anyio
+class TestStudentServiceStudentSubjects:
+    """Tests for the student subject methods in StudentService."""
+
+    async def test_add_student_subject_as_parent_success(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        test_teacher_orm: db_models.Teachers,
+        db_session: AsyncSession
+    ):
+        """Tests that a parent can add a subject for their student."""
+        print("\n--- Testing add_student_subject as PARENT ---")
+        
+        # Pre-condition check
+        initial_count = len(test_student_orm.student_subjects)
+        
+        subject_data = user_models.StudentSubjectWrite(
+            subject=SubjectEnum.MATH,
+            educational_system=EducationalSystemEnum.IGCSE,
+            grade=10,
+            lessons_per_week=2,
+            teacher_id=test_teacher_orm.id,
+            shared_with_student_ids=[]
+        )
+
+        # Act
+        new_subject = await student_service.add_student_subject(
+            student_id=test_student_orm.id,
+            subject_data=subject_data,
+            current_user=test_parent_orm
+        )
+
+        # Assert
+        assert isinstance(new_subject, user_models.StudentSubjectRead)
+        assert new_subject.subject == SubjectEnum.MATH
+        assert new_subject.teacher_id == test_teacher_orm.id
+        
+        # Verify in DB
+        await db_session.refresh(test_student_orm, ['student_subjects'])
+        assert len(test_student_orm.student_subjects) == initial_count + 1
+        print("--- Successfully added student subject as parent ---")
+
+    async def test_add_student_subject_as_teacher_success(
+        self,
+        student_service: StudentService,
+        test_teacher_orm: db_models.Teachers,
+        test_student_orm: db_models.Students,
+        db_session: AsyncSession
+    ):
+        """Tests that a teacher can add a subject for a student."""
+        print("\n--- Testing add_student_subject as TEACHER ---")
+        
+        initial_count = len(test_student_orm.student_subjects)
+        
+        subject_data = user_models.StudentSubjectWrite(
+            subject=SubjectEnum.IT,
+            educational_system=EducationalSystemEnum.SAT,
+            grade=10,
+            lessons_per_week=1,
+            teacher_id=test_teacher_orm.id, # Assigning themselves
+            shared_with_student_ids=[]
+        )
+
+        # Act
+        new_subject = await student_service.add_student_subject(
+            student_id=test_student_orm.id,
+            subject_data=subject_data,
+            current_user=test_teacher_orm
+        )
+
+        # Assert
+        assert new_subject.subject == SubjectEnum.IT
+        await db_session.refresh(test_student_orm, ['student_subjects'])
+        assert len(test_student_orm.student_subjects) == initial_count + 1
+        print("--- Successfully added student subject as teacher ---")
+
+    async def test_add_student_subject_with_shared_students(
+        self,
+        student_service: StudentService,
+        test_teacher_orm: db_models.Teachers,
+        test_student_orm: db_models.Students,
+        db_session: AsyncSession,
+        valid_student_data: dict # Use this to create a second student
+    ):
+        """Tests adding a subject that is shared with another student."""
+        print("\n--- Testing add_student_subject with shared students ---")
+        
+        # 1. Create a second student to share with
+        valid_student_data["email"] = "shared.student@example.com"
+        # Note: We need a valid parent for this student. Using the same parent as test_student_orm is easiest.
+        parent = await student_service.get_user_by_id(test_student_orm.parent_id)
+        create_model = user_models.StudentCreate(**valid_student_data)
+        student2 = await student_service.create_student(create_model, parent)
+        await db_session.flush()
+
+        # 2. Create subject for test_student_orm sharing with student2
+        subject_data = user_models.StudentSubjectWrite(
+            subject=SubjectEnum.CHEMISTRY,
+            educational_system=EducationalSystemEnum.IGCSE,
+            grade=10,
+            teacher_id=test_teacher_orm.id,
+            shared_with_student_ids=[student2.id]
+        )
+
+        new_subject = await student_service.add_student_subject(
+            student_id=test_student_orm.id,
+            subject_data=subject_data,
+            current_user=test_teacher_orm
+        )
+
+        # 3. Assert
+        assert len(new_subject.shared_with_student_ids) == 1
+        assert new_subject.shared_with_student_ids[0] == student2.id
+        
+        print("--- Successfully added subject with shared student relationship ---")
+
+    async def test_add_student_subject_duplicate_failure(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that adding a duplicate subject configuration fails."""
+        print("\n--- Testing add_student_subject duplicate failure ---")
+        
+        # Use an existing subject from the fixture (Physics, IGCSE, Grade 10)
+        existing_subject = test_student_orm.student_subjects[0]
+        
+        subject_data = user_models.StudentSubjectWrite(
+            subject=SubjectEnum(existing_subject.subject),
+            educational_system=EducationalSystemEnum(existing_subject.educational_system),
+            grade=existing_subject.grade,
+            teacher_id=existing_subject.teacher_id,
+            lessons_per_week=1
+        )
+
+        with pytest.raises(HTTPException) as e:
+            await student_service.add_student_subject(
+                student_id=test_student_orm.id,
+                subject_data=subject_data,
+                current_user=test_parent_orm
+            )
+        
+        assert e.value.status_code == 400
+        assert "already enrolled in this subject" in e.value.detail
+        print("--- Correctly raised 400 for duplicate subject ---")
+
+    async def test_add_student_subject_teacher_not_found(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students
+    ):
+        """Tests adding a subject with a non-existent teacher ID."""
+        print("\n--- Testing add_student_subject teacher not found ---")
+        
+        subject_data = user_models.StudentSubjectWrite(
+            subject=SubjectEnum.MATH,
+            educational_system=EducationalSystemEnum.SAT,
+            grade=10,
+            teacher_id=UUID(int=0) # Non-existent
+        )
+
+        with pytest.raises(HTTPException) as e:
+            await student_service.add_student_subject(
+                student_id=test_student_orm.id,
+                subject_data=subject_data,
+                current_user=test_parent_orm
+            )
+        
+        assert e.value.status_code == 404
+        assert "Teacher not found" in e.value.detail
+        print("--- Correctly raised 404 for missing teacher ---")
+
+    async def test_add_student_subject_as_unrelated_parent_forbidden(
+        self,
+        student_service: StudentService,
+        test_unrelated_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Tests that an unrelated parent cannot add a subject."""
+        print("\n--- Testing add_student_subject as unrelated parent ---")
+        
+        subject_data = user_models.StudentSubjectWrite(
+            subject=SubjectEnum.MATH,
+            educational_system=EducationalSystemEnum.SAT,
+            grade=10,
+            teacher_id=test_teacher_orm.id
+        )
+
+        with pytest.raises(HTTPException) as e:
+            await student_service.add_student_subject(
+                student_id=test_student_orm.id,
+                subject_data=subject_data,
+                current_user=test_unrelated_parent_orm
+            )
+        
+        assert e.value.status_code == 403
+        print("--- Correctly raised 403 for unrelated parent ---")
+
+    # --- DELETE Tests ---
+
+    async def test_delete_student_subject_as_parent_success(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        db_session: AsyncSession
+    ):
+        """Tests that a parent can delete a subject."""
+        print("\n--- Testing delete_student_subject as PARENT ---")
+        
+        # ARRANGE
+        assert len(test_student_orm.student_subjects) > 0
+        subject_to_delete = test_student_orm.student_subjects[0]
+        subject_id = subject_to_delete.id
+        initial_count = len(test_student_orm.student_subjects)
+
+        # ACT
+        result = await student_service.delete_student_subject(
+            student_id=test_student_orm.id,
+            subject_id=subject_id,
+            current_user=test_parent_orm
+        )
+
+        # ASSERT
+        assert result is True
+        await db_session.refresh(test_student_orm, ['student_subjects'])
+        assert len(test_student_orm.student_subjects) == initial_count - 1
+        print("--- Successfully deleted subject as parent ---")
+
+    async def test_delete_student_subject_as_teacher_success(
+        self,
+        student_service: StudentService,
+        test_teacher_orm: db_models.Teachers,
+        test_student_orm: db_models.Students,
+        db_session: AsyncSession
+    ):
+        """Tests that a teacher can delete a subject."""
+        print("\n--- Testing delete_student_subject as TEACHER ---")
+        
+        # ARRANGE: Ensure there's a subject (seed might have only 1 which previous test deleted if run in same session context? No, session rollback handles this)
+        # Note: Fixtures are function-scoped, so we start fresh.
+        assert len(test_student_orm.student_subjects) > 0
+        subject_id = test_student_orm.student_subjects[0].id
+
+        # ACT
+        result = await student_service.delete_student_subject(
+            student_id=test_student_orm.id,
+            subject_id=subject_id,
+            current_user=test_teacher_orm
+        )
+
+        # ASSERT
+        assert result is True
+        print("--- Successfully deleted subject as teacher ---")
+
+    async def test_delete_student_subject_not_found(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students
+    ):
+        """Tests deleting a non-existent subject ID."""
+        print("\n--- Testing delete_student_subject not found ---")
+        
+        with pytest.raises(HTTPException) as e:
+            await student_service.delete_student_subject(
+                student_id=test_student_orm.id,
+                subject_id=UUID(int=0),
+                current_user=test_parent_orm
+            )
+        
+        assert e.value.status_code == 404
+        print("--- Correctly raised 404 for missing subject ---")
+
+    async def test_delete_student_subject_mismatched_student(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        db_session: AsyncSession,
+        valid_student_data: dict
+    ):
+        """Tests deleting a subject that exists but belongs to a different student."""
+        print("\n--- Testing delete_student_subject mismatched student ---")
+        
+        # 1. Create another student with a subject
+        valid_student_data["email"] = "other.student@example.com"
+        create_model = user_models.StudentCreate(**valid_student_data)
+        other_student = await student_service.create_student(create_model, test_parent_orm)
+        await db_session.flush()
+        
+        other_subject_id = other_student.student_subjects[0].id
+
+        # 2. Attempt to delete 'other_subject_id' but passing 'test_student_orm.id'
+        with pytest.raises(HTTPException) as e:
+            await student_service.delete_student_subject(
+                student_id=test_student_orm.id, # Wrong student
+                subject_id=other_subject_id,    # Correct subject ID
+                current_user=test_parent_orm
+            )
+        
+        assert e.value.status_code == 400
+        assert "Subject enrollment does not belong to this student" in e.value.detail
+        print("--- Correctly raised 400 for mismatched student/subject ---")
+
+    async def test_delete_student_subject_as_unrelated_parent_forbidden(
+        self,
+        student_service: StudentService,
+        test_unrelated_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students
+    ):
+        """Tests that an unrelated parent cannot delete a subject."""
+        print("\n--- Testing delete_student_subject as unrelated parent ---")
+        
+        subject_id = test_student_orm.student_subjects[0].id
+
+        with pytest.raises(HTTPException) as e:
+            await student_service.delete_student_subject(
+                student_id=test_student_orm.id,
+                subject_id=subject_id,
+                current_user=test_unrelated_parent_orm
+            )
+        
+        assert e.value.status_code == 403
+        print("--- Correctly raised 403 for unrelated parent ---")
 
 @pytest.mark.anyio
 class TestStudentServiceDELETE:

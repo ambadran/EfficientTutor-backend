@@ -182,6 +182,17 @@ class StudentsAPI:
                 self.delete_availability_interval,
                 methods=["DELETE"],
                 status_code=status.HTTP_204_NO_CONTENT)
+        self.router.add_api_route(
+                "/{student_id}/subjects",
+                self.add_student_subject,
+                methods=["POST"],
+                status_code=status.HTTP_201_CREATED,
+                response_model=user_models.StudentSubjectRead)
+        self.router.add_api_route(
+                "/{student_id}/subjects/{subject_id}",
+                self.delete_student_subject,
+                methods=["DELETE"],
+                status_code=status.HTTP_204_NO_CONTENT)
 
     async def create(
         self,
@@ -254,6 +265,30 @@ class StudentsAPI:
         student_service: Annotated[StudentService, Depends(StudentService)]
     ):
         await student_service.delete_availability_interval(student_id, interval_id, current_user)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    async def add_student_subject(
+        self,
+        student_id: UUID,
+        subject_data: user_models.StudentSubjectWrite,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        student_service: Annotated[StudentService, Depends(StudentService)],
+        tuition_service: Annotated[TuitionService, Depends(TuitionService)]
+    ):
+        new_subject = await student_service.add_student_subject(student_id, subject_data, current_user)
+        await tuition_service.regenerate_all_tuitions()
+        return new_subject
+
+    async def delete_student_subject(
+        self,
+        student_id: UUID,
+        subject_id: UUID,
+        current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
+        student_service: Annotated[StudentService, Depends(StudentService)],
+        tuition_service: Annotated[TuitionService, Depends(TuitionService)]
+    ):
+        await student_service.delete_student_subject(student_id, subject_id, current_user)
+        await tuition_service.regenerate_all_tuitions()
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
