@@ -79,6 +79,7 @@ class StudentFactory(BaseFactory):
     last_name = Faker("last_name")
     role = UserRole.STUDENT.value
     timezone = "UTC"
+    educational_system = EducationalSystemEnum.IGCSE.value
     password = HashedPassword.get_hash(TEST_PASSWORD_STUDENT)
     parent_id = factory.SelfAttribute('parent.id')
     parent = factory.SubFactory(ParentFactory)
@@ -241,22 +242,27 @@ class RawStudentSubjectFactory(StudentSubjectFactory):
     student = None
     teacher = None
 
-class StudentAvailabilityIntervalFactory(BaseFactory):
+class AvailabilityIntervalFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)
     day_of_week = 1
     start_time = datetime.time(9, 0)
     end_time = datetime.time(17, 0)
     availability_type = AvailabilityTypeEnum.SCHOOL.value
 
-    student = factory.SubFactory(StudentFactory)
+    user_id = factory.SelfAttribute('user.id')
+    user = factory.SubFactory(StudentFactory)
 
     class Meta:
-        model = db_models.StudentAvailabilityIntervals
+        model = db_models.AvailabilityIntervals
 
-class RawStudentAvailabilityIntervalFactory(StudentAvailabilityIntervalFactory):
+class RawAvailabilityIntervalFactory(AvailabilityIntervalFactory):
     class Meta:
-        exclude = ('student',)
-    student = None
+        exclude = ('user',)
+    user = None
+
+# Aliases for backward compatibility with auto-generated data
+StudentAvailabilityIntervalFactory = AvailabilityIntervalFactory
+RawStudentAvailabilityIntervalFactory = RawAvailabilityIntervalFactory
 
 class TeacherSpecialtyFactory(BaseFactory):
     id = factory.LazyFunction(uuid.uuid4)

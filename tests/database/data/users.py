@@ -9,7 +9,7 @@ from tests.constants import (
     FIN_PARENT_A_ID, FIN_PARENT_B_ID,
     FIN_STUDENT_A1_ID, FIN_STUDENT_A2_ID, FIN_STUDENT_B1_ID
 )
-from src.efficient_tutor_backend.database.db_enums import AdminPrivilegeType
+from src.efficient_tutor_backend.database.db_enums import AdminPrivilegeType, EducationalSystemEnum
 
 # --- Admins ---
 ADMINS_DATA = [
@@ -114,7 +114,8 @@ STUDENTS_DATA = [
         "first_name": "Test",
         "last_name": "Student",
         "parent_id": TEST_PARENT_ID, 
-        "generated_password": TEST_PASSWORD_STUDENT
+        "generated_password": TEST_PASSWORD_STUDENT,
+        "educational_system": EducationalSystemEnum.IGCSE.value
     },
     {
         "factory": "RawStudentFactory",
@@ -124,7 +125,8 @@ STUDENTS_DATA = [
         "first_name": "Unrelated",
         "last_name": "Student",
         "parent_id": TEST_UNRELATED_PARENT_ID, 
-        "generated_password": TEST_PASSWORD_STUDENT
+        "generated_password": TEST_PASSWORD_STUDENT,
+        "educational_system": EducationalSystemEnum.IGCSE.value
     },
     # Financial Sandbox Students
     {
@@ -135,7 +137,8 @@ STUDENTS_DATA = [
         "first_name": "Fin",
         "last_name": "StudentA1",
         "parent_id": FIN_PARENT_A_ID, 
-        "generated_password": TEST_PASSWORD_STUDENT
+        "generated_password": TEST_PASSWORD_STUDENT,
+        "educational_system": EducationalSystemEnum.IGCSE.value
     },
     {
         "factory": "RawStudentFactory",
@@ -145,7 +148,8 @@ STUDENTS_DATA = [
         "first_name": "Fin",
         "last_name": "StudentA2",
         "parent_id": FIN_PARENT_A_ID, 
-        "generated_password": TEST_PASSWORD_STUDENT
+        "generated_password": TEST_PASSWORD_STUDENT,
+        "educational_system": EducationalSystemEnum.IGCSE.value
     },
     {
         "factory": "RawStudentFactory",
@@ -155,6 +159,7 @@ STUDENTS_DATA = [
         "first_name": "Fin",
         "last_name": "StudentB1",
         "parent_id": FIN_PARENT_B_ID, 
-        "generated_password": TEST_PASSWORD_STUDENT
+        "generated_password": TEST_PASSWORD_STUDENT,
+        "educational_system": EducationalSystemEnum.IGCSE.value
     },
 ]

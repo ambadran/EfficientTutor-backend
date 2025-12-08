@@ -339,3 +339,132 @@ class TestStudentAPIDELETE:
         assert response.status_code == 403
         assert response.json()["detail"] == "You do not have permission to delete students."
         print("Admin was correctly forbidden from deleting student.")
+
+
+@pytest.mark.anyio
+class TestStudentAPIAvailability:
+    """Test class for Availability Interval endpoints of the Students API."""
+
+    async def test_add_availability_as_parent_success(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test a parent successfully adding an availability interval for their child."""
+        headers = auth_headers_for_user(test_parent_orm)
+        student_id = test_student_orm.id
+        
+        payload = {
+            "day_of_week": 2,
+            "start_time": "14:00:00",
+            "end_time": "16:00:00",
+            "availability_type": "sports"
+        }
+
+        print(f"Parent attempting to add availability for student {student_id}.")
+        response = client.post(f"/students/{student_id}/availability", headers=headers, json=payload)
+
+        assert response.status_code == 201, response.json()
+        data = response.json()
+        assert data["day_of_week"] == 2
+        assert data["availability_type"] == "sports"
+        print("Successfully added availability interval.")
+
+    async def test_update_availability_as_parent_success(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test a parent successfully updating an availability interval."""
+        headers = auth_headers_for_user(test_parent_orm)
+        student_id = test_student_orm.id
+        
+        # Assumes test_student_orm has at least one interval from seeding
+        assert len(test_student_orm.availability_intervals) > 0
+        interval_id = test_student_orm.availability_intervals[0].id
+        
+        payload = {"end_time": "18:00:00"}
+
+        print(f"Parent updating availability interval {interval_id}.")
+        response = client.patch(
+            f"/students/{student_id}/availability/{interval_id}", 
+            headers=headers, 
+            json=payload
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["end_time"] == "18:00:00"
+        print("Successfully updated availability interval.")
+
+    async def test_delete_availability_as_parent_success(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test a parent successfully deleting an availability interval."""
+        headers = auth_headers_for_user(test_parent_orm)
+        student_id = test_student_orm.id
+        
+        # Assumes test_student_orm has at least one interval
+        assert len(test_student_orm.availability_intervals) > 0
+        interval_id = test_student_orm.availability_intervals[0].id
+
+        print(f"Parent deleting availability interval {interval_id}.")
+        response = client.delete(
+            f"/students/{student_id}/availability/{interval_id}", 
+            headers=headers
+        )
+
+        assert response.status_code == 204
+        print("Successfully deleted availability interval.")
+
+    async def test_add_availability_as_unrelated_parent_forbidden(
+        self,
+        client: TestClient,
+        test_unrelated_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test an unrelated parent is forbidden from adding availability."""
+        headers = auth_headers_for_user(test_unrelated_parent_orm)
+        student_id = test_student_orm.id
+        
+        payload = {
+            "day_of_week": 1,
+            "start_time": "09:00:00",
+            "end_time": "10:00:00",
+            "availability_type": "school"
+        }
+
+        print(f"Unrelated parent attempting to add availability.")
+        response = client.post(f"/students/{student_id}/availability", headers=headers, json=payload)
+
+        assert response.status_code == 403
+        assert "Parents can only edit their own children" in response.json()["detail"]
+        print("Unrelated parent correctly forbidden.")
+
+    async def test_delete_availability_not_found(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_student_orm: db_models.Students
+    ):
+        """Test deleting a non-existent availability interval returns 404."""
+        headers = auth_headers_for_user(test_parent_orm)
+        student_id = test_student_orm.id
+        non_existent_id = uuid4()
+
+        print(f"Attempting to delete non-existent interval {non_existent_id}.")
+        response = client.delete(
+            f"/students/{student_id}/availability/{non_existent_id}", 
+            headers=headers
+        )
+
+        assert response.status_code == 404
+        assert "Interval not found" in response.json()["detail"]
+        print("Correctly received 404 for non-existent interval.")
+
+

@@ -162,10 +162,10 @@ TABLE_CONFIG = [
         "anonymize": {}
     },
     {
-        "table": "student_availability_intervals",
+        "table": "availability_intervals",
         "filename": "auto_student_details.py",
         "var_name": "AUTO_STUDENT_AVAILABILITY_DATA",
-        "factory": "RawStudentAvailabilityIntervalFactory",
+        "factory": "RawAvailabilityIntervalFactory",
         "anonymize": {}
     },
 

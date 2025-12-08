@@ -66,6 +66,7 @@ class TimeTableService:
 
         scheduled_tuitions = []
         try:
+            print("Len of solution data entries: ", len(solution_data))
             # 3. Filter and hydrate events against the user's tuitions
             for event in solution_data:
                 if event.get('category') == 'Tuition' and 'id' in event:

@@ -33,10 +33,10 @@ class StudentSubjectRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class StudentAvailabilityIntervalRead(BaseModel):
+class AvailabilityIntervalRead(BaseModel):
     """
-    Pydantic model for reading a student's availability interval.
-    Corresponds to db_models.StudentAvailabilityIntervals.
+    Pydantic model for reading an availability interval (Student or Teacher).
+    Corresponds to db_models.AvailabilityIntervals.
     """
     id: UUID
     day_of_week: int
@@ -89,6 +89,7 @@ class TeacherRead(UserRead):
     """
     currency: str
     teacher_specialties: list[TeacherSpecialtyRead] = Field(default_factory=list)
+    availability_intervals: list[AvailabilityIntervalRead] = Field(default_factory=list)
 
 
 class StudentRead(UserRead):
@@ -102,11 +103,12 @@ class StudentRead(UserRead):
     min_duration_mins: int
     max_duration_mins: int
     grade: Optional[int] = Field(None, ge=1, le=12)
+    educational_system: Optional[EducationalSystemEnum] = None
     generated_password: Optional[str] = None # New field
     
     # New relational fields
     student_subjects: list[StudentSubjectRead] = Field(default_factory=list)
-    student_availability_intervals: list[StudentAvailabilityIntervalRead] = Field(default_factory=list)
+    availability_intervals: list[AvailabilityIntervalRead] = Field(default_factory=list)
 
 
 # --- New Student-Specific Write Models (for relational data) ---
@@ -123,15 +125,25 @@ class StudentSubjectWrite(BaseModel):
     lessons_per_week: int = 1
     shared_with_student_ids: list[UUID] = Field(default_factory=list)
 
-class StudentAvailabilityIntervalWrite(BaseModel):
+class AvailabilityIntervalCreate(BaseModel):
     """
-    Pydantic model for creating/updating a student's availability interval.
-    Corresponds to db_models.StudentAvailabilityIntervals.
+    Pydantic model for creating an availability interval.
+    Corresponds to db_models.AvailabilityIntervals.
     """
     day_of_week: int = Field(..., ge=1, le=7) # 1=Monday, 7=Sunday
     start_time: time
     end_time: time
     availability_type: str # This should probably be an Enum too, but for now, string.
+
+class AvailabilityIntervalUpdate(BaseModel):
+    """
+    Pydantic model for updating an availability interval.
+    All fields are optional.
+    """
+    day_of_week: Optional[int] = Field(None, ge=1, le=7)
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    availability_type: Optional[str] = None
 
 class StudentCreate(BaseModel):
     """
@@ -149,9 +161,10 @@ class StudentCreate(BaseModel):
     min_duration_mins: int = 60
     max_duration_mins: int = 90
     grade: Optional[int] = Field(None, ge=1, le=12)
+    educational_system: Optional[EducationalSystemEnum] = None
     
     student_subjects: list[StudentSubjectWrite] = Field(default_factory=list)
-    student_availability_intervals: list[StudentAvailabilityIntervalWrite] = Field(default_factory=list)
+    availability_intervals: list[AvailabilityIntervalCreate] = Field(default_factory=list)
 
 class StudentUpdate(BaseModel):
     """
@@ -169,10 +182,11 @@ class StudentUpdate(BaseModel):
     min_duration_mins: Optional[int] = None
     max_duration_mins: Optional[int] = None
     grade: Optional[int] = Field(None, ge=1, le=12)
+    educational_system: Optional[EducationalSystemEnum] = None
     
     # For nested lists, we typically replace the entire list on update
     student_subjects: Optional[list[StudentSubjectWrite]] = None
-    student_availability_intervals: Optional[list[StudentAvailabilityIntervalWrite]] = None
+    availability_intervals: Optional[list[AvailabilityIntervalCreate]] = None
 
 class ParentCreate(BaseModel):
     """
@@ -226,6 +240,7 @@ class TeacherCreate(BaseModel):
     first_name: str
     last_name: str
     teacher_specialties: list[TeacherSpecialtyWrite] = Field(default_factory=list)
+    availability_intervals: list[AvailabilityIntervalCreate] = Field(default_factory=list)
 
 
 class TeacherUpdate(BaseModel):
@@ -239,6 +254,7 @@ class TeacherUpdate(BaseModel):
     last_name: Optional[str] = None
     timezone: Optional[str] = None
     currency: Optional[str] = None
+    availability_intervals: Optional[list[AvailabilityIntervalCreate]] = None
 
 
 class AdminRead(UserRead):

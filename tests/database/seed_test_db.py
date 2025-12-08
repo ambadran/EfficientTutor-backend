@@ -34,6 +34,7 @@ from tests.database.data.users import ADMINS_DATA, TEACHERS_DATA, PARENTS_DATA, 
 from tests.database.data.teacher_specialties import TEACHER_SPECIALTIES_DATA
 from tests.database.data.tuitions import TUITIONS_DATA, MEETING_LINKS_DATA, TUITION_TEMPLATE_CHARGES_DATA
 from tests.database.data.student_details import STUDENT_DETAILS_DATA 
+from tests.database.data.teacher_details import TEACHER_DETAILS_DATA
 from tests.database.data.logs import TUITION_LOGS_DATA, TUITION_LOG_CHARGES_DATA, PAYMENT_LOGS_DATA
 from tests.database.data.notes import NOTES_DATA
 from tests.database.data.timetable import TIMETABLE_RUNS_DATA
@@ -72,7 +73,8 @@ AUTO_TIMETABLE_RUNS_DATA = safe_import("auto_timetable", "AUTO_TIMETABLE_RUNS_DA
 # To ensure the backend sees specific manual tests AND volume auto data,
 # we merge all 'solution_data' into a single "Latest Run".
 combined_solution_data = []
-for entry in TIMETABLE_RUNS_DATA + AUTO_TIMETABLE_RUNS_DATA:
+# i fixed a bug here by adding [-1] to only fetch the last entry of the auto data (which SHOULD be the latest timetable, #TODO: add logic to actually fetch the timetable with latest 'id')
+for entry in TIMETABLE_RUNS_DATA + [AUTO_TIMETABLE_RUNS_DATA[-1]]:
     if "solution_data" in entry and isinstance(entry["solution_data"], list):
         combined_solution_data.extend(entry["solution_data"])
 
@@ -96,6 +98,7 @@ SEEDING_ORDER = [
     ("Students", STUDENTS_DATA + AUTO_STUDENTS_DATA),
     ("TeacherSpecialties", TEACHER_SPECIALTIES_DATA + AUTO_TEACHER_SPECIALTIES_DATA),
     ("StudentDetails", STUDENT_DETAILS_DATA + AUTO_STUDENT_DETAILS_DATA),
+    ("TeacherDetails", TEACHER_DETAILS_DATA),
     ("Tuitions", TUITIONS_DATA + AUTO_TUITIONS_DATA),
     ("MeetingLinks", MEETING_LINKS_DATA + AUTO_MEETING_LINKS_DATA),
     ("TuitionTemplateCharges", TUITION_TEMPLATE_CHARGES_DATA + AUTO_TUITION_TEMPLATE_CHARGES_DATA),
@@ -119,7 +122,7 @@ async def clear_database(session: AsyncSession):
         await session.execute(text('TRUNCATE TABLE "tuition_template_charges" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "tuitions" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "student_subjects" RESTART IDENTITY CASCADE'))
-        await session.execute(text('TRUNCATE TABLE "student_availability_intervals" RESTART IDENTITY CASCADE'))
+        await session.execute(text('TRUNCATE TABLE "availability_intervals" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "teacher_specialties" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "users" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "admins" RESTART IDENTITY CASCADE'))

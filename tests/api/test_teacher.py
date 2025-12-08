@@ -497,6 +497,121 @@ class TestTeacherSpecialtyAPI:
 
 
 @pytest.mark.anyio
+class TestTeacherAPIAvailability:
+    """Test class for Availability Interval endpoints of the Teachers API."""
+
+    async def test_add_availability_as_owner_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test a teacher successfully adding their own availability interval."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        teacher_id = test_teacher_orm.id
+        
+        payload = {
+            "day_of_week": 5, # Friday
+            "start_time": "08:00:00",
+            "end_time": "12:00:00",
+            "availability_type": "work"
+        }
+
+        print(f"Teacher adding availability for self.")
+        response = client.post(f"/teachers/{teacher_id}/availability", headers=headers, json=payload)
+
+        assert response.status_code == 201, response.json()
+        data = response.json()
+        assert data["day_of_week"] == 5
+        assert data["availability_type"] == "work"
+        print("Successfully added availability interval.")
+
+    async def test_update_availability_as_owner_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test a teacher successfully updating their own availability interval."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        teacher_id = test_teacher_orm.id
+        
+        # Note: test_teacher_orm availability seeded via TeacherDetails (see seed_test_db.py)
+        # If seeding failed or logic changed, this might be empty. 
+        # Robustness: Add one if empty, or rely on seeded data.
+        # We rely on seeded data here as per protocol.
+        if not test_teacher_orm.availability_intervals:
+             # Fallback: create one first via API if seed missing (shouldn't happen)
+             setup_payload = {"day_of_week": 1, "start_time": "09:00:00", "end_time": "10:00:00", "availability_type": "test"}
+             setup_resp = client.post(f"/teachers/{teacher_id}/availability", headers=headers, json=setup_payload)
+             interval_id = setup_resp.json()["id"]
+        else:
+             interval_id = test_teacher_orm.availability_intervals[0].id
+        
+        payload = {"availability_type": "personal"}
+
+        print(f"Teacher updating availability interval {interval_id}.")
+        response = client.patch(
+            f"/teachers/{teacher_id}/availability/{interval_id}", 
+            headers=headers, 
+            json=payload
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["availability_type"] == "personal"
+        print("Successfully updated availability interval.")
+
+    async def test_delete_availability_as_owner_success(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Test a teacher successfully deleting their own availability interval."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        teacher_id = test_teacher_orm.id
+        
+        if not test_teacher_orm.availability_intervals:
+             # Fallback logic same as above
+             setup_payload = {"day_of_week": 1, "start_time": "09:00:00", "end_time": "10:00:00", "availability_type": "test"}
+             setup_resp = client.post(f"/teachers/{teacher_id}/availability", headers=headers, json=setup_payload)
+             interval_id = setup_resp.json()["id"]
+        else:
+             interval_id = test_teacher_orm.availability_intervals[0].id
+
+        print(f"Teacher deleting availability interval {interval_id}.")
+        response = client.delete(
+            f"/teachers/{teacher_id}/availability/{interval_id}", 
+            headers=headers
+        )
+
+        assert response.status_code == 204
+        print("Successfully deleted availability interval.")
+
+    async def test_add_availability_as_unrelated_teacher_forbidden(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_unrelated_teacher_orm: db_models.Teachers
+    ):
+        """Test an unrelated teacher is forbidden from adding availability to another teacher."""
+        headers = auth_headers_for_user(test_unrelated_teacher_orm)
+        target_teacher_id = test_teacher_orm.id
+        
+        payload = {
+            "day_of_week": 1,
+            "start_time": "09:00:00",
+            "end_time": "10:00:00",
+            "availability_type": "work"
+        }
+
+        print(f"Unrelated teacher attempting to add availability.")
+        response = client.post(f"/teachers/{target_teacher_id}/availability", headers=headers, json=payload)
+
+        assert response.status_code == 403
+        assert "Unauthorized" in response.json()["detail"]
+        print("Unrelated teacher correctly forbidden.")
+
+
+@pytest.mark.anyio
 class TestTeacherAPIGetBySpecialty:
     """Test class for the GET /teachers/by_specialty endpoint."""
 

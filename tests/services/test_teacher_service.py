@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from datetime import time
 from decimal import Decimal
 from unittest.mock import MagicMock
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # --- Import models and services ---
 from src.efficient_tutor_backend.database import models as db_models
@@ -50,6 +51,14 @@ class TestTeacherServiceRead:
         assert len(first_teacher_with_specialties.teacher_specialties) > 0
         assert isinstance(first_teacher_with_specialties.teacher_specialties[0], user_models.TeacherSpecialtyRead)
         pprint(first_teacher_with_specialties.teacher_specialties)
+        
+        # Assert availability intervals are loaded (we seeded some for test_teacher_orm)
+        teacher_with_intervals = next((t for t in teachers_read if t.id == test_teacher_orm.id), None)
+        assert teacher_with_intervals is not None
+        assert teacher_with_intervals.availability_intervals is not None
+        # Assuming seed data inserted at least one interval for test_teacher_orm
+        if teacher_with_intervals.availability_intervals:
+             assert isinstance(teacher_with_intervals.availability_intervals[0], user_models.AvailabilityIntervalRead)
 
     async def test_get_all_as_teacher_forbidden(
         self,
@@ -216,6 +225,14 @@ class TestTeacherServiceCreate:
                     educational_system=EducationalSystemEnum.IGCSE,
                     grade=8
                 )
+            ],
+            availability_intervals=[
+                user_models.AvailabilityIntervalCreate(
+                    day_of_week=1,
+                    start_time=time(9,0),
+                    end_time=time(17,0),
+                    availability_type="work"
+                )
             ]
         )
         ip_address = "1.2.3.4" # Dummy IP for testing
@@ -239,6 +256,11 @@ class TestTeacherServiceCreate:
         assert len(created_teacher.teacher_specialties) == 2
         assert isinstance(created_teacher.teacher_specialties[0], user_models.TeacherSpecialtyRead)
         
+        # Assertions for availability intervals
+        assert created_teacher.availability_intervals is not None
+        assert len(created_teacher.availability_intervals) == 1
+        assert created_teacher.availability_intervals[0].day_of_week == 1
+        
         created_specialties_subjects = {s.subject for s in created_teacher.teacher_specialties}
         created_specialties_systems = {s.educational_system for s in created_teacher.teacher_specialties}
         
@@ -257,6 +279,10 @@ class TestTeacherServiceCreate:
         assert db_user.teacher_specialties is not None
         assert len(db_user.teacher_specialties) == 2
         assert isinstance(db_user.teacher_specialties[0], db_models.TeacherSpecialties)
+        
+        # Verify intervals in DB
+        assert db_user.availability_intervals is not None
+        assert len(db_user.availability_intervals) == 1
 
         # 3. Verify the password was hashed correctly
         assert HashedPassword.verify(teacher_data.password, db_user.password) is True
@@ -310,7 +336,15 @@ class TestTeacherServiceUpdate:
         print("\n--- Testing update_teacher as self ---")
         update_data = user_models.TeacherUpdate(
             first_name="UpdatedTeacherFirstName",
-            currency="EUR"
+            currency="EUR",
+            availability_intervals=[
+                user_models.AvailabilityIntervalCreate(
+                    day_of_week=3,
+                    start_time=time(10,0),
+                    end_time=time(12,0),
+                    availability_type="personal"
+                )
+            ]
         )
         
         original_specialty_count = len(test_teacher_orm.teacher_specialties)
@@ -331,14 +365,20 @@ class TestTeacherServiceUpdate:
         
         # Assert that specialties were NOT changed by this operation
         assert len(updated_teacher.teacher_specialties) == original_specialty_count
+        
+        # Assert availability intervals were updated (replaced)
+        assert len(updated_teacher.availability_intervals) == 1
+        assert updated_teacher.availability_intervals[0].day_of_week == 3
+        assert updated_teacher.availability_intervals[0].availability_type == "personal"
 
         # Verify in DB
         db_user = await user_service.get_user_by_id(test_teacher_orm.id)
         assert db_user.first_name == "UpdatedTeacherFirstName"
         assert db_user.currency == "EUR"
         assert len(db_user.teacher_specialties) == original_specialty_count
+        assert len(db_user.availability_intervals) == 1
         
-        print("--- Successfully updated teacher as self, specialties were preserved. ---")
+        print("--- Successfully updated teacher as self, specialties preserved, availability updated. ---")
         pprint(updated_teacher.model_dump())
 
     async def test_update_teacher_as_admin_happy_path(
@@ -738,10 +778,170 @@ class TestTeacherServiceUpdateSpecialties:
 class TestTeacherServiceDelete:
     pass
 
+@pytest.mark.anyio
+class TestTeacherServiceAvailabilityIntervals:
+    """ Tests for the availability interval methods in TeacherService. """ 
+
+    async def test_add_availability_interval_as_owner(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        db_session: AsyncSession
+    ):
+        """Tests that a teacher can add an availability interval for themselves."""
+        print("\n--- Testing add_availability_interval as OWNER ---")
+        
+        initial_count = len(test_teacher_orm.availability_intervals)
+
+        interval_data = user_models.AvailabilityIntervalCreate(
+            day_of_week=5, # Friday
+            start_time=time(9, 0),
+            end_time=time(12, 0),
+            availability_type="work"
+        )
+
+        # Act
+        new_interval = await teacher_service.add_availability_interval(
+            teacher_id=test_teacher_orm.id,
+            interval_data=interval_data,
+            current_user=test_teacher_orm
+        )
+
+        # Assert
+        assert isinstance(new_interval, user_models.AvailabilityIntervalRead)
+        assert new_interval.day_of_week == 5
+        assert new_interval.availability_type == "work"
+        
+        # Verify in DB
+        await db_session.refresh(test_teacher_orm, ['availability_intervals'])
+        assert len(test_teacher_orm.availability_intervals) == initial_count + 1
+        print("--- Successfully added availability interval as owner ---")
+
+    async def test_update_availability_interval_as_owner(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        db_session: AsyncSession
+    ):
+        """Tests that a teacher can update their availability interval."""
+        print("\n--- Testing update_availability_interval as OWNER ---")
+        
+        # ARRANGE: Ensure we have an interval (seeded via teacher_details.py)
+        # If seeding hasn't run yet or teacher has none, we might need to add one first.
+        # Assuming seeding worked:
+        if not test_teacher_orm.availability_intervals:
+             # Fallback if seeding failed or teacher has no intervals
+             await teacher_service.add_availability_interval(
+                 test_teacher_orm.id, 
+                 user_models.AvailabilityIntervalCreate(day_of_week=1, start_time=time(9,0), end_time=time(10,0), availability_type="test"),
+                 test_teacher_orm
+             )
+             await db_session.refresh(test_teacher_orm, ['availability_intervals'])
+
+        interval_to_update = test_teacher_orm.availability_intervals[0]
+        interval_id = interval_to_update.id
+
+        update_data = user_models.AvailabilityIntervalUpdate(
+            availability_type="personal",
+            end_time=time(13, 0)
+        )
+
+        # ACT
+        updated_interval = await teacher_service.update_availability_interval(
+            teacher_id=test_teacher_orm.id,
+            interval_id=interval_id,
+            update_data=update_data,
+            current_user=test_teacher_orm
+        )
+
+        # ASSERT
+        assert updated_interval.id == interval_id
+        assert updated_interval.availability_type == "personal"
+        assert updated_interval.end_time == time(13, 0)
+        
+        # Verify DB
+        await db_session.refresh(interval_to_update)
+        assert interval_to_update.availability_type == "personal"
+        print("--- Successfully updated availability interval as owner ---")
+
+    async def test_delete_availability_interval_as_owner(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        db_session: AsyncSession
+    ):
+        """Tests that a teacher can delete their availability interval."""
+        print("\n--- Testing delete_availability_interval as OWNER ---")
+        
+        # ARRANGE
+        if not test_teacher_orm.availability_intervals:
+             await teacher_service.add_availability_interval(
+                 test_teacher_orm.id, 
+                 user_models.AvailabilityIntervalCreate(day_of_week=1, start_time=time(9,0), end_time=time(10,0), availability_type="test"),
+                 test_teacher_orm
+             )
+             await db_session.refresh(test_teacher_orm, ['availability_intervals'])
+
+        interval_to_delete = test_teacher_orm.availability_intervals[0]
+        interval_id = interval_to_delete.id
+        initial_count = len(test_teacher_orm.availability_intervals)
+
+        # ACT
+        result = await teacher_service.delete_availability_interval(
+            teacher_id=test_teacher_orm.id,
+            interval_id=interval_id,
+            current_user=test_teacher_orm
+        )
+
+        # ASSERT
+        assert result is True
+        await db_session.refresh(test_teacher_orm, ['availability_intervals'])
+        assert len(test_teacher_orm.availability_intervals) == initial_count - 1
+        print("--- Successfully deleted availability interval as owner ---")
+
+    async def test_availability_interval_auth_forbidden(
+        self,
+        teacher_service: TeacherService,
+        test_teacher_orm: db_models.Teachers,
+        test_unrelated_teacher_orm: db_models.Teachers
+    ):
+        """Tests authorization for availability operations (unrelated teacher)."""
+        print("\n--- Testing availability interval AUTH (Forbidden) ---")
+        
+        interval_data = user_models.AvailabilityIntervalCreate(
+            day_of_week=1, start_time=time(9,0), end_time=time(10,0), availability_type="test"
+        )
+
+        # Add forbidden
+        with pytest.raises(HTTPException) as e:
+            await teacher_service.add_availability_interval(
+                test_teacher_orm.id, interval_data, test_unrelated_teacher_orm
+            )
+        assert e.value.status_code == 403
+
+        # Need a valid interval ID for the teacher
+        if test_teacher_orm.availability_intervals:
+            interval_id = test_teacher_orm.availability_intervals[0].id
+            
+            # Update forbidden
+            with pytest.raises(HTTPException) as e:
+                await teacher_service.update_availability_interval(
+                    test_teacher_orm.id, interval_id, user_models.AvailabilityIntervalUpdate(), test_unrelated_teacher_orm
+                )
+            assert e.value.status_code == 403
+
+            # Delete forbidden
+            with pytest.raises(HTTPException) as e:
+                await teacher_service.delete_availability_interval(
+                    test_teacher_orm.id, interval_id, test_unrelated_teacher_orm
+                )
+            assert e.value.status_code == 403
+        
+        print("--- Successfully verified forbidden access ---")
 
 @pytest.mark.anyio
 class TestTeacherServiceGetBySpecialty:
-    """Tests for the get_all_for_student_subject method."""
+    """ Tests for the get_all_for_student_subject method. """
 
     async def test_get_all_for_student_subject_as_parent_success(
         self,

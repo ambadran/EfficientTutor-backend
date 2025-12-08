@@ -39,7 +39,7 @@ class TestStudentServiceREAD:
         
         # Verify that nested relationships are loaded to prevent MissingGreenlet errors
         assert students[0].student_subjects is not None
-        assert students[0].student_availability_intervals is not None
+        assert students[0].availability_intervals is not None
 
     async def test_get_all_as_parent(
         self, 
@@ -60,7 +60,7 @@ class TestStudentServiceREAD:
 
         # Verify that nested relationships are loaded to prevent MissingGreenlet errors
         assert students[0].student_subjects is not None
-        assert students[0].student_availability_intervals is not None
+        assert students[0].availability_intervals is not None
 
     async def test_get_all_as_student_forbidden(
         self, 
@@ -105,8 +105,8 @@ class TestStudentServiceWRITE:
         assert new_student.student_subjects[0].subject == SubjectEnum.PHYSICS
         assert new_student.student_subjects[0].shared_with_student_ids == [TEST_STUDENT_ID]
         
-        assert len(new_student.student_availability_intervals) == 1
-        assert new_student.student_availability_intervals[0].day_of_week == 1
+        assert len(new_student.availability_intervals) == 1
+        assert new_student.availability_intervals[0].day_of_week == 1
 
         await db_session.flush()
 
@@ -145,8 +145,8 @@ class TestStudentServiceWRITE:
         assert new_student.student_subjects[0].subject == SubjectEnum.PHYSICS
         assert new_student.student_subjects[0].shared_with_student_ids == [TEST_STUDENT_ID]
         
-        assert len(new_student.student_availability_intervals) == 1
-        assert new_student.student_availability_intervals[0].day_of_week == 1
+        assert len(new_student.availability_intervals) == 1
+        assert new_student.availability_intervals[0].day_of_week == 1
 
         await db_session.flush()
 
@@ -230,7 +230,7 @@ class TestStudentServiceWRITE:
         print("\n--- Testing create_student with minimal data ---")
         
         valid_student_data["student_subjects"] = []
-        valid_student_data["student_availability_intervals"] = []
+        valid_student_data["availability_intervals"] = []
         
         create_model = user_models.StudentCreate(**valid_student_data)
         
@@ -238,7 +238,7 @@ class TestStudentServiceWRITE:
         
         assert isinstance(new_student, user_models.StudentRead)
         assert len(new_student.student_subjects) == 0
-        assert len(new_student.student_availability_intervals) == 0
+        assert len(new_student.availability_intervals) == 0
         
         print("--- Successfully created student with minimal data ---")
         pprint(new_student.model_dump())
@@ -366,7 +366,7 @@ class TestStudentServiceUPDATE:
 
         # Pre-condition: Ensure the student has existing subjects/availability
         assert len(student_to_update.student_subjects) > 0
-        assert len(student_to_update.student_availability_intervals) > 0
+        assert len(student_to_update.availability_intervals) > 0
 
         new_subjects = [
             user_models.StudentSubjectWrite(subject=SubjectEnum.CHEMISTRY,
@@ -376,12 +376,12 @@ class TestStudentServiceUPDATE:
                                             teacher_id=TEST_UNRELATED_TEACHER_ID)
         ]
         new_availability = [
-            user_models.StudentAvailabilityIntervalWrite(day_of_week=7, start_time=time(10,0), end_time=time(12,0), availability_type="sleep")
+            user_models.AvailabilityIntervalCreate(day_of_week=7, start_time=time(10,0), end_time=time(12,0), availability_type="sleep")
         ]
         
         update_payload = user_models.StudentUpdate(
             student_subjects=new_subjects,
-            student_availability_intervals=new_availability
+            availability_intervals=new_availability
         )
         
         # 2. ACT
@@ -398,9 +398,9 @@ class TestStudentServiceUPDATE:
         assert updated_student.student_subjects[0].lessons_per_week == 3
         assert updated_student.student_subjects[0].teacher_id == TEST_UNRELATED_TEACHER_ID
         
-        assert len(updated_student.student_availability_intervals) == 1
-        assert updated_student.student_availability_intervals[0].day_of_week == 7
-        assert updated_student.student_availability_intervals[0].availability_type == "sleep"
+        assert len(updated_student.availability_intervals) == 1
+        assert updated_student.availability_intervals[0].day_of_week == 7
+        assert updated_student.availability_intervals[0].availability_type == "sleep"
         
         print("--- Successfully replaced nested lists ---")
         pprint(updated_student.model_dump())
@@ -423,6 +423,157 @@ class TestStudentServiceUPDATE:
             )
         
         print(f"--- Correctly raised HTTPException: {e.value.status_code} ---")
+
+
+@pytest.mark.anyio
+class TestStudentServiceAvailability:
+    """Tests for the availability interval methods in StudentService."""
+
+    async def test_add_availability_interval_as_parent(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        db_session: AsyncSession
+    ):
+        """Tests that a parent can add an availability interval for their student."""
+        print("\n--- Testing add_availability_interval as PARENT ---")
+        
+        # Pre-condition
+        assert test_student_orm.parent_id == test_parent_orm.id
+        initial_count = len(test_student_orm.availability_intervals)
+
+        interval_data = user_models.AvailabilityIntervalCreate(
+            day_of_week=3, # Wednesday
+            start_time=time(14, 0),
+            end_time=time(16, 0),
+            availability_type="sports"
+        )
+
+        # Act
+        new_interval = await student_service.add_availability_interval(
+            student_id=test_student_orm.id,
+            interval_data=interval_data,
+            current_user=test_parent_orm
+        )
+
+        # Assert
+        assert isinstance(new_interval, user_models.AvailabilityIntervalRead)
+        assert new_interval.day_of_week == 3
+        assert new_interval.availability_type == "sports"
+        
+        # Verify in DB
+        await db_session.refresh(test_student_orm, ['availability_intervals'])
+        assert len(test_student_orm.availability_intervals) == initial_count + 1
+        print("--- Successfully added availability interval as parent ---")
+
+    async def test_update_availability_interval_as_parent(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        db_session: AsyncSession
+    ):
+        """Tests that a parent can update an availability interval."""
+        print("\n--- Testing update_availability_interval as PARENT ---")
+        
+        # ARRANGE: Get an existing interval
+        assert len(test_student_orm.availability_intervals) > 0
+        interval_to_update = test_student_orm.availability_intervals[0]
+        interval_id = interval_to_update.id
+
+        update_data = user_models.AvailabilityIntervalUpdate(
+            availability_type="school",
+            end_time=time(20, 0)
+        )
+
+        # ACT
+        updated_interval = await student_service.update_availability_interval(
+            student_id=test_student_orm.id,
+            interval_id=interval_id,
+            update_data=update_data,
+            current_user=test_parent_orm
+        )
+
+        # ASSERT
+        assert updated_interval.id == interval_id
+        assert updated_interval.availability_type == "school"
+        assert updated_interval.end_time == time(20, 0)
+        
+        # Verify DB
+        await db_session.refresh(interval_to_update)
+        assert interval_to_update.availability_type == "school"
+        print("--- Successfully updated availability interval as parent ---")
+
+    async def test_delete_availability_interval_as_parent(
+        self,
+        student_service: StudentService,
+        test_parent_orm: db_models.Users,
+        test_student_orm: db_models.Students,
+        db_session: AsyncSession
+    ):
+        """Tests that a parent can delete an availability interval."""
+        print("\n--- Testing delete_availability_interval as PARENT ---")
+        
+        # ARRANGE
+        assert len(test_student_orm.availability_intervals) > 0
+        interval_to_delete = test_student_orm.availability_intervals[0]
+        interval_id = interval_to_delete.id
+        initial_count = len(test_student_orm.availability_intervals)
+
+        # ACT
+        result = await student_service.delete_availability_interval(
+            student_id=test_student_orm.id,
+            interval_id=interval_id,
+            current_user=test_parent_orm
+        )
+
+        # ASSERT
+        assert result is True
+        await db_session.refresh(test_student_orm, ['availability_intervals'])
+        assert len(test_student_orm.availability_intervals) == initial_count - 1
+        print("--- Successfully deleted availability interval as parent ---")
+
+    async def test_availability_interval_auth_forbidden(
+        self,
+        student_service: StudentService,
+        test_student_orm: db_models.Students,
+        test_unrelated_parent_orm: db_models.Users
+    ):
+        """Tests authorization for availability operations."""
+        print("\n--- Testing availability interval AUTH (Forbidden) ---")
+        
+        interval_data = user_models.AvailabilityIntervalCreate(
+            day_of_week=1, start_time=time(9,0), end_time=time(10,0), availability_type="test"
+        )
+
+        # Add forbidden
+        with pytest.raises(HTTPException) as e:
+            await student_service.add_availability_interval(
+                test_student_orm.id, interval_data, test_unrelated_parent_orm
+            )
+        assert e.value.status_code == 403
+
+        # Assume we have an interval ID (using a random one for auth check logic is fine as logic checks student parent first usually, but let's be safe)
+        # Actually service checks if interval belongs to student first.
+        # So we need a valid interval ID belonging to the student.
+        assert len(test_student_orm.availability_intervals) > 0
+        interval_id = test_student_orm.availability_intervals[0].id
+
+        # Update forbidden
+        with pytest.raises(HTTPException) as e:
+            await student_service.update_availability_interval(
+                test_student_orm.id, interval_id, user_models.AvailabilityIntervalUpdate(), test_unrelated_parent_orm
+            )
+        assert e.value.status_code == 403
+
+        # Delete forbidden
+        with pytest.raises(HTTPException) as e:
+            await student_service.delete_availability_interval(
+                test_student_orm.id, interval_id, test_unrelated_parent_orm
+            )
+        assert e.value.status_code == 403
+        print("--- Successfully verified forbidden access ---")
 
 @pytest.mark.anyio
 class TestStudentServiceDELETE:

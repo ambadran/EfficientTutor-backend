@@ -175,6 +175,9 @@ class MeetingLinkTypeEnum(Enum):
 class AvailabilityTypeEnum(Enum):
     SLEEP = 'sleep'
     SCHOOL = 'school'
+    SPORTS = 'sports'
+    WORK = 'work'
+    PERSONAL = 'personal'
     OTHERS = 'others'
 
     @classmethod

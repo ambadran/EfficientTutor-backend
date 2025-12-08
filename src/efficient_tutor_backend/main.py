@@ -42,6 +42,7 @@ app = FastAPI(
 origins = [
     # URL of testing frontend
     "http://0.0.0.0:8080",
+    "http://localhost:3000",
 
     # URL of deployed frontend 
     "efficienttutor.tech"

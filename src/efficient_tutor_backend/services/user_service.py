@@ -53,11 +53,12 @@ class UserService:
                         selectinload(db_models.StudentSubjects.shared_with_student),
                         selectinload(db_models.StudentSubjects.teacher)
                     ),
-                    selectinload(db_models.Students.student_availability_intervals)
+                    selectinload(db_models.Students.availability_intervals)
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
                 stmt = select(db_models.Teachers).options(
-                    selectinload(db_models.Teachers.teacher_specialties)
+                    selectinload(db_models.Teachers.teacher_specialties),
+                    selectinload(db_models.Teachers.availability_intervals)
                 ).filter(db_models.Teachers.id == base_user.id)
             elif base_user.role == UserRole.ADMIN.value:
                 stmt = select(db_models.Admins).filter(db_models.Admins.id == base_user.id)
@@ -98,11 +99,12 @@ class UserService:
                         selectinload(db_models.StudentSubjects.shared_with_student),
                         selectinload(db_models.StudentSubjects.teacher)
                     ),
-                    selectinload(db_models.Students.student_availability_intervals)
+                    selectinload(db_models.Students.availability_intervals)
                 ).filter(db_models.Students.id == base_user.id)
             elif base_user.role == UserRole.TEACHER.value:
                 stmt = select(db_models.Teachers).options(
-                    selectinload(db_models.Teachers.teacher_specialties)
+                    selectinload(db_models.Teachers.teacher_specialties),
+                    selectinload(db_models.Teachers.availability_intervals)
                 ).filter(db_models.Teachers.id == base_user.id)
             elif base_user.role == UserRole.ADMIN.value:
                 stmt = select(db_models.Admins).filter(db_models.Admins.id == base_user.id)
@@ -154,13 +156,14 @@ class UserService:
                         selectinload(db_models.StudentSubjects.shared_with_student),
                         selectinload(db_models.StudentSubjects.teacher)
                     ),
-                    selectinload(db_models.Students.student_availability_intervals)
+                    selectinload(db_models.Students.availability_intervals)
                 ).filter(db_models.Students.id.in_(role_map[UserRole.STUDENT.value]))
                 final_users.extend((await self.db.execute(stmt)).scalars().all())
 
             if role_map[UserRole.TEACHER.value]:
                 stmt = select(db_models.Teachers).options(
-                    selectinload(db_models.Teachers.teacher_specialties)
+                    selectinload(db_models.Teachers.teacher_specialties),
+                    selectinload(db_models.Teachers.availability_intervals)
                 ).filter(db_models.Teachers.id.in_(role_map[UserRole.TEACHER.value]))
                 final_users.extend((await self.db.execute(stmt)).scalars().all())
 
@@ -400,7 +403,7 @@ class StudentService(UserService):
             if current_user.role == UserRole.PARENT.value:
                 stmt = select(db_models.Students).options(
                     selectinload(db_models.Students.student_subjects),
-                    selectinload(db_models.Students.student_availability_intervals)
+                    selectinload(db_models.Students.availability_intervals)
                 ).filter(db_models.Students.parent_id == current_user.id)
                 
                 result = await self.db.execute(stmt)
@@ -418,7 +421,7 @@ class StudentService(UserService):
                         selectinload(db_models.StudentSubjects.shared_with_student),
                         selectinload(db_models.StudentSubjects.teacher)
                     ),
-                    selectinload(db_models.Students.student_availability_intervals)
+                    selectinload(db_models.Students.availability_intervals)
                 ).filter(
                     db_models.Students.id.in_(subquery)
                 ).order_by(db_models.Students.first_name)
@@ -505,14 +508,15 @@ class StudentService(UserService):
             min_duration_mins=student_data.min_duration_mins,
             max_duration_mins=student_data.max_duration_mins,
             grade=student_data.grade,
+            educational_system=student_data.educational_system.value if student_data.educational_system else None,
             generated_password=plain_password # Store plain text password
         )
 
         # 6. Create related objects
         # Availability Intervals
-        for interval_data in student_data.student_availability_intervals:
-            new_interval = db_models.StudentAvailabilityIntervals(
-                student=new_student,
+        for interval_data in student_data.availability_intervals:
+            new_interval = db_models.AvailabilityIntervals(
+                user_id=new_student.id,
                 **interval_data.model_dump()
             )
             self.db.add(new_interval)
@@ -569,7 +573,7 @@ class StudentService(UserService):
                 selectinload(db_models.Students.student_subjects).options(
                     selectinload(db_models.StudentSubjects.shared_with_student)
                 ),
-                selectinload(db_models.Students.student_availability_intervals)
+                selectinload(db_models.Students.availability_intervals)
             )
             .filter(db_models.Students.id == new_student.id)
         )
@@ -605,11 +609,12 @@ class StudentService(UserService):
             min_duration_mins=new_student.min_duration_mins,
             max_duration_mins=new_student.max_duration_mins,
             grade=new_student.grade,
+            educational_system=new_student.educational_system,
             generated_password=new_student.generated_password, # Include generated password
             student_subjects=student_subjects_read,
-            student_availability_intervals=[
-                user_models.StudentAvailabilityIntervalRead.model_validate(interval)
-                for interval in new_student.student_availability_intervals
+            availability_intervals=[
+                user_models.AvailabilityIntervalRead.model_validate(interval)
+                for interval in new_student.availability_intervals
             ]
         )
 
@@ -662,8 +667,10 @@ class StudentService(UserService):
         for key, value in update_dict.items():
             if key in ['email', 'first_name', 'last_name', 'timezone']:
                 setattr(student_to_update, key, value)
-            elif key in ['cost', 'status', 'min_duration_mins', 'max_duration_mins', 'grade', 'parent_id']:
+            elif key in ['cost', 'status', 'min_duration_mins', 'max_duration_mins', 'grade', 'parent_id', 'educational_system']:
                 if key == 'status' and value is not None:
+                    setattr(student_to_update, key, value.value) # Handle Enum value
+                elif key == 'educational_system' and value is not None:
                     setattr(student_to_update, key, value.value) # Handle Enum value
                 elif key == 'parent_id' and value is not None: # Validate new parent_id
                     new_parent = await self.get_user_by_id(value)
@@ -674,21 +681,22 @@ class StudentService(UserService):
                     setattr(student_to_update, key, value)
                 
         # 3. Handle nested list updates (delete and replace strategy)
-        if update_data.student_availability_intervals is not None:
+        if update_data.availability_intervals is not None:
             # Delete existing intervals from DB
             await self.db.execute(
-                delete(db_models.StudentAvailabilityIntervals).filter_by(student_id=student_to_update.id)
+                delete(db_models.AvailabilityIntervals).filter_by(user_id=student_to_update.id)
             )
             # Clear the in-memory collection and flush deletions
-            student_to_update.student_availability_intervals.clear()
+            student_to_update.availability_intervals.clear()
             await self.db.flush()
 
             # Create new intervals and append them
-            for interval_data in update_data.student_availability_intervals:
-                new_interval = db_models.StudentAvailabilityIntervals(
+            for interval_data in update_data.availability_intervals:
+                new_interval = db_models.AvailabilityIntervals(
+                    user_id=student_to_update.id,
                     **interval_data.model_dump()
                 )
-                student_to_update.student_availability_intervals.append(new_interval)
+                student_to_update.availability_intervals.append(new_interval)
 
         if update_data.student_subjects is not None:
             # Delete existing subjects and their M2M links from DB
@@ -777,12 +785,106 @@ class StudentService(UserService):
             min_duration_mins=updated_student.min_duration_mins,
             max_duration_mins=updated_student.max_duration_mins,
             grade=updated_student.grade,
+            educational_system=updated_student.educational_system,
             student_subjects=student_subjects_read,
-            student_availability_intervals=[
-                user_models.StudentAvailabilityIntervalRead.model_validate(interval)
-                for interval in updated_student.student_availability_intervals
+            availability_intervals=[
+                user_models.AvailabilityIntervalRead.model_validate(interval)
+                for interval in updated_student.availability_intervals
             ]
         )
+
+    async def add_availability_interval(
+        self,
+        student_id: UUID,
+        interval_data: user_models.AvailabilityIntervalCreate,
+        current_user: db_models.Users
+    ) -> user_models.AvailabilityIntervalRead:
+        """Adds a single availability interval to a student."""
+        log.info(f"User {current_user.id} adding availability interval to student {student_id}.")
+
+        student = await self.get_user_by_id(student_id)
+        if not student or student.role != UserRole.STUDENT.value:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+
+        # Auth check
+        if current_user.role == UserRole.PARENT.value:
+            if student.parent_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Parents can only edit their own children.")
+        elif current_user.role != UserRole.TEACHER.value:
+            #TODO: MUST CHECK IF TEACHER IS RELATED TO STUDENT OR NOT
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
+        new_interval = db_models.AvailabilityIntervals(
+            user_id=student.id,
+            **interval_data.model_dump()
+        )
+        self.db.add(new_interval)
+        await self.db.flush()
+        return user_models.AvailabilityIntervalRead.model_validate(new_interval)
+
+    async def update_availability_interval(
+        self,
+        student_id: UUID,
+        interval_id: UUID,
+        update_data: user_models.AvailabilityIntervalUpdate,
+        current_user: db_models.Users
+    ) -> user_models.AvailabilityIntervalRead:
+        """Updates a single availability interval."""
+        log.info(f"User {current_user.id} updating availability interval {interval_id} for student {student_id}.")
+
+        interval = await self.db.get(db_models.AvailabilityIntervals, interval_id)
+        if not interval:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interval not found.")
+        
+        if interval.user_id != student_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Interval does not belong to this student.")
+
+        student = await self.get_user_by_id(student_id)
+        
+        # Auth check
+        if current_user.role == UserRole.PARENT.value:
+            if student.parent_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+        elif current_user.role != UserRole.TEACHER.value:
+            #TODO: MUST CHECK IF TEACHER IS RELATED TO STUDENT OR NOT
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
+        for k, v in update_data.model_dump(exclude_unset=True).items():
+            setattr(interval, k, v)
+        
+        self.db.add(interval)
+        await self.db.flush()
+        return user_models.AvailabilityIntervalRead.model_validate(interval)
+
+    async def delete_availability_interval(
+        self,
+        student_id: UUID,
+        interval_id: UUID,
+        current_user: db_models.Users
+    ) -> bool:
+        """Deletes a single availability interval."""
+        log.info(f"User {current_user.id} deleting availability interval {interval_id} for student {student_id}.")
+
+        interval = await self.db.get(db_models.AvailabilityIntervals, interval_id)
+        if not interval:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interval not found.")
+        
+        if interval.user_id != student_id:
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Interval does not belong to this student.")
+
+        student = await self.get_user_by_id(student_id)
+
+        # Auth check
+        if current_user.role == UserRole.PARENT.value:
+            if student.parent_id != current_user.id:
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+        elif current_user.role != UserRole.TEACHER.value:
+             #TODO: MUST CHECK IF TEACHER IS RELATED TO STUDENT OR NOT
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
+        await self.db.delete(interval)
+        await self.db.flush()
+        return True
 
     async def delete_student(
         self,
@@ -846,7 +948,8 @@ class TeacherService(UserService):
             )
         
         stmt = select(db_models.Teachers).options(
-            selectinload(db_models.Teachers.teacher_specialties)
+            selectinload(db_models.Teachers.teacher_specialties),
+            selectinload(db_models.Teachers.availability_intervals)
         ).order_by(db_models.Teachers.first_name)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
@@ -868,7 +971,10 @@ class TeacherService(UserService):
             db_models.TeacherSpecialties.subject == query.subject.value,
             db_models.TeacherSpecialties.educational_system == query.educational_system.value,
             db_models.TeacherSpecialties.grade == query.grade
-        ).options(selectinload(db_models.Teachers.teacher_specialties)).distinct()
+        ).options(
+            selectinload(db_models.Teachers.teacher_specialties),
+            selectinload(db_models.Teachers.availability_intervals)
+        ).distinct()
 
         result = await self.db.execute(stmt)
         teachers = result.scalars().all()
@@ -952,11 +1058,19 @@ class TeacherService(UserService):
             )
             self.db.add(new_specialty)
 
+        # Create availability intervals
+        for interval_data in teacher_data.availability_intervals:
+            new_interval = db_models.AvailabilityIntervals(
+                user_id=new_teacher.id,
+                **interval_data.model_dump()
+            )
+            self.db.add(new_interval)
+
         self.db.add(new_teacher)
         await self.db.flush()
         
         # Refresh to load relationships, including the new specialties
-        await self.db.refresh(new_teacher, ['teacher_specialties'])
+        await self.db.refresh(new_teacher, ['teacher_specialties', 'availability_intervals'])
 
         return user_models.TeacherRead.model_validate(new_teacher)
 
@@ -993,14 +1107,114 @@ class TeacherService(UserService):
         for key, value in update_dict.items():
             if key == "password" and value:
                 setattr(teacher_to_update, key, HashedPassword.get_hash(value))
+            elif key == "availability_intervals":
+                continue # Handled separately
             elif hasattr(teacher_to_update, key):
                 setattr(teacher_to_update, key, value)
 
+        # Handle availability intervals (replace strategy)
+        if update_data.availability_intervals is not None:
+            await self.db.execute(
+                delete(db_models.AvailabilityIntervals).filter_by(user_id=teacher_to_update.id)
+            )
+            teacher_to_update.availability_intervals.clear()
+            await self.db.flush()
+
+            for interval_data in update_data.availability_intervals:
+                new_interval = db_models.AvailabilityIntervals(
+                    user_id=teacher_to_update.id,
+                    **interval_data.model_dump()
+                )
+                teacher_to_update.availability_intervals.append(new_interval)
+
         self.db.add(teacher_to_update)
         await self.db.flush()
-        await self.db.refresh(teacher_to_update, ['teacher_specialties'])
+        await self.db.refresh(teacher_to_update, ['teacher_specialties', 'availability_intervals'])
 
         return user_models.TeacherRead.model_validate(teacher_to_update)
+
+    async def add_availability_interval(
+        self,
+        teacher_id: UUID,
+        interval_data: user_models.AvailabilityIntervalCreate,
+        current_user: db_models.Users
+    ) -> user_models.AvailabilityIntervalRead:
+        """Adds a single availability interval to a teacher."""
+        log.info(f"User {current_user.id} adding availability interval to teacher {teacher_id}.")
+
+        teacher = await self.get_user_by_id(teacher_id)
+        if not teacher or teacher.role != UserRole.TEACHER.value:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found.")
+
+        is_owner = teacher_id == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN.value
+        
+        if not is_owner and not is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
+        new_interval = db_models.AvailabilityIntervals(
+            user_id=teacher.id,
+            **interval_data.model_dump()
+        )
+        self.db.add(new_interval)
+        await self.db.flush()
+        return user_models.AvailabilityIntervalRead.model_validate(new_interval)
+
+    async def update_availability_interval(
+        self,
+        teacher_id: UUID,
+        interval_id: UUID,
+        update_data: user_models.AvailabilityIntervalUpdate,
+        current_user: db_models.Users
+    ) -> user_models.AvailabilityIntervalRead:
+        """Updates a single availability interval for a teacher."""
+        log.info(f"User {current_user.id} updating availability interval {interval_id} for teacher {teacher_id}.")
+
+        interval = await self.db.get(db_models.AvailabilityIntervals, interval_id)
+        if not interval:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interval not found.")
+        
+        if interval.user_id != teacher_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Interval does not belong to this teacher.")
+
+        is_owner = teacher_id == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN.value
+        
+        if not is_owner and not is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
+        for k, v in update_data.model_dump(exclude_unset=True).items():
+            setattr(interval, k, v)
+        
+        self.db.add(interval)
+        await self.db.flush()
+        return user_models.AvailabilityIntervalRead.model_validate(interval)
+
+    async def delete_availability_interval(
+        self,
+        teacher_id: UUID,
+        interval_id: UUID,
+        current_user: db_models.Users
+    ) -> bool:
+        """Deletes a single availability interval for a teacher."""
+        log.info(f"User {current_user.id} deleting availability interval {interval_id} for teacher {teacher_id}.")
+
+        interval = await self.db.get(db_models.AvailabilityIntervals, interval_id)
+        if not interval:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interval not found.")
+        
+        if interval.user_id != teacher_id:
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Interval does not belong to this teacher.")
+
+        is_owner = teacher_id == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN.value
+        
+        if not is_owner and not is_admin:
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
+        await self.db.delete(interval)
+        await self.db.flush()
+        return True
 
     async def delete_teacher(self, teacher_id: UUID, current_user: db_models.Users) -> bool:
         """

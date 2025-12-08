@@ -99,6 +99,7 @@ All scripts are directory-agnostic and can be run from the project root.
 
 # 2. Migrate to v0.3
 uv run scripts/v0.3_migration/run_migrations.py
+(NOTE: If you run this on a database that has been already executed on, it will fail obviously)
 
 # 3. Fix Passwords (Optional but recommended for consistency)
 uv run scripts/v0.3_migration/update_passwords.py

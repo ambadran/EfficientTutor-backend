@@ -285,7 +285,8 @@ async def test_teacher_orm(db_session: AsyncSession) -> db_models.Teachers: # <-
     # --- CHANGED ---
     # Get the specific 'Teachers' class, not the base 'Users' class
     stmt = select(db_models.Teachers).options(
-        selectinload(db_models.Teachers.teacher_specialties)
+        selectinload(db_models.Teachers.teacher_specialties),
+        selectinload(db_models.Teachers.availability_intervals)
     ).filter(db_models.Teachers.id == TEST_TEACHER_ID)
     
     result = await db_session.execute(stmt)
@@ -299,7 +300,12 @@ async def test_teacher_orm(db_session: AsyncSession) -> db_models.Teachers: # <-
 async def test_student_orm(db_session: AsyncSession) -> db_models.Students: # <-- Changed type
     """Fetches the main test student ORM object from the test DB."""
     # --- CHANGED ---
-    student = await db_session.get(db_models.Students, TEST_STUDENT_ID)
+    stmt = select(db_models.Students).options(
+        selectinload(db_models.Students.availability_intervals)
+    ).filter(db_models.Students.id == TEST_STUDENT_ID)
+    
+    result = await db_session.execute(stmt)
+    student = result.scalars().first()
     # ---------------
     
     assert student is not None, f"Test student with ID {TEST_STUDENT_ID} not found in DB."
@@ -483,7 +489,7 @@ def valid_student_data() -> dict:
                 "educational_system": EducationalSystemEnum.IGCSE.value
             }
         ],
-        "student_availability_intervals": [
+        "availability_intervals": [
             {
                 "day_of_week": 1,
                 "start_time": time(9, 0).isoformat(),
