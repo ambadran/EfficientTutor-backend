@@ -517,7 +517,10 @@ class StudentService(UserService):
         for interval_data in student_data.availability_intervals:
             new_interval = db_models.AvailabilityIntervals(
                 user_id=new_student.id,
-                **interval_data.model_dump()
+                day_of_week=interval_data.day_of_week,
+                start_time=interval_data.start_time,
+                end_time=interval_data.end_time,
+                availability_type=interval_data.availability_type.value
             )
             self.db.add(new_interval)
 
@@ -694,7 +697,10 @@ class StudentService(UserService):
             for interval_data in update_data.availability_intervals:
                 new_interval = db_models.AvailabilityIntervals(
                     user_id=student_to_update.id,
-                    **interval_data.model_dump()
+                    day_of_week=interval_data.day_of_week,
+                    start_time=interval_data.start_time,
+                    end_time=interval_data.end_time,
+                    availability_type=interval_data.availability_type.value
                 )
                 student_to_update.availability_intervals.append(new_interval)
 
@@ -816,7 +822,10 @@ class StudentService(UserService):
 
         new_interval = db_models.AvailabilityIntervals(
             user_id=student.id,
-            **interval_data.model_dump()
+            day_of_week=interval_data.day_of_week,
+            start_time=interval_data.start_time,
+            end_time=interval_data.end_time,
+            availability_type=interval_data.availability_type.value
         )
         self.db.add(new_interval)
         await self.db.flush()
@@ -838,19 +847,22 @@ class StudentService(UserService):
         
         if interval.user_id != student_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Interval does not belong to this student.")
-
-        student = await self.get_user_by_id(student_id)
         
+        student = await self.get_user_by_id(student_id)
+         
         # Auth check
         if current_user.role == UserRole.PARENT.value:
-            if student.parent_id != current_user.id:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+             if student.parent_id != current_user.id:
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
         elif current_user.role != UserRole.TEACHER.value:
-            #TODO: MUST CHECK IF TEACHER IS RELATED TO STUDENT OR NOT
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
-
+             #TODO: MUST CHECK IF TEACHER IS RELATED TO STUDENT OR NOT
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+ 
         for k, v in update_data.model_dump(exclude_unset=True).items():
-            setattr(interval, k, v)
+            if k == 'availability_type' and v is not None:
+                setattr(interval, k, v.value)
+            else:
+                setattr(interval, k, v)
         
         self.db.add(interval)
         await self.db.flush()
@@ -1168,7 +1180,10 @@ class TeacherService(UserService):
         for interval_data in teacher_data.availability_intervals:
             new_interval = db_models.AvailabilityIntervals(
                 user_id=new_teacher.id,
-                **interval_data.model_dump()
+                day_of_week=interval_data.day_of_week,
+                start_time=interval_data.start_time,
+                end_time=interval_data.end_time,
+                availability_type=interval_data.availability_type.value
             )
             self.db.add(new_interval)
 
@@ -1229,7 +1244,10 @@ class TeacherService(UserService):
             for interval_data in update_data.availability_intervals:
                 new_interval = db_models.AvailabilityIntervals(
                     user_id=teacher_to_update.id,
-                    **interval_data.model_dump()
+                    day_of_week=interval_data.day_of_week,
+                    start_time=interval_data.start_time,
+                    end_time=interval_data.end_time,
+                    availability_type=interval_data.availability_type.value
                 )
                 teacher_to_update.availability_intervals.append(new_interval)
 
@@ -1260,7 +1278,10 @@ class TeacherService(UserService):
 
         new_interval = db_models.AvailabilityIntervals(
             user_id=teacher.id,
-            **interval_data.model_dump()
+            day_of_week=interval_data.day_of_week,
+            start_time=interval_data.start_time,
+            end_time=interval_data.end_time,
+            availability_type=interval_data.availability_type.value
         )
         self.db.add(new_interval)
         await self.db.flush()
@@ -1290,7 +1311,10 @@ class TeacherService(UserService):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
 
         for k, v in update_data.model_dump(exclude_unset=True).items():
-            setattr(interval, k, v)
+            if k == 'availability_type' and v is not None:
+                setattr(interval, k, v.value)
+            else:
+                setattr(interval, k, v)
         
         self.db.add(interval)
         await self.db.flush()
