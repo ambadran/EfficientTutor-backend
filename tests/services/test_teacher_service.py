@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import UserService, TeacherService
 from src.efficient_tutor_backend.models import user as user_models
-from src.efficient_tutor_backend.database.db_enums import UserRole, SubjectEnum, EducationalSystemEnum
+from src.efficient_tutor_backend.database.db_enums import UserRole, SubjectEnum, EducationalSystemEnum, AvailabilityTypeEnum
 from src.efficient_tutor_backend.common.security_utils import HashedPassword
 
 from pprint import pp as pprint
@@ -369,7 +369,7 @@ class TestTeacherServiceUpdate:
         # Assert availability intervals were updated (replaced)
         assert len(updated_teacher.availability_intervals) == 1
         assert updated_teacher.availability_intervals[0].day_of_week == 3
-        assert updated_teacher.availability_intervals[0].availability_type == "personal"
+        assert updated_teacher.availability_intervals[0].availability_type == AvailabilityTypeEnum.PERSONAL
 
         # Verify in DB
         db_user = await user_service.get_user_by_id(test_teacher_orm.id)
@@ -810,7 +810,7 @@ class TestTeacherServiceAvailabilityIntervals:
         # Assert
         assert isinstance(new_interval, user_models.AvailabilityIntervalRead)
         assert new_interval.day_of_week == 5
-        assert new_interval.availability_type == "work"
+        assert new_interval.availability_type == AvailabilityTypeEnum.WORK
         
         # Verify in DB
         await db_session.refresh(test_teacher_orm, ['availability_intervals'])
@@ -856,7 +856,7 @@ class TestTeacherServiceAvailabilityIntervals:
 
         # ASSERT
         assert updated_interval.id == interval_id
-        assert updated_interval.availability_type == "personal"
+        assert updated_interval.availability_type == AvailabilityTypeEnum.PERSONAL
         assert updated_interval.end_time == time(13, 0)
         
         # Verify DB
@@ -909,7 +909,7 @@ class TestTeacherServiceAvailabilityIntervals:
         print("\n--- Testing availability interval AUTH (Forbidden) ---")
         
         interval_data = user_models.AvailabilityIntervalCreate(
-            day_of_week=1, start_time=time(9,0), end_time=time(10,0), availability_type="test"
+            day_of_week=1, start_time=time(9,0), end_time=time(10,0), availability_type="personal"
         )
 
         # Add forbidden

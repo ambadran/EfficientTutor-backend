@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.user_service import StudentService
 from src.efficient_tutor_backend.models import user as user_models
-from src.efficient_tutor_backend.database.db_enums import UserRole, SubjectEnum, EducationalSystemEnum
+from src.efficient_tutor_backend.database.db_enums import UserRole, SubjectEnum, EducationalSystemEnum, AvailabilityTypeEnum
 from tests.constants import TEST_TEACHER_ID, TEST_PARENT_ID, TEST_STUDENT_ID, TEST_UNRELATED_TEACHER_ID
 
 from pprint import pp as pprint
@@ -403,8 +403,7 @@ class TestStudentServiceUPDATE:
         
         assert len(updated_student.availability_intervals) == 1
         assert updated_student.availability_intervals[0].day_of_week == 7
-        assert updated_student.availability_intervals[0].availability_type == "sleep"
-        
+        assert updated_student.availability_intervals[0].availability_type == AvailabilityTypeEnum.SLEEP
         print("--- Successfully replaced nested lists ---")
         pprint(updated_student.model_dump())
 
@@ -463,7 +462,7 @@ class TestStudentServiceAvailability:
         # Assert
         assert isinstance(new_interval, user_models.AvailabilityIntervalRead)
         assert new_interval.day_of_week == 3
-        assert new_interval.availability_type == "sports"
+        assert new_interval.availability_type == AvailabilityTypeEnum.SPORTS
         
         # Verify in DB
         await db_session.refresh(test_student_orm, ['availability_intervals'])
@@ -500,7 +499,7 @@ class TestStudentServiceAvailability:
 
         # ASSERT
         assert updated_interval.id == interval_id
-        assert updated_interval.availability_type == "school"
+        assert updated_interval.availability_type == AvailabilityTypeEnum.SCHOOL
         assert updated_interval.end_time == time(20, 0)
         
         # Verify DB
@@ -547,7 +546,7 @@ class TestStudentServiceAvailability:
         print("\n--- Testing availability interval AUTH (Forbidden) ---")
         
         interval_data = user_models.AvailabilityIntervalCreate(
-            day_of_week=1, start_time=time(9,0), end_time=time(10,0), availability_type="test"
+            day_of_week=1, start_time=time(9,0), end_time=time(10,0), availability_type="sports"
         )
 
         # Add forbidden

@@ -13,7 +13,8 @@ from ..database.db_enums import (
     StudentStatusEnum, 
     SubjectEnum,
     AdminPrivilegeType,
-    EducationalSystemEnum
+    EducationalSystemEnum,
+    AvailabilityTypeEnum
 )
 
 # --- New Student-Specific Read Models (for relational data) ---
@@ -42,7 +43,7 @@ class AvailabilityIntervalRead(BaseModel):
     day_of_week: int
     start_time: time
     end_time: time
-    availability_type: str
+    availability_type: AvailabilityTypeEnum
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -133,7 +134,7 @@ class AvailabilityIntervalCreate(BaseModel):
     day_of_week: int = Field(..., ge=1, le=7) # 1=Monday, 7=Sunday
     start_time: time
     end_time: time
-    availability_type: str # This should probably be an Enum too, but for now, string.
+    availability_type: AvailabilityTypeEnum # This should probably be an Enum too, but for now, string.
 
 class AvailabilityIntervalUpdate(BaseModel):
     """
@@ -143,7 +144,7 @@ class AvailabilityIntervalUpdate(BaseModel):
     day_of_week: Optional[int] = Field(None, ge=1, le=7)
     start_time: Optional[time] = None
     end_time: Optional[time] = None
-    availability_type: Optional[str] = None
+    availability_type: Optional[AvailabilityTypeEnum] = None
 
 class StudentCreate(BaseModel):
     """
