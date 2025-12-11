@@ -1,23 +1,40 @@
 """
-Test data for Timetable Runs.
+Test data for Timetable Runs, using the new relational structure.
 """
 import datetime
-from tests.constants import TEST_TUITION_ID
+from tests.constants import (
+    TEST_TIMETABLE_RUN_ID,
+    TEST_USER_SOLUTION_ID,
+    TEST_SLOT_ID,
+    TEST_STUDENT_ID,
+    TEST_TEACHER_ID,
+    TEST_TUITION_ID
+)
 
-# Calculate a dynamic timestamp relative to when this module is imported (seeding time)
-# This replaces the dynamic logic previously in seed_test_db.py
-now = datetime.datetime.now(datetime.timezone.utc)
-solution_entry = {
-    "category": "Tuition", 
-    "id": str(TEST_TUITION_ID), 
-    "start_time": now.isoformat(), 
-    "end_time": (now + datetime.timedelta(hours=1)).isoformat()
-}
-
-# --- Timetable Runs ---
-TIMETABLE_RUNS_DATA = [
+# --- 1. User Solutions ---
+# Links the Master Run (9999) to specific users.
+TIMETABLE_RUN_USER_SOLUTIONS_DATA = [
     {
-        "factory": "TimetableRunFactory",
-        "solution_data": [solution_entry]
-    },
+        "factory": "TimetableRunUserSolutionFactory",
+        "id": TEST_USER_SOLUTION_ID,
+        "timetable_run_id": TEST_TIMETABLE_RUN_ID,
+        "user_id": TEST_STUDENT_ID
+    }
+]
+
+# --- 2. Solution Slots ---
+# The actual schedule entries for the user solutions.
+# Note: start_time and end_time must be datetime.time objects for asyncpg.
+TIMETABLE_SOLUTION_SLOTS_DATA = [
+    {
+        "factory": "TimetableSolutionSlotFactory",
+        "id": TEST_SLOT_ID,
+        "solution_id": TEST_USER_SOLUTION_ID,
+        "name": "Math Session",
+        "day_of_week": 1, # Monday
+        "start_time": datetime.time(10, 0),
+        "end_time": datetime.time(11, 0),
+        "tuition_id": TEST_TUITION_ID,
+        "participant_ids": [TEST_TEACHER_ID, TEST_STUDENT_ID]
+    }
 ]

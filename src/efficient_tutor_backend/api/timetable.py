@@ -27,7 +27,7 @@ class TimetableAPI:
             "/", 
             self.get_timetable,
             methods=["GET"],
-            response_model=list[timetable_models.ScheduledTuitionReadRoleBased])
+            response_model=list[timetable_models.TimeTableSlot])
 
     async def get_timetable(
         self,
@@ -40,8 +40,7 @@ class TimetableAPI:
         - For a Parent, returns the schedules for all their children.
         - For a Student, returns their personal schedule.
         """
-        # The service returns a list of Pydantic models; FastAPI validates against the Union
-        return await timetable_service.get_all_for_api(current_user)
+        return await timetable_service.get_timetable_for_api(current_user)
 
 # Instantiate the class and export its router
 timetable_api = TimetableAPI()

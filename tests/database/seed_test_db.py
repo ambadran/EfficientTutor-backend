@@ -27,7 +27,7 @@ from sqlalchemy import text
 from src.efficient_tutor_backend.common.config import settings
 from src.efficient_tutor_backend.database import models as db_models
 from tests.database import factories
-from tests.constants import TEST_TUITION_ID
+from tests.constants import TEST_TUITION_ID, TEST_TIMETABLE_RUN_ID
 
 # --- Import Manual Data Definitions ---
 from tests.database.data.users import ADMINS_DATA, TEACHERS_DATA, PARENTS_DATA, STUDENTS_DATA
@@ -37,7 +37,7 @@ from tests.database.data.student_details import STUDENT_DETAILS_DATA
 from tests.database.data.teacher_details import TEACHER_DETAILS_DATA
 from tests.database.data.logs import TUITION_LOGS_DATA, TUITION_LOG_CHARGES_DATA, PAYMENT_LOGS_DATA
 from tests.database.data.notes import NOTES_DATA
-from tests.database.data.timetable import TIMETABLE_RUNS_DATA
+from tests.database.data.timetable import TIMETABLE_RUN_USER_SOLUTIONS_DATA, TIMETABLE_SOLUTION_SLOTS_DATA
 
 # --- Dynamic Import for Auto-Generated Data ---
 def safe_import(module_name, var_name, default=[]):
@@ -67,27 +67,23 @@ AUTO_TUITION_LOG_CHARGES_DATA = safe_import("auto_logs", "AUTO_TUITION_LOG_CHARG
 AUTO_PAYMENT_LOGS_DATA = safe_import("auto_logs", "AUTO_PAYMENT_LOGS_DATA")
 
 AUTO_NOTES_DATA = safe_import("auto_notes", "AUTO_NOTES_DATA")
-AUTO_TIMETABLE_RUNS_DATA = safe_import("auto_timetable", "AUTO_TIMETABLE_RUNS_DATA")
 
-# --- Special Handling: Merge Timetable Data ---
-# To ensure the backend sees specific manual tests AND volume auto data,
-# we merge all 'solution_data' into a single "Latest Run".
-combined_solution_data = []
-# i fixed a bug here by adding [-1] to only fetch the last entry of the auto data (which SHOULD be the latest timetable, #TODO: add logic to actually fetch the timetable with latest 'id')
-for entry in TIMETABLE_RUNS_DATA + [AUTO_TIMETABLE_RUNS_DATA[-1]]:
-    if "solution_data" in entry and isinstance(entry["solution_data"], list):
-        combined_solution_data.extend(entry["solution_data"])
+# New: Auto-generated Timetable Solutions
+AUTO_TIMETABLE_RUN_USER_SOLUTIONS_DATA = safe_import("auto_timetable", "AUTO_TIMETABLE_RUN_USER_SOLUTIONS_DATA")
+AUTO_TIMETABLE_SOLUTION_SLOTS_DATA = safe_import("auto_timetable", "AUTO_TIMETABLE_SOLUTION_SLOTS_DATA")
 
-COMBINED_TIMETABLE_RUNS_DATA = [
-    {
-        "factory": "TimetableRunFactory",
-        "solution_data": combined_solution_data,
-        "run_started_at": datetime.datetime.now(datetime.timezone.utc),
-        "status": "SUCCESS",
-        "input_version_hash": "test_merged_hash",
-        "trigger_source": "test_seeder"
-    }
-]
+# --- Special Handling: The Master Timetable Run ---
+# We synthesize ONE Master Run record that acts as the parent for ALL solution data.
+MASTER_TIMETABLE_RUN = [{
+    "factory": "TimetableRunFactory",
+    "id": TEST_TIMETABLE_RUN_ID,
+    "run_started_at": datetime.datetime.now(datetime.timezone.utc),
+    "status": "SUCCESS",
+    "input_version_hash": "test_master_hash",
+    "trigger_source": "test_seeder",
+    "legacy_solution_data": [] # Empty, but satisfies the column requirement
+}]
+
 
 # --- Seeding Topology ---
 # We combine Manual + Auto data here.
@@ -106,14 +102,25 @@ SEEDING_ORDER = [
     ("TuitionLogCharges", TUITION_LOG_CHARGES_DATA + AUTO_TUITION_LOG_CHARGES_DATA),
     ("PaymentLogs", PAYMENT_LOGS_DATA + AUTO_PAYMENT_LOGS_DATA),
     ("Notes", NOTES_DATA + AUTO_NOTES_DATA),
-    ("TimetableRuns", COMBINED_TIMETABLE_RUNS_DATA),
+    
+    # --- New Timetable Topology ---
+    # 1. Create the Master Run
+    ("TimetableRuns", MASTER_TIMETABLE_RUN),
+    # 2. Attach User Solutions to the Master Run
+    ("TimetableRunUserSolutions", TIMETABLE_RUN_USER_SOLUTIONS_DATA + AUTO_TIMETABLE_RUN_USER_SOLUTIONS_DATA),
+    # 3. Attach Slots to the User Solutions
+    ("TimetableSolutionSlots", TIMETABLE_SOLUTION_SLOTS_DATA + AUTO_TIMETABLE_SOLUTION_SLOTS_DATA),
 ]
 
 async def clear_database(session: AsyncSession):
     """Wipes all data from public tables."""
     print("Wiping database...")
     async with session.begin():
+        # Order matters for cascading deletes (though TRUNCATE CASCADE handles it)
+        await session.execute(text('TRUNCATE TABLE "timetable_solution_slots" RESTART IDENTITY CASCADE'))
+        await session.execute(text('TRUNCATE TABLE "timetable_run_user_solutions" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "timetable_runs" RESTART IDENTITY CASCADE'))
+        
         await session.execute(text('TRUNCATE TABLE "tuition_log_charges" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "tuition_logs" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "payment_logs" RESTART IDENTITY CASCADE'))
@@ -153,7 +160,7 @@ async def seed_data(session: AsyncSession):
             if label == "TeacherSpecialties":
                 # Composite Key: (teacher_id, subject, educational_system, grade)
                 composite_key = (
-                    str(entry.get("teacher_id")), 
+                    str(entry.get("teacher_id")),
                     entry.get("subject"), 
                     entry.get("educational_system"), 
                     entry.get("grade")
@@ -167,7 +174,7 @@ async def seed_data(session: AsyncSession):
             if label == "StudentDetails" and "subject" in entry:
                 # Composite Key: (student_id, subject, teacher_id, educational_system, grade)
                 composite_key = (
-                    str(entry.get("student_id")), 
+                    str(entry.get("student_id")),
                     entry.get("subject"), 
                     str(entry.get("teacher_id")),
                     entry.get("educational_system"), 
@@ -194,12 +201,10 @@ async def seed_data(session: AsyncSession):
                     seen_unique_constraints.add("MasterAdmin")
 
             # 6. Unique Constraint Deduplication (for TimetableRuns)
-            if label == "TimetableRuns":
-                entry_id = entry.get("id")
-                if entry_id:
-                    if entry_id in seen_ids:
-                        continue
-                    seen_ids.add(entry_id)
+            # For runs, we rely on the ID check above, but in our new design 
+            # there is only ever one Master Run with ID 9999.
+            # Any accidental duplicates will be caught by "seen_ids".
+            pass 
 
             unique_data_list.append(entry)
 

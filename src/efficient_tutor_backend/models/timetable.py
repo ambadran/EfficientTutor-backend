@@ -1,46 +1,35 @@
 '''
-
+Timetable API Models
 '''
-from typing import Union
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict
+from typing import Optional
+from enum import Enum
+from datetime import datetime, time
+from uuid import UUID
+from pydantic import BaseModel, ConfigDict, Field
 
-# Import the new, role-specific tuition models
-from .tuition import (
-    TuitionReadForTeacher,
-    TuitionReadForParent,
-    TuitionReadForStudent
-)
+class TimeTableSlotType(str, Enum):
+    TUITION = "Tuition"
+    AVAILABILITY = "Availability"
+    OTHER = "Other"
 
-# --- API Read Models (Output) ---
+class TimeTableSlot(BaseModel):
+    """
+    Unified model for a single slot in the timetable.
+    Contains both absolute data from DB and relativistic calculated data.
+    """
+    # Absolute Data (From DB)
+    id: UUID
+    name: str
+    slot_type: TimeTableSlotType
+    day_of_week: int = Field(..., description="1=Monday, 7=Sunday")
+    day_name: str = Field(..., description="e.g. 'Monday'")
+    start_time: time
+    end_time: time
+    object_uuid: Optional[UUID] = Field(None, description="ID of the Tuition or AvailabilityInterval. None if masked.")
 
-class ScheduledTuitionReadForTeacher(BaseModel):
-    """API model for a scheduled tuition (Teacher view)."""
-    start_time: datetime
-    end_time: datetime
-    tuition: TuitionReadForTeacher # Nests the teacher-specific model
-
-    model_config = ConfigDict(from_attributes=True)
-
-class ScheduledTuitionReadForParent(BaseModel):
-    """API model for a scheduled tuition (Parent view)."""
-    start_time: datetime
-    end_time: datetime
-    tuition: TuitionReadForParent # Nests the parent-specific model
-
-    model_config = ConfigDict(from_attributes=True)
-
-class ScheduledTuitionReadForStudent(BaseModel):
-    """API model for a scheduled tuition (Student view)."""
-    start_time: datetime
-    end_time: datetime
-    tuition: TuitionReadForStudent # Nests the student-specific model
+    # Relativistic Data (Calculated based on viewer's time/timezone)
+    next_occurrence_start: datetime
+    next_occurrence_end: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
-
-ScheduledTuitionReadRoleBased = Union[
-    ScheduledTuitionReadForTeacher,
-    ScheduledTuitionReadForParent,
-    ScheduledTuitionReadForStudent,
-]
