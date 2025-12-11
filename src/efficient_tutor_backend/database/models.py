@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Time, DateTime, Double, Enum, ForeignKeyConstraint, Identity, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Table, Text, UniqueConstraint, Uuid, text, Date
+from sqlalchemy import ARRAY, BigInteger, Boolean, CheckConstraint, Column, Time, DateTime, Double, Enum, ForeignKeyConstraint, Identity, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Table, Text, UniqueConstraint, Uuid, text, Date
 from sqlalchemy.dialects.postgresql import JSONB, OID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 import datetime
@@ -132,10 +132,56 @@ class TimetableRuns(Base):
     input_version_hash: Mapped[str] = mapped_column(Text)
     run_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
     trigger_source: Mapped[Optional[str]] = mapped_column(Text)
-    solution_data: Mapped[Optional[dict]] = mapped_column(JSONB)
+    legacy_solution_data: Mapped[Optional[dict]] = mapped_column(JSONB)
     error_message: Mapped[Optional[str]] = mapped_column(Text)
 
     calendar_events: Mapped[list['CalendarEvents']] = relationship('CalendarEvents', back_populates='timetable_run')
+    timetable_run_user_solutions: Mapped[list['TimetableRunUserSolutions']] = relationship('TimetableRunUserSolutions', back_populates='timetable_run')
+
+class TimetableRunUserSolutions(Base):
+    __tablename__ = 'timetable_run_user_solutions'
+    __table_args__ = (
+        ForeignKeyConstraint(['timetable_run_id'], ['timetable_runs.id'], ondelete='CASCADE', name='timetable_run_user_solutions_timetable_run_id_fkey'),
+        ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE', name='timetable_run_user_solutions_user_id_fkey'),
+        PrimaryKeyConstraint('id', name='timetable_run_user_solutions_pkey'),
+        UniqueConstraint('timetable_run_id', 'user_id', name='timetable_run_user_solutions_timetable_run_id_user_id_key'),
+        Index('idx_timetable_run_user_solutions_run_id', 'timetable_run_id')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    timetable_run_id: Mapped[int] = mapped_column(BigInteger)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+
+    timetable_run: Mapped['TimetableRuns'] = relationship('TimetableRuns', back_populates='timetable_run_user_solutions')
+    user: Mapped['Users'] = relationship('Users', back_populates='timetable_run_user_solutions')
+    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='solution')
+
+
+class TimetableSolutionSlots(Base):
+    __tablename__ = 'timetable_solution_slots'
+    __table_args__ = (
+        CheckConstraint('day_of_week >= 1 AND day_of_week <= 7', name='timetable_solution_slots_day_of_week_check'),
+        CheckConstraint('tuition_id IS NOT NULL AND availability_interval_id IS NULL OR tuition_id IS NULL AND availability_interval_id IS NOT NULL', name='check_slot_source_xor'),
+        ForeignKeyConstraint(['availability_interval_id'], ['availability_intervals.id'], ondelete='CASCADE', name='timetable_solution_slots_availability_interval_id_fkey'),
+        ForeignKeyConstraint(['solution_id'], ['timetable_run_user_solutions.id'], ondelete='CASCADE', name='timetable_solution_slots_solution_id_fkey'),
+        ForeignKeyConstraint(['tuition_id'], ['tuitions.id'], ondelete='CASCADE', name='timetable_solution_slots_tuition_id_fkey'),
+        PrimaryKeyConstraint('id', name='timetable_solution_slots_pkey'),
+        Index('idx_timetable_solution_slots_solution_id', 'solution_id')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    solution_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    name: Mapped[str] = mapped_column(Text)
+    day_of_week: Mapped[int] = mapped_column(Integer)
+    start_time: Mapped[datetime.time] = mapped_column(Time)
+    end_time: Mapped[datetime.time] = mapped_column(Time)
+    participant_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid()), server_default=text("'{}'::uuid[]"))
+    tuition_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    availability_interval_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+
+    availability_interval: Mapped[Optional['AvailabilityIntervals']] = relationship('AvailabilityIntervals', back_populates='timetable_solution_slots')
+    solution: Mapped['TimetableRunUserSolutions'] = relationship('TimetableRunUserSolutions', back_populates='timetable_solution_slots')
+    tuition: Mapped[Optional['Tuitions']] = relationship('Tuitions', back_populates='timetable_solution_slots')
 
 
 class Users(Base):
@@ -154,6 +200,8 @@ class Users(Base):
     is_first_sign_in: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=text('true'))
     first_name: Mapped[Optional[str]] = mapped_column(Text)
     last_name: Mapped[Optional[str]] = mapped_column(Text)
+
+    timetable_run_user_solutions: Mapped[list['TimetableRunUserSolutions']] = relationship('TimetableRunUserSolutions', back_populates='user')
 
 
 class CalendarEvents(Base):
@@ -378,6 +426,7 @@ class Tuitions(Base):
     teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='tuitions', foreign_keys=[teacher_id, subject, educational_system, grade], overlaps="teacher,tuitions")
     tuition_logs: Mapped[list['TuitionLogs']] = relationship('TuitionLogs', back_populates='tuition')
     tuition_template_charges: Mapped[list['TuitionTemplateCharges']] = relationship('TuitionTemplateCharges', back_populates='tuition')
+    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='tuition')
 
     meeting_link: Mapped['MeetingLinks'] = relationship(
         'MeetingLinks',
@@ -573,6 +622,8 @@ class AvailabilityIntervals(Base):
     start_time: Mapped[datetime.time] = mapped_column(Time)
     end_time: Mapped[datetime.time] = mapped_column(Time)
     availability_type: Mapped[str] = mapped_column(Enum('sleep', 'school', 'sports', 'work', 'personal', 'others', name='availability_type_enum'))
+
+    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='availability_interval')
 
 
 class TeacherSpecialties(Base):

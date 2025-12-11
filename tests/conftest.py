@@ -202,9 +202,9 @@ def tuition_service(db_session: AsyncSession, user_service: UserService) -> Tuit
 
 @pytest.fixture(scope="function")
 def timetable_service(
-    db_session: AsyncSession, tuition_service: TuitionService
+    db_session: AsyncSession, user_service: UserService
 ) -> TimeTableService:
-    return TimeTableService(db=db_session, tuition_service=tuition_service)
+    return TimeTableService(db=db_session, user_service=user_service)
 
 @pytest.fixture(scope="function")
 def timetable_service_sync() -> TimeTableService:
@@ -213,7 +213,7 @@ def timetable_service_sync() -> TimeTableService:
     for testing utility methods that don't need a real db or other services.
     """
     # Pass None for dependencies, as the formatting methods don't use them.
-    return TimeTableService(db=None, tuition_service=None)
+    return TimeTableService(db=None, user_service=None)
 
 @pytest.fixture(scope="function")
 def tuition_log_service(

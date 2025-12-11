@@ -128,7 +128,7 @@ class TimetableRunFactory(BaseFactory):
     run_started_at = factory.LazyFunction(datetime.datetime.now)
     status = RunStatusEnum.SUCCESS.value
     input_version_hash = "test_hash"
-    solution_data = []
+    legacy_solution_data = []
 
     class Meta:
         model = db_models.TimetableRuns
@@ -278,3 +278,81 @@ class RawTeacherSpecialtyFactory(TeacherSpecialtyFactory):
     class Meta:
         exclude = ('teacher',)
     teacher = None
+
+# --- New Factories for Timetable Solutions ---
+
+class TimetableRunUserSolutionFactory(BaseFactory):
+    """
+    Factory for TimetableRunUserSolutions.
+    We assume the IDs (run_id, user_id) are provided explicitly (Raw style).
+    """
+    id = factory.LazyFunction(uuid.uuid4)
+    
+    # These will be populated by the seeder
+    timetable_run_id = None
+    user_id = None
+
+    class Meta:
+        model = db_models.TimetableRunUserSolutions
+
+class TimetableSolutionSlotFactory(BaseFactory):
+    """
+    Factory for TimetableSolutionSlots.
+    """
+    id = factory.LazyFunction(uuid.uuid4)
+    
+    # Foreign Keys (Explicitly provided)
+    solution_id = None
+    
+    name = "Scheduled Session"
+    day_of_week = 1
+    start_time = datetime.time(10, 0)
+    end_time = datetime.time(11, 0)
+    
+    # Nullable FKs (One must be set)
+    tuition_id = None
+    availability_interval_id = None
+    
+    participant_ids = []
+
+    class Meta:
+        model = db_models.TimetableSolutionSlots
+
+# --- New Factories for Timetable Solutions ---
+
+class TimetableRunUserSolutionFactory(BaseFactory):
+    """
+    Factory for TimetableRunUserSolutions.
+    We assume the IDs (run_id, user_id) are provided explicitly (Raw style).
+    """
+    id = factory.LazyFunction(uuid.uuid4)
+    
+    # These will be populated by the seeder
+    timetable_run_id = None
+    user_id = None
+
+    class Meta:
+        model = db_models.TimetableRunUserSolutions
+
+class TimetableSolutionSlotFactory(BaseFactory):
+    """
+    Factory for TimetableSolutionSlots.
+    """
+    id = factory.LazyFunction(uuid.uuid4)
+    
+    # Foreign Keys (Explicitly provided)
+    solution_id = None
+    
+    name = "Scheduled Session"
+    day_of_week = 1
+    start_time = datetime.time(10, 0)
+    end_time = datetime.time(11, 0)
+    
+    # Nullable FKs (One must be set)
+    tuition_id = None
+    availability_interval_id = None
+    
+    participant_ids = []
+
+    class Meta:
+        model = db_models.TimetableSolutionSlots
