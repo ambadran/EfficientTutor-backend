@@ -34,6 +34,7 @@ from tests.constants import (
     TEST_NOTE_ID,
     TEST_UNRELATED_TEACHER_ID,
     TEST_UNRELATED_PARENT_ID,
+    TEST_UNRELATED_STUDENT_ID,
     TEST_TUITION_ID_NO_LINK,
     TEST_ADMIN_ID,
     TEST_NORMAL_ADMIN_ID,
@@ -464,6 +465,20 @@ async def test_unrelated_parent_orm(db_session: AsyncSession) -> db_models.Paren
     assert parent is not None, f"Test unrelated parent {TEST_UNRELATED_PARENT_ID} not found in DB."
     assert parent.id != TEST_PARENT_ID, "TEST_UNRELATED_PARENT_ID is the same as TEST_PARENT_ID"
     return parent 
+
+@pytest.fixture(scope="function")
+async def test_unrelated_student_orm(db_session: AsyncSession) -> db_models.Students:
+    """Fetches a student who is unrelated to the main test parent/teacher context."""
+    stmt = select(db_models.Students).options(
+        selectinload(db_models.Students.availability_intervals),
+        selectinload(db_models.Students.student_subjects)
+    ).filter(db_models.Students.id == TEST_UNRELATED_STUDENT_ID)
+    
+    result = await db_session.execute(stmt)
+    student = result.scalars().first()
+    
+    assert student is not None, f"Test unrelated student {TEST_UNRELATED_STUDENT_ID} not found in DB."
+    return student 
 
 @pytest.fixture
 def valid_student_data() -> dict:
