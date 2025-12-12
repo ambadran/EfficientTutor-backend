@@ -154,7 +154,7 @@ class TimetableRunUserSolutions(Base):
 
     timetable_run: Mapped['TimetableRuns'] = relationship('TimetableRuns', back_populates='timetable_run_user_solutions')
     user: Mapped['Users'] = relationship('Users', back_populates='timetable_run_user_solutions')
-    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='solution')
+    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='solution', cascade='all, delete-orphan')
 
 
 class TimetableSolutionSlots(Base):
@@ -201,7 +201,7 @@ class Users(Base):
     first_name: Mapped[Optional[str]] = mapped_column(Text)
     last_name: Mapped[Optional[str]] = mapped_column(Text)
 
-    timetable_run_user_solutions: Mapped[list['TimetableRunUserSolutions']] = relationship('TimetableRunUserSolutions', back_populates='user')
+    timetable_run_user_solutions: Mapped[list['TimetableRunUserSolutions']] = relationship('TimetableRunUserSolutions', back_populates='user', cascade='all, delete-orphan')
 
 
 class CalendarEvents(Base):
@@ -426,7 +426,7 @@ class Tuitions(Base):
     teacher_specialty: Mapped['TeacherSpecialties'] = relationship('TeacherSpecialties', back_populates='tuitions', foreign_keys=[teacher_id, subject, educational_system, grade], overlaps="teacher,tuitions")
     tuition_logs: Mapped[list['TuitionLogs']] = relationship('TuitionLogs', back_populates='tuition')
     tuition_template_charges: Mapped[list['TuitionTemplateCharges']] = relationship('TuitionTemplateCharges', back_populates='tuition')
-    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='tuition')
+    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='tuition', cascade='all, delete-orphan')
 
     meeting_link: Mapped['MeetingLinks'] = relationship(
         'MeetingLinks',
@@ -623,7 +623,7 @@ class AvailabilityIntervals(Base):
     end_time: Mapped[datetime.time] = mapped_column(Time)
     availability_type: Mapped[str] = mapped_column(Enum('sleep', 'school', 'sports', 'work', 'personal', 'others', name='availability_type_enum'))
 
-    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='availability_interval')
+    timetable_solution_slots: Mapped[list['TimetableSolutionSlots']] = relationship('TimetableSolutionSlots', back_populates='availability_interval', cascade='all, delete-orphan')
 
 
 class TeacherSpecialties(Base):

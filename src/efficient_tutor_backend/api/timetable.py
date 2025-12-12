@@ -2,7 +2,8 @@
 API endpoints for viewing the generated Timetable.
 '''
 from typing import Annotated, Any, Union
-from fastapi import APIRouter, Depends
+from uuid import UUID
+from fastapi import APIRouter, Depends, Query
 
 from ..database import models as db_models
 from ..models import timetable as timetable_models
@@ -32,15 +33,15 @@ class TimetableAPI:
     async def get_timetable(
         self,
         current_user: Annotated[db_models.Users, Depends(verify_token_and_get_user)],
-        timetable_service: Annotated[TimeTableService, Depends(TimeTableService)]
+        timetable_service: Annotated[TimeTableService, Depends(TimeTableService)],
+        target_user_id: Annotated[UUID | None, Query(description="Optional filter for Target User ID")] = None
     ) -> list[Any]:
         """
-        Retrieves the generated timetable for the current user.
-        - For a Teacher, returns their full schedule.
-        - For a Parent, returns the schedules for all their children.
-        - For a Student, returns their personal schedule.
+        Retrieves the generated timetable.
+        If target_user_id is provided, retrieves the timetable for that specific user (if authorized).
+        Otherwise, defaults to the current user's view.
         """
-        return await timetable_service.get_timetable_for_api(current_user)
+        return await timetable_service.get_timetable_for_api(current_user, target_user_id=target_user_id)
 
 # Instantiate the class and export its router
 timetable_api = TimetableAPI()

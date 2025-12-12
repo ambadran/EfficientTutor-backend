@@ -1,10 +1,19 @@
 import pytest
 from fastapi.testclient import TestClient
+from uuid import UUID, uuid4
 
 from src.efficient_tutor_backend.database import models as db_models
 from src.efficient_tutor_backend.services.security import JWTHandler
 from src.efficient_tutor_backend.models import timetable as timetable_models
-from tests.constants import TEST_TUITION_ID, TEST_STUDENT_ID
+from tests.constants import (
+    TEST_TUITION_ID, 
+    TEST_STUDENT_ID, 
+    TEST_TEACHER_ID,
+    TEST_SLOT_ID_STUDENT_MATH,
+    TEST_SLOT_ID_TEACHER_AVAILABILITY,
+    TEST_UNRELATED_TEACHER_ID,
+    TEST_UNRELATED_STUDENT_ID
+)
 
 from pprint import pp as pprint
 
@@ -16,122 +25,258 @@ def auth_headers_for_user(user: db_models.Users) -> dict:
 
 
 @pytest.mark.anyio
-class TestTimetableAPI:
-    """Test class for the Timetable API endpoint."""
+class TestTimetableAPIWithoutQuery:
+    """Tests for GET /timetable/ (Default/Self View)."""
 
-    async def test_get_timetable_as_teacher_success(
+    async def test_get_timetable_teacher_default(
         self,
         client: TestClient,
         test_teacher_orm: db_models.Teachers
     ):
-        """Test successfully fetching the timetable for a teacher."""
-        print(f"Attempting to fetch timetable as teacher: {test_teacher_orm.email}")
+        """Teacher fetching their own timetable by default."""
+        print(f"Teacher {test_teacher_orm.email} fetching default timetable.")
         headers = auth_headers_for_user(test_teacher_orm)
 
         response = client.get("/timetable/", headers=headers)
 
         assert response.status_code == 200, response.json()
+        data = response.json()
+        assert isinstance(data, list)
         
-        response_data = response.json()
-        assert isinstance(response_data, list)
+        # Teacher has 3 slots in seed data (2 mirrored tuition + 1 availability)
+        assert len(data) >= 3
         
-        # The seed data creates tuitions, so the list should not be empty
-        assert len(response_data) > 0, "Timetable for teacher should not be empty based on seed data."
+        # Verify Availability Slot
+        avail_slot = next((s for s in data if s["id"] == str(TEST_SLOT_ID_TEACHER_AVAILABILITY)), None)
+        assert avail_slot is not None
+        assert avail_slot["slot_type"] == timetable_models.TimeTableSlotType.AVAILABILITY.value
+        assert avail_slot["name"] == "Work"
+        pprint(avail_slot)
 
-        # Validate the structure of the first item
-        timetable_entry = timetable_models.ScheduledTuitionReadForTeacher(**response_data[0])
+    async def test_get_timetable_student_default(
+        self,
+        client: TestClient,
+        test_student_orm: db_models.Students
+    ):
+        """Student fetching their own timetable by default."""
+        print(f"Student {test_student_orm.email} fetching default timetable.")
+        headers = auth_headers_for_user(test_student_orm)
+        
+        response = client.get("/timetable/", headers=headers)
+        
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        
+        # Student has 2 slots in seed data
+        assert len(data) >= 2
+        
+        math_slot = next((s for s in data if s["id"] == str(TEST_SLOT_ID_STUDENT_MATH)), None)
+        assert math_slot is not None
+        assert math_slot["object_uuid"] == str(TEST_TUITION_ID) # Unmasked
+        pprint(math_slot)
 
-        pprint(timetable_entry.model_dump())
+    async def test_get_timetable_parent_default(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents
+    ):
+        """
+        Parent fetching default timetable.
+        Parents don't have personal 'TimetableRunUserSolutions' rows in the seed data,
+        so this should return an empty list, NOT an error.
+        """
+        print(f"Parent {test_parent_orm.email} fetching default timetable.")
+        headers = auth_headers_for_user(test_parent_orm)
         
-        # Assert that the tuition ID from the response matches our test tuition
-        assert timetable_entry.tuition.id == TEST_TUITION_ID
+        response = client.get("/timetable/", headers=headers)
         
-        # Assert that the financial charges are present and for the correct student
-        assert len(timetable_entry.tuition.charges) > 0
-        assert timetable_entry.tuition.charges[0].student.id == TEST_STUDENT_ID
-        
-        print(f"Successfully fetched and validated timetable for teacher {test_teacher_orm.email}")
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) == 0 # Expecting empty list for parent self-view
+        print("Parent default view returned empty list as expected.")
 
-    async def test_get_timetable_as_parent_success(
+
+@pytest.mark.anyio
+class TestTimetableAPIWithQuery:
+    """Tests for GET /timetable/?target_user_id=..."""
+
+    async def test_get_timetable_teacher_viewing_student(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers,
+        test_student_orm: db_models.Students
+    ):
+        """Teacher viewing a specific student."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"target_user_id": str(test_student_orm.id)}
+        
+        print(f"Teacher viewing Student {test_student_orm.id}")
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert len(data) >= 2
+        
+        # Verify unmasked access
+        slot = data[0]
+        assert slot["name"] != "Others"
+        assert slot["object_uuid"] is not None
+
+    async def test_get_timetable_teacher_viewing_self_explicit(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Teacher viewing themselves explicitly."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"target_user_id": str(test_teacher_orm.id)}
+        
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 3
+
+    async def test_get_timetable_parent_viewing_child(
         self,
         client: TestClient,
         test_parent_orm: db_models.Parents,
         test_student_orm: db_models.Students
     ):
-        """Test successfully fetching the timetable for a parent."""
-        print(f"Attempting to fetch timetable as parent: {test_parent_orm.email}")
+        """Parent viewing their child."""
         headers = auth_headers_for_user(test_parent_orm)
+        params = {"target_user_id": str(test_student_orm.id)}
 
-        response = client.get("/timetable/", headers=headers)
+        print(f"Parent viewing Child {test_student_orm.id}")
+        response = client.get("/timetable/", headers=headers, params=params)
 
         assert response.status_code == 200, response.json()
+        data = response.json()
+        assert len(data) >= 2
         
-        response_data = response.json()
-        assert isinstance(response_data, list)
-        assert len(response_data) > 0, "Timetable for parent should not be empty based on seed data."
+        # Verify unmasked
+        slot = data[0]
+        assert slot["object_uuid"] is not None
 
-        # Validate the structure of the first item
-        timetable_entry = timetable_models.ScheduledTuitionReadForParent(**response_data[0])
-        
-        # Assert that the parent is being charged and their child is in the list
-        assert timetable_entry.tuition.charge > 0
-        student_full_name = f"{test_student_orm.first_name} {test_student_orm.last_name}"
-        assert student_full_name in timetable_entry.tuition.attendee_names
-
-        print(f"Successfully fetched and validated timetable for parent {test_parent_orm.email}")
-
-    async def test_get_timetable_as_student_success(
+    async def test_get_timetable_student_viewing_self_explicit(
         self,
         client: TestClient,
         test_student_orm: db_models.Students
     ):
-        """Test successfully fetching the timetable for a student."""
-        print(f"Attempting to fetch timetable as student: {test_student_orm.email}")
+        """Student viewing themselves explicitly."""
         headers = auth_headers_for_user(test_student_orm)
-
-        response = client.get("/timetable/", headers=headers)
-
-        assert response.status_code == 200, response.json()
+        params = {"target_user_id": str(test_student_orm.id)}
         
-        response_data = response.json()
-        assert isinstance(response_data, list)
-        assert len(response_data) > 0, "Timetable for student should not be empty based on seed data."
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 2
 
-        # Validate the structure of the first item
-        timetable_entry = timetable_models.ScheduledTuitionReadForStudent(**response_data[0])
 
-        # Assert that the student's own name is in the list of attendees
-        student_full_name = f"{test_student_orm.first_name} {test_student_orm.last_name}"
-        assert student_full_name in timetable_entry.tuition.attendee_names
+@pytest.mark.anyio
+class TestTimetableAPIForbidden:
+    """Tests for 403 Forbidden scenarios."""
 
-        print(f"Successfully fetched and validated timetable for student {test_student_orm.email}")
-
-    async def test_get_timetable_as_admin_returns_empty_list(
+    async def test_teacher_viewing_other_teacher(
         self,
         client: TestClient,
-        test_admin_orm: db_models.Admins
+        test_teacher_orm: db_models.Teachers,
+        test_unrelated_teacher_orm: db_models.Teachers
     ):
-        """Test that an admin receives """
-        print(f"Attempting to fetch timetable as admin: {test_admin_orm.email}")
-        headers = auth_headers_for_user(test_admin_orm)
-
-        response = client.get("/timetable/", headers=headers)
-
-        assert response.status_code == 200, response.json()
+        """Teacher cannot view another Teacher."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"target_user_id": str(test_unrelated_teacher_orm.id)}
         
-        response_data = response.json()
-        # assert response_data == []
-        #TODO: continue this test when the authorization of admin role is finished
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        assert response.status_code == 403
+        assert "Teachers can only view timetables for students" in response.json()["detail"]
 
-    async def test_get_timetable_no_auth_fails(
+    async def test_parent_viewing_unrelated_student(
         self,
-        client: TestClient
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_unrelated_student_orm: db_models.Students
     ):
-        """Test that an unauthenticated user cannot fetch a timetable."""
-        print("Attempting to fetch timetable without authentication.")
+        """Parent cannot view unrelated student."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"target_user_id": str(test_unrelated_student_orm.id)}
         
-        response = client.get("/timetable/")
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        assert response.status_code == 403
+        assert "only view timetables for their own children" in response.json()["detail"]
 
+    async def test_parent_viewing_teacher(
+        self,
+        client: TestClient,
+        test_parent_orm: db_models.Parents,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Parent cannot view a Teacher."""
+        headers = auth_headers_for_user(test_parent_orm)
+        params = {"target_user_id": str(test_teacher_orm.id)}
+        
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        # Parent logic checks "if target_id in my_students". Teacher ID won't be there.
+        assert response.status_code == 403
+        assert "only view timetables for their own children" in response.json()["detail"]
+
+    async def test_student_viewing_other_student(
+        self,
+        client: TestClient,
+        test_student_orm: db_models.Students,
+        test_unrelated_student_orm: db_models.Students
+    ):
+        """Student cannot view another student."""
+        headers = auth_headers_for_user(test_student_orm)
+        params = {"target_user_id": str(test_unrelated_student_orm.id)}
+        
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        assert response.status_code == 403
+        assert "Students cannot view other users" in response.json()["detail"]
+
+    async def test_student_viewing_teacher(
+        self,
+        client: TestClient,
+        test_student_orm: db_models.Students,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """Student cannot view a Teacher."""
+        headers = auth_headers_for_user(test_student_orm)
+        params = {"target_user_id": str(test_teacher_orm.id)}
+        
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        assert response.status_code == 403
+        assert "Students cannot view other users" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+class TestTimetableAPIError:
+    """Tests for Error scenarios (404, 401)."""
+
+    async def test_target_user_not_found(
+        self,
+        client: TestClient,
+        test_teacher_orm: db_models.Teachers
+    ):
+        """404 when target user UUID doesn't exist."""
+        headers = auth_headers_for_user(test_teacher_orm)
+        params = {"target_user_id": str(uuid4())}
+        
+        response = client.get("/timetable/", headers=headers, params=params)
+        
+        assert response.status_code == 404
+        assert "Target user not found" in response.json()["detail"]
+
+    async def test_unauthorized_access(self, client: TestClient):
+        """401 when no token provided."""
+        response = client.get("/timetable/")
         assert response.status_code == 401
-        assert response.json()["detail"] == "Not authenticated"
-        print("Unauthenticated request failed as expected.")
+
+

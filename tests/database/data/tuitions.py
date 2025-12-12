@@ -3,7 +3,8 @@ Test data for Tuitions and their related objects like MeetingLinks
 and TuitionTemplateCharges.
 """
 from tests.constants import (
-    TEST_TUITION_ID, TEST_TUITION_ID_NO_LINK, TEST_TEACHER_ID,
+    TEST_TUITION_ID, TEST_TUITION_ID_NO_LINK, TEST_TUITION_ID_UNRELATED,
+    TEST_TEACHER_ID, TEST_UNRELATED_TEACHER_ID,
     TEST_STUDENT_ID, TEST_PARENT_ID,
     FIN_TEACHER_A_ID, FIN_TEACHER_B_ID,
     FIN_PARENT_A_ID, FIN_PARENT_B_ID,
@@ -25,6 +26,13 @@ TUITIONS_DATA = [
         "factory": "RawTuitionFactory",
         "id": TEST_TUITION_ID_NO_LINK,
         "teacher_id": TEST_TEACHER_ID,
+        "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
+    },
+    {
+        "factory": "RawTuitionFactory",
+        "id": TEST_TUITION_ID_UNRELATED,
+        "teacher_id": TEST_UNRELATED_TEACHER_ID,
         "educational_system": EducationalSystemEnum.IGCSE.value,
         "grade": 10,
     },
