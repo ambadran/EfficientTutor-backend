@@ -295,44 +295,11 @@ class TimetableRunUserSolutionFactory(BaseFactory):
     class Meta:
         model = db_models.TimetableRunUserSolutions
 
-class TimetableSolutionSlotFactory(BaseFactory):
+class RawTimetableRunUserSolutionFactory(TimetableRunUserSolutionFactory):
     """
-    Factory for TimetableSolutionSlots.
+    Alias for consistency.
     """
-    id = factory.LazyFunction(uuid.uuid4)
-    
-    # Foreign Keys (Explicitly provided)
-    solution_id = None
-    
-    name = "Scheduled Session"
-    day_of_week = 1
-    start_time = datetime.time(10, 0)
-    end_time = datetime.time(11, 0)
-    
-    # Nullable FKs (One must be set)
-    tuition_id = None
-    availability_interval_id = None
-    
-    participant_ids = []
-
-    class Meta:
-        model = db_models.TimetableSolutionSlots
-
-# --- New Factories for Timetable Solutions ---
-
-class TimetableRunUserSolutionFactory(BaseFactory):
-    """
-    Factory for TimetableRunUserSolutions.
-    We assume the IDs (run_id, user_id) are provided explicitly (Raw style).
-    """
-    id = factory.LazyFunction(uuid.uuid4)
-    
-    # These will be populated by the seeder
-    timetable_run_id = None
-    user_id = None
-
-    class Meta:
-        model = db_models.TimetableRunUserSolutions
+    pass
 
 class TimetableSolutionSlotFactory(BaseFactory):
     """
@@ -356,3 +323,9 @@ class TimetableSolutionSlotFactory(BaseFactory):
 
     class Meta:
         model = db_models.TimetableSolutionSlots
+
+class RawTimetableSolutionSlotFactory(TimetableSolutionSlotFactory):
+    """
+    Alias for consistency.
+    """
+    pass
