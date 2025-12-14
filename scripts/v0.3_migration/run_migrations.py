@@ -123,6 +123,39 @@ def run_migrations_sync():
         else: # This 'else' belongs to the 'for' loop, runs only if the loop completes without 'break'
             print("\nAll migration scripts executed successfully.")
 
+            import subprocess
+
+            # --- V0.3 Addition: Fix Tuition IDs (Deterministic) ---
+            print("\n--- Starting Tuition ID Fix (Deterministic Regeneration) ---")
+            fix_ids_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'fix_tuition_ids.py'
+            try:
+                subprocess.run([sys.executable, str(fix_ids_script)], check=True)
+                print("Tuition IDs Fixed Successfully.")
+            except subprocess.CalledProcessError:
+                print("ERROR: Tuition ID Fix Failed. Aborting.")
+                raise
+
+            # --- V0.3 Addition: Run Timetable Synthesis ---
+            # Now runs after IDs are fixed
+            print("\n--- Starting Timetable Synthesis ---")
+            synthesis_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'synthesize_timetable.py'
+            try:
+                subprocess.run([sys.executable, str(synthesis_script)], check=True)
+                print("Timetable Synthesis Completed Successfully.")
+            except subprocess.CalledProcessError:
+                print("ERROR: Timetable Synthesis Failed. Aborting.")
+                raise
+
+            # --- V0.3 Addition: Update Passwords ---
+            print("\n--- Starting Password Updates ---")
+            pwd_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'update_passwords.py'
+            try:
+                subprocess.run([sys.executable, str(pwd_script)], check=True)
+                print("Passwords Updated Successfully.")
+            except subprocess.CalledProcessError:
+                print("ERROR: Password Update Failed.")
+                raise
+
     engine.dispose()
 
 

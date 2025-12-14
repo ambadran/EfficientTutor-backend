@@ -31,40 +31,39 @@ This script performs a hard reset of the local test database.
 ### Step 2: Migrate to v0.3
 **Script:** `scripts/v0.3_migration/run_migrations.py`
 
-Since the local DB is now in v0.2 format, we must upgrade it. This script:
-1.  Executes SQL scripts located in `src/efficient_tutor_backend/database/sql/`.
-2.  **Schema Updates:** Adds new tables, columns, and constraints.
-3.  **Data Migration:** Transforms existing data to fit the new structure (filling blanks, mapping enums, etc.).
+Since the local DB is now in v0.2 format, we must upgrade it. This script orchestrates the entire upgrade process in a specific order:
 
-### Step 3: Normalize Passwords
-**Script:** `scripts/v0.3_migration/update_passwords.py`
+1.  **SQL Migrations:** Executes SQL scripts located in `src/efficient_tutor_backend/database/sql/`. This updates the schema (tables, columns, constraints) and performs basic data migration.
+2.  **Tuition ID Fix (Deterministic Regeneration):**
+    *   Calls `scripts/v0.3_migration/fix_tuition_ids.py`.
+    *   Rebuilds the `tuitions` table using deterministic UUIDs (based on subject, grade, and participants) to ensure consistency.
+    *   Preserves linkages for existing `tuition_logs`, ensuring they point to the new deterministic IDs.
+3.  **Timetable Synthesis:**
+    *   Calls `scripts/v0.3_migration/synthesize_timetable.py`.
+    *   Populates the empty `timetable` tables with a realistic schedule based on the (now deterministic) tuitions.
+4.  **Normalize Passwords:**
+    *   Calls `scripts/v0.3_migration/update_passwords.py`.
+    *   Updates legacy passwords to the new v0.3 hashing standard.
+    *   Sets generated test passwords for standardized testing access.
 
-The v0.2 database used an incompatible hashing method.
-1.  This script takes known plain-text passwords (collected securely).
-2.  Re-hashes them using the v0.3 compliant method (e.g., `bcrypt`).
-3.  Updates the user records in the local database.
-4.  *Note:* For the test environment, generated users (in Step 4) will have their passwords standardized to the hash of `'testtest'`.
-
----
-
-## 🧬 Data Generation & Seeding
+### Step 3: Data Generation & Seeding
 
 At this stage, the local DB has v0.3 schema and production data, but **pytest will still fail** because the specific UUIDs in `tests/constants.py` (which the tests rely on) might not exist or be in the expected state.
 
 We use a **"Extract -> Merge -> Load"** strategy to solve this.
 
-### Step 4: The Extractor (Generate Test Data)
+#### The Extractor (Generate Test Data)
 **Script:** `scripts/generate_test_data.py`
 
 This script connects to the now-migrated local database and "extracts" the data into Python code files located in `tests/database/data/auto_*.py`.
 
-*   **Function:** Reads rows from tables (Users, Tuitions, Logs, etc.).
+*   **Function:** Reads rows from tables (Users, Tuitions, Logs, Timetables, etc.).
 *   **Anonymization:**
     *   By default, PII (Names, Emails) is replaced with `Faker` data.
     *   **Toggle:** You can disable this using the `--no-anonymize` flag if you need real production data for debugging.
 *   **Passwords:** All extracted users will have their password set to the hash of `'testtest'`.
 
-### Step 5: The Loader (Seed Test DB)
+#### The Loader (Seed Test DB)
 **Script:** `tests/database/seed_test_db.py`
 
 This is the final step that prepares the database for `pytest`.
@@ -72,9 +71,9 @@ This is the final step that prepares the database for `pytest`.
 1.  **Truncate:** Clears all data from the tables to ensure a clean slate.
 2.  **Merge:** It imports data from two sources:
     *   **Manual Data (`tests/database/data/*.py`):** The hand-crafted records matching `tests/constants.py`.
-    *   **Auto Data (`tests/database/data/auto_*.py`):** The massive dataset generated in Step 4.
+    *   **Auto Data (`tests/database/data/auto_*.py`):** The massive dataset generated in the extraction step.
 3.  **Deduplication:** It intelligently merges these lists. If a record in "Auto" has the same ID (or unique constraint) as a record in "Manual", the "Manual" version takes precedence to ensure test stability.
-4.  **Topological Insert:** It inserts records in strict dependency order (Admins -> Teachers -> Students -> Tuitions -> Logs) to satisfy Foreign Key constraints.
+4.  **Topological Insert:** It inserts records in strict dependency order to satisfy Foreign Key constraints.
 
 ---
 
@@ -83,8 +82,9 @@ This is the final step that prepares the database for `pytest`.
 After completing this pipeline, you have a local database that:
 1.  **Passes Tests:** Contains all specific records required by `pytest`.
 2.  **Realistic:** Contains thousands of records from production for frontend development and performance checking.
-3.  **Safe:** PII is anonymized (unless opted out).
-4.  **Accessible:** Passwords are set to `'testtest'`.
+3.  **Consistent:** Tuitions have deterministic IDs and a valid schedule.
+4.  **Safe:** PII is anonymized (unless opted out).
+5.  **Accessible:** Passwords are set to `'testtest'`.
 
 ## 🛠️ Quick Command Reference
 
@@ -97,21 +97,18 @@ All scripts are directory-agnostic and can be run from the project root.
 # Option B: Download fresh dump from production (requires PROD env var)
 ./scripts/reset_test_db.sh --download-recent
 
-# 2. Migrate to v0.3
+# 2. Migrate to v0.3 (Runs SQL, ID Fixes, Timetable Synthesis, and Password Updates)
 uv run scripts/v0.3_migration/run_migrations.py
 (NOTE: If you run this on a database that has been already executed on, it will fail obviously)
 
-# 3. Fix Passwords (Optional but recommended for consistency)
-uv run scripts/v0.3_migration/update_passwords.py
-
-# 4. Generate Data Files (Extract)
+# 3. Generate Data Files (Extract)
 # Note: This overwrites files in tests/database/data/auto_*.py
 # Default (Anonymized):
 uv run scripts/generate_test_data.py --db-url $DATABASE_URL_TEST_CLI
 # Debug Mode (Real Names/Emails):
 uv run scripts/generate_test_data.py --db-url $DATABASE_URL_TEST_CLI --no-anonymize
 
-# 5. Seed (Load)
+# 4. Seed (Load)
 # This truncates the DB and re-inserts the merged (Manual + Auto) data
 uv run tests/database/seed_test_db.py
 ```

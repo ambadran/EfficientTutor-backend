@@ -240,6 +240,24 @@ TABLE_CONFIG = [
         "factory": "TimetableRunFactory",
         "anonymize": {}
     },
+    {
+        "table": "timetable_run_user_solutions",
+        "filename": "auto_timetable.py",
+        "var_name": "AUTO_TIMETABLE_RUN_USER_SOLUTIONS_DATA",
+        "factory": "RawTimetableRunUserSolutionFactory",
+        "anonymize": {
+            "timetable_run_id": lambda x: 9999
+        }
+    },
+    {
+        "table": "timetable_solution_slots",
+        "filename": "auto_timetable.py",
+        "var_name": "AUTO_TIMETABLE_SOLUTION_SLOTS_DATA",
+        "factory": "RawTimetableSolutionSlotFactory",
+        "anonymize": {
+             "name": lambda x: x if not ANONYMIZE_PII else "Anonymized Slot"
+        }
+    },
 ]
 
 def repr_val(val: Any) -> str:
