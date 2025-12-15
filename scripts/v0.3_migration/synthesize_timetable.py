@@ -23,134 +23,101 @@ if str(PROJECT_ROOT) not in sys.path:
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("synthesize_timetable")
 
-# --- Hardcoded Schedule Data ---
+# --- Hardcoded Schedule Data --- 
 SCHEDULE_DATA = [
-  {
-    "name": "Tuition_Ali_Math_1",
-    "category": "Tuition",
-    "start_time": "2025-09-06T15:00:00",
-    "end_time": "2025-09-06T16:30:00"
-  },
-  {
-    "name": "Tuition_Abdullah_Math_1",
-    "category": "Tuition",
-    "start_time": "2025-09-06T16:30:00",
-    "end_time": "2025-09-06T18:00:00"
-  },
-  {
-    "name": "Tuition_Omran_Mila_Physics_1",
-    "category": "Tuition",
-    "start_time": "2025-09-06T18:00:00",
-    "end_time": "2025-09-06T19:30:00"
-  },
-  {
-    "name": "Tuition_Lily_Math_1",
-    "category": "Tuition",
-    "start_time": "2025-09-06T19:30:00",
-    "end_time": "2025-09-06T21:00:00"
-  },
-  {
-    "name": "Tuition_Lily_Physics_1",
-    "category": "Tuition",
-    "start_time": "2025-09-07T16:30:00",
-    "end_time": "2025-09-07T18:00:00"
-  },
-  {
-    "name": "Tuition_Yassin_Math_1",
-    "category": "Tuition",
-    "start_time": "2025-09-07T18:00:00",
-    "end_time": "2025-09-07T19:30:00"
-  },
-  {
-    "name": "Tuition_Abdullah_Biology_1",
-    "category": "Tuition",
-    "start_time": "2025-09-07T19:30:00",
-    "end_time": "2025-09-07T21:00:00"
-  },
-  {
-    "name": "Tuition_Adham_Chemistry_1",
-    "category": "Tuition",
-    "start_time": "2025-09-08T16:30:00",
-    "end_time": "2025-09-08T18:00:00"
-  },
-  {
-    "name": "Tuition_Ali_Physics_1",
-    "category": "Tuition",
-    "start_time": "2025-09-08T18:00:00",
-    "end_time": "2025-09-08T19:30:00"
-  },
-  {
-    "name": "Tuition_Omran_Mila_Physics_2",
-    "category": "Tuition",
-    "start_time": "2025-09-08T19:30:00",
-    "end_time": "2025-09-08T21:00:00"
-  },
-  {
-    "name": "Tuition_Abdullah_Chemistry_1",
-    "category": "Tuition",
-    "start_time": "2025-09-09T16:00:00",
-    "end_time": "2025-09-09T17:30:00"
-  },
-  {
-    "name": "Tuition_Jacob_Math_1",
-    "category": "Tuition",
-    "start_time": "2025-09-09T17:30:00",
-    "end_time": "2025-09-09T19:00:00"
-  },
-  {
-    "name": "Tuition_Lily_Math_2",
-    "category": "Tuition",
-    "start_time": "2025-09-09T19:00:00",
-    "end_time": "2025-09-09T20:30:00"
-  },
-  {
-    "name": "Tuition_Yassin_Chemistry_1",
-    "category": "Tuition",
-    "start_time": "2025-09-09T20:30:00",
-    "end_time": "2025-09-09T22:00:00"
-  },
-  {
-    "name": "Tuition_Adham_Physics_1",
-    "category": "Tuition",
-    "start_time": "2025-09-10T16:30:00",
-    "end_time": "2025-09-10T18:00:00"
-  },
-  {
-    "name": "Tuition_Ali_Chemistry_1",
-    "category": "Tuition",
-    "start_time": "2025-09-10T18:00:00",
-    "end_time": "2025-09-10T19:30:00"
-  },
-  {
-    "name": "Tuition_Omran_Mila_Chemistry_1",
-    "category": "Tuition",
-    "start_time": "2025-09-10T19:30:00",
-    "end_time": "2025-09-10T21:00:00"
-  },
-  {
-    "name": "Tuition_Jacob_Physics_1",
-    "category": "Tuition",
-    "start_time": "2025-09-11T15:30:00",
-    "end_time": "2025-09-11T17:00:00"
-  },
-  {
-    "name": "Tuition_Yassin_Physics_1",
-    "category": "Tuition",
-    "start_time": "2025-09-11T17:30:00",
-    "end_time": "2025-09-11T19:00:00"
-  },
-  {
-    "name": "Tuition_Lily_Physics_2",
-    "category": "Tuition",
-    "start_time": "2025-09-11T19:00:00",
-    "end_time": "2025-09-11T20:30:00"
-  },
-  {
-    "name": "Tuition_Abdullah_Physics_1",
-    "category": "Tuition",
-    "start_time": "2025-09-11T20:30:00",
-    "end_time": "2025-09-11T22:00:00"
-  }
+ {"name": "Tuition_Lily_Math_1",
+  "category": "Tuition",
+  "start_time": "2025-11-08T12:30:00",
+  "end_time": "2025-11-08T14:00:00"},
+ {"name": "Tuition_Omran_IT_1",
+  "category": "Tuition",
+  "start_time": "2025-11-08T14:00:00",
+  "end_time": "2025-11-08T15:30:00"},
+ {"name": "Tuition_Ali_Math_1",
+  "category": "Tuition",
+  "start_time": "2025-11-08T15:30:00",
+  "end_time": "2025-11-08T17:00:00"},
+ {"name": "Tuition_Abdullah_Math_1",
+  "category": "Tuition",
+  "start_time": "2025-11-08T17:00:00",
+  "end_time": "2025-11-08T18:30:00"},
+ {"name": "Tuition_Omran_Mila_Math_1",
+  "category": "Tuition",
+  "start_time": "2025-11-08T18:30:00",
+  "end_time": "2025-11-08T20:00:00"},
+
+ {"name": "Tuition_Abdullah_Biology_1",
+  "category": "Tuition",
+  "start_time": "2025-11-09T15:00:00",
+  "end_time": "2025-11-09T16:30:00"},
+ {"name": "Tuition_Adham_Chemistry_1",
+  "category": "Tuition",
+  "start_time": "2025-11-09T16:30:00",
+  "end_time": "2025-11-09T18:00:00"},
+ {"name": "Tuition_Yassin_Math_1",
+  "category": "Tuition",
+  "start_time": "2025-11-09T18:00:00",
+  "end_time": "2025-11-09T19:30:00"},
+ {"name": "Tuition_Lily_Physics_1",
+  "category": "Tuition",
+  "start_time": "2025-11-09T19:30:00",
+  "end_time": "2025-11-09T21:00:00"},
+
+ {"name": "Tuition_Yassin_Physics_1",
+  "category": "Tuition",
+  "start_time": "2025-11-10T15:30:00",
+  "end_time": "2025-11-10T17:00:00"},
+ {"name": "Tuition_Ali_Physics_1",
+  "category": "Tuition",
+  "start_time": "2025-11-10T17:00:00",
+  "end_time": "2025-11-10T18:30:00"},
+ {"name": "Tuition_Omran_Mila_Physics_1",
+  "category": "Tuition",
+  "start_time": "2025-11-10T18:30:00",
+  "end_time": "2025-11-10T20:00:00"},
+ {"name": "Tuition_Abdullah_Physics_1",
+  "category": "Tuition",
+  "start_time": "2025-11-10T19:30:00",
+  "end_time": "2025-11-10T21:00:00"},
+
+ {"name": "Tuition_Abdullah_Chemistry_1",
+  "category": "Tuition",
+  "start_time": "2025-11-11T15:00:00",
+  "end_time": "2025-11-11T16:30:00"},
+ {"name": "Tuition_Jacob_Math_1",
+  "category": "Tuition",
+  "start_time": "2025-11-11T16:30:00",
+  "end_time": "2025-11-11T18:00:00"},
+ {"name": "Tuition_Lily_Math_2",
+  "category": "Tuition",
+  "start_time": "2025-11-11T18:00:00",
+  "end_time": "2025-11-11T19:30:00"},
+ {"name": "Tuition_Yassin_Chemistry_1",
+  "category": "Tuition",
+  "start_time": "2025-11-11T19:30:00",
+  "end_time": "2025-11-11T21:00:00"},
+
+ {"name": "Tuition_Adham_Physics_1",
+  "category": "Tuition",
+  "start_time": "2025-11-12T15:30:00",
+  "end_time": "2025-11-12T17:00:00"},
+ {"name": "Tuition_Ali_Chemistry_1",
+  "category": "Tuition",
+  "start_time": "2025-11-12T17:00:00",
+  "end_time": "2025-11-12T18:30:00"},
+ {"name": "Tuition_Omran_Mila_Chemistry_1",
+  "category": "Tuition",
+  "start_time": "2025-11-12T18:30:00",
+  "end_time": "2025-11-12T20:00:00"},
+
+ {"name": "Tuition_Jacob_Physics_1",
+  "category": "Tuition",
+  "start_time": "2025-11-13T14:15:00",
+  "end_time": "2025-11-13T15:45:00"},
+ {"name": "Tuition_Lily_Physics_2",
+  "category": "Tuition",
+  "start_time": "2025-11-13T18:00:00",
+  "end_time": "2025-11-13T19:30:00"}
 ]
 
 
