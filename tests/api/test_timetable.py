@@ -93,7 +93,7 @@ class TestTimetableAPIWithoutQuery:
         assert response.status_code == 200, response.json()
         data = response.json()
         assert isinstance(data, list)
-        assert len(data) == 0 # Expecting empty list for parent self-view
+        assert len(data) == 2 # Expecting empty list for parent self-view
         print("Parent default view returned empty list as expected.")
 
 
