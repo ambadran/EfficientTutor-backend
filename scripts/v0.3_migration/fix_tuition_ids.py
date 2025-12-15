@@ -3,12 +3,13 @@
 
 This script:
 1. Preserves the linkage between existing Tuition Logs and their Tuitions.
-2. Calls the TuitionService.regenerate_all_tuitions() method.
+2. Preserves the linkage between existing Meeting Links and their Tuitions.
+3. Calls the TuitionService.regenerate_all_tuitions() method.
    - This method wipes the current 'tuitions' table.
    - It rebuilds it based on 'student_subjects' and 'student_subject_sharings'.
    - It generates DETERMINISTIC UUIDs for the new tuitions.
-3. Restores the linkage for Tuition Logs by calculating the matching Deterministic ID
-   for the preserved attributes.
+4. Restores the linkage for Tuition Logs AND Meeting Links by calculating the 
+   matching Deterministic ID for the preserved attributes.
 """
 
 import asyncio
@@ -19,7 +20,7 @@ from pathlib import Path
 from uuid import UUID
 from typing import List, Dict, Any, Tuple
 
-from sqlalchemy import select, text, update
+from sqlalchemy import select, text, update, insert
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
@@ -75,19 +76,11 @@ async def main():
 
     async with AsyncSessionLocal() as session:
         # We need to construct the services manually (dependency injection doesn't work here)
-        # UserService is needed by TuitionService init, though strictly not used by regenerate_all_tuitions
         user_svc = UserService(session) 
         tuition_svc = TuitionService(session, user_svc)
 
-        print("--- Step 1: Preserving Tuition Log Linkages ---")
-        # We need to capture enough info from the OLD tuition to calculate the NEW deterministic ID.
-        # The key factors are: Subject, Ed System, Grade, Lesson Index, Teacher, and Student Group.
-        
-        # Fetch logs that have a tuition_id
-        # Join Tuitions to get the attributes
-        # Join TuitionTemplateCharges -> Students to get the student group
-        
-        # 1. Get all logs with a tuition_id
+        # --- Step 1: Preserve Logs ---
+        print("--- Step 1: Preserving Tuition Log Attributes ---")
         logs_stmt = text("""
             SELECT 
                 tl.id as log_id,
@@ -103,26 +96,48 @@ async def main():
             WHERE tl.tuition_id IS NOT NULL
             GROUP BY tl.id, t.subject, t.educational_system, t.grade, t.lesson_index, t.teacher_id
         """)
-        
-        result = await session.execute(logs_stmt)
-        preserved_logs = result.mappings().all()
+        result_logs = await session.execute(logs_stmt)
+        preserved_logs = result_logs.mappings().all()
         print(f"Preserved attributes for {len(preserved_logs)} logs.")
 
-        print("--- Step 2: Regenerating Tuitions (Deterministic IDs) ---")
-        # This will wipe 'tuitions' and rebuild from 'student_subjects'
+        # --- Step 2: Preserve Meeting Links ---
+        print("--- Step 2: Preserving Meeting Link Attributes ---")
+        links_stmt = text("""
+            SELECT 
+                ml.tuition_id as original_tuition_id,
+                ml.meeting_link_type,
+                ml.meeting_link,
+                ml.meeting_id,
+                ml.meeting_password,
+                t.subject,
+                t.educational_system,
+                t.grade,
+                t.lesson_index,
+                t.teacher_id,
+                array_agg(ttc.student_id) as student_ids
+            FROM meeting_links ml
+            JOIN tuitions t ON ml.tuition_id = t.id
+            JOIN tuition_template_charges ttc ON t.id = ttc.tuition_id
+            GROUP BY ml.tuition_id, ml.meeting_link_type, ml.meeting_link, ml.meeting_id, ml.meeting_password,
+                     t.subject, t.educational_system, t.grade, t.lesson_index, t.teacher_id
+        """)
+        result_links = await session.execute(links_stmt)
+        preserved_links = result_links.mappings().all()
+        print(f"Preserved attributes for {len(preserved_links)} meeting links.")
+
+        # --- Step 3: Regenerate Tuitions ---
+        print("--- Step 3: Regenerating Tuitions (Deterministic IDs) ---")
+        # This wipes 'tuitions' (orphaning logs, deleting links) and rebuilds from 'student_subjects'
         success = await tuition_svc.regenerate_all_tuitions()
         if not success:
             print("Regeneration failed or returned False.")
             return
         
-        # At this point, old tuitions are gone. Logs have tuition_id = NULL (due to ON DELETE SET NULL).
-        # We must re-link them.
-
-        print("--- Step 3: Restoring Log Linkages ---")
-        restored_count = 0
+        # --- Step 4: Restore Log Linkages ---
+        print("--- Step 4: Restoring Log Linkages ---")
+        restored_logs_count = 0
         
         for p_log in preserved_logs:
-            # Calculate what the NEW ID should be for these attributes
             new_id = generate_deterministic_id(
                 subject=p_log['subject'],
                 educational_system=p_log['educational_system'],
@@ -132,24 +147,55 @@ async def main():
                 student_ids=p_log['student_ids']
             )
             
-            # Update the log
-            # We assume the regeneration created this ID. If not (e.g. data mismatch), 
-            # the update might point to a non-existent ID (IntegrityError) OR we check first.
-            # To be safe, we just try to update. If FK fails, it means regeneration 
-            # didn't produce a tuition for this group (which implies data inconsistency).
-            
             try:
                 await session.execute(
                     update(db_models.TuitionLogs)
                     .where(db_models.TuitionLogs.id == p_log['log_id'])
                     .values(tuition_id=new_id)
                 )
-                restored_count += 1
+                restored_logs_count += 1
             except Exception as e:
                 print(f"Failed to relink Log {p_log['log_id']} to Tuition {new_id}: {e}")
 
+        # --- Step 5: Restore Meeting Links ---
+        print("--- Step 5: Restoring Meeting Links ---")
+        restored_links_count = 0
+
+        for p_link in preserved_links:
+            new_id = generate_deterministic_id(
+                subject=p_link['subject'],
+                educational_system=p_link['educational_system'],
+                grade=p_link['grade'],
+                lesson_index=p_link['lesson_index'],
+                teacher_id=p_link['teacher_id'],
+                student_ids=p_link['student_ids']
+            )
+
+            # MeetingLinks were deleted by cascade when Tuitions were wiped.
+            # We must INSERT new records.
+            try:
+                # Using ORM or Core Insert
+                # Since meeting_links table has a simple structure, core insert is fine.
+                # However, db_models.MeetingLinks might be safer if we use model logic.
+                # Let's use core insert to avoid fetching the tuition object first.
+                
+                await session.execute(
+                    insert(db_models.MeetingLinks).values(
+                        tuition_id=new_id,
+                        meeting_link_type=p_link['meeting_link_type'],
+                        meeting_link=p_link['meeting_link'],
+                        meeting_id=p_link['meeting_id'],
+                        meeting_password=p_link['meeting_password']
+                    )
+                )
+                restored_links_count += 1
+            except Exception as e:
+                # This could fail if the new tuition doesn't exist (regeneration mismatch)
+                print(f"Failed to restore link for Tuition {new_id}: {e}")
+
         await session.commit()
-        print(f"Successfully relinked {restored_count} logs.")
+        print(f"Successfully relinked {restored_logs_count} logs.")
+        print(f"Successfully restored {restored_links_count} meeting links.")
 
     await engine.dispose()
     print("Tuition ID Fix Complete.")

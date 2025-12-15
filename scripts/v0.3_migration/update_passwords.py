@@ -46,8 +46,8 @@ PASSWORDS_TO_UPDATE = {
     "Manal": "New@2025",
     "Enas": "mumzy31*",
     "Ayman": "Yoyoyo.55",
-    "Yasmine": "Yasmine @1977",
-    "Reem": "Reemhany @1985",
+    "Yasmine": "Yasmine@1977",
+    "Reem": "Reemhany@1985",
     "AbdulRahman": "etsuperuser",
 }
 

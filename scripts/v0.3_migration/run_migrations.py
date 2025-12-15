@@ -3,10 +3,14 @@
 
 This script connects to the database and executes the raw SQL from each
 migration file located in the `src/efficient_tutor_backend/database/sql/` directory.
+
+Usage:
+    python scripts/v0.3_migration/run_migrations.py [--sql-only]
 """
 
 import sys
 import os
+import argparse
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
@@ -63,7 +67,7 @@ def load_env():
                 # Basic quote removal
                 if (value.startswith('"') and value.endswith('"')) or \
                    (value.startswith("'") and value.endswith("'")):
-                    value = value[1:-1]
+                       value = value[1:-1]
                 
                 # Only set if not already in environment (respect shell overrides)
                 if key not in os.environ:
@@ -72,7 +76,12 @@ def load_env():
 def run_migrations_sync():
     """
     Connects to the database and executes all SQL migration scripts in order.
+    Optionally runs Python-based post-migration scripts.
     """
+    parser = argparse.ArgumentParser(description="Run v0.3 database migrations.")
+    parser.add_argument("--sql-only", action="store_true", help="Run only the SQL migrations, skipping Python post-processing scripts.")
+    args = parser.parse_args()
+
     load_env() # Ensure env vars are loaded
     
     db_url = os.getenv("DATABASE_URL_TEST_CLI")
@@ -123,38 +132,41 @@ def run_migrations_sync():
         else: # This 'else' belongs to the 'for' loop, runs only if the loop completes without 'break'
             print("\nAll migration scripts executed successfully.")
 
-            import subprocess
+            if args.sql_only:
+                print("Skipping Python post-processing scripts (--sql-only flag used).")
+            else:
+                import subprocess
 
-            # --- V0.3 Addition: Fix Tuition IDs (Deterministic) ---
-            print("\n--- Starting Tuition ID Fix (Deterministic Regeneration) ---")
-            fix_ids_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'fix_tuition_ids.py'
-            try:
-                subprocess.run([sys.executable, str(fix_ids_script)], check=True)
-                print("Tuition IDs Fixed Successfully.")
-            except subprocess.CalledProcessError:
-                print("ERROR: Tuition ID Fix Failed. Aborting.")
-                raise
+                # --- V0.3 Addition: Fix Tuition IDs (Deterministic) ---
+                print("\n--- Starting Tuition ID Fix (Deterministic Regeneration) ---")
+                fix_ids_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'fix_tuition_ids.py'
+                try:
+                    subprocess.run([sys.executable, str(fix_ids_script)], check=True)
+                    print("Tuition IDs Fixed Successfully.")
+                except subprocess.CalledProcessError:
+                    print("ERROR: Tuition ID Fix Failed. Aborting.")
+                    raise
 
-            # --- V0.3 Addition: Run Timetable Synthesis ---
-            # Now runs after IDs are fixed
-            print("\n--- Starting Timetable Synthesis ---")
-            synthesis_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'synthesize_timetable.py'
-            try:
-                subprocess.run([sys.executable, str(synthesis_script)], check=True)
-                print("Timetable Synthesis Completed Successfully.")
-            except subprocess.CalledProcessError:
-                print("ERROR: Timetable Synthesis Failed. Aborting.")
-                raise
+                # --- V0.3 Addition: Run Timetable Synthesis ---
+                # Now runs after IDs are fixed
+                print("\n--- Starting Timetable Synthesis ---")
+                synthesis_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'synthesize_timetable.py'
+                try:
+                    subprocess.run([sys.executable, str(synthesis_script)], check=True)
+                    print("Timetable Synthesis Completed Successfully.")
+                except subprocess.CalledProcessError:
+                    print("ERROR: Timetable Synthesis Failed. Aborting.")
+                    raise
 
-            # --- V0.3 Addition: Update Passwords ---
-            print("\n--- Starting Password Updates ---")
-            pwd_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'update_passwords.py'
-            try:
-                subprocess.run([sys.executable, str(pwd_script)], check=True)
-                print("Passwords Updated Successfully.")
-            except subprocess.CalledProcessError:
-                print("ERROR: Password Update Failed.")
-                raise
+                # --- V0.3 Addition: Update Passwords ---
+                print("\n--- Starting Password Updates ---")
+                pwd_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'update_passwords.py'
+                try:
+                    subprocess.run([sys.executable, str(pwd_script)], check=True)
+                    print("Passwords Updated Successfully.")
+                except subprocess.CalledProcessError:
+                    print("ERROR: Password Update Failed.")
+                    raise
 
     engine.dispose()
 

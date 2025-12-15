@@ -46,6 +46,9 @@ Since the local DB is now in v0.2 format, we must upgrade it. This script orches
     *   Updates legacy passwords to the new v0.3 hashing standard.
     *   Sets generated test passwords for standardized testing access.
 
+**Flags:**
+*   `--sql-only`: If provided, the script will ONLY run the SQL migration files (Step 1) and skip the Python-based post-processing steps (ID fix, Timetable, Passwords). Useful for debugging SQL issues.
+
 ### Step 3: Data Generation & Seeding
 
 At this stage, the local DB has v0.3 schema and production data, but **pytest will still fail** because the specific UUIDs in `tests/constants.py` (which the tests rely on) might not exist or be in the expected state.
@@ -99,7 +102,20 @@ All scripts are directory-agnostic and can be run from the project root.
 
 # 2. Migrate to v0.3 (Runs SQL, ID Fixes, Timetable Synthesis, and Password Updates)
 uv run scripts/v0.3_migration/run_migrations.py
-(NOTE: If you run this on a database that has been already executed on, it will fail obviously)
+
+# --- Optional Granular Migration Commands ---
+# 2a. Run ONLY SQL migrations (skips python scripts)
+uv run scripts/v0.3_migration/run_migrations.py --sql-only
+
+# 2b. Run ONLY Tuition ID Fix (Requires Step 2a complete)
+python scripts/v0.3_migration/fix_tuition_ids.py
+
+# 2c. Run ONLY Timetable Synthesis (Requires Step 2b complete)
+python scripts/v0.3_migration/synthesize_timetable.py
+
+# 2d. Run ONLY Password Updates (Can be run anytime after Step 2a)
+python scripts/v0.3_migration/update_passwords.py
+# --------------------------------------------
 
 # 3. Generate Data Files (Extract)
 # Note: This overwrites files in tests/database/data/auto_*.py

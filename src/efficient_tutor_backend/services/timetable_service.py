@@ -64,12 +64,6 @@ class TimeTableService:
 
         elif current_user.role == UserRole.PARENT.value:
             # Parent can ONLY view their OWN students
-            # Ensure 'students' relationship is loaded on current_user
-            if not isinstance(current_user, db_models.Parents):
-                 # Force reload as Parent if needed, though get_user_by_id typically handles polymorphism
-                 # but for safety let's assume 'students' attribute exists or check via ID
-                 pass
-            
             # Using the relationship loaded by UserService
             # (UserService.get_user_by_id eager loads students for Parents)
             my_student_ids = [s.id for s in getattr(current_user, 'students', [])]
@@ -91,12 +85,11 @@ class TimeTableService:
         
         # Admin or others?
         if current_user.role == UserRole.ADMIN.value:
-             # Admins can view anyone theoretically, but let's restrict to Student/Teacher for now
-             # based on requirements "Teachers can view Student", "Parent can view Student".
              # Assuming Admin can view all for debugging.
              return target_user
 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized.")
+
 
     # --- Date/Time Helper ---
 
@@ -110,7 +103,6 @@ class TimeTableService:
         """
         Calculates the next occurrence of a slot relative to the user's timezone.
         db.day_of_week: 1 (Mon) to 7 (Sun).
-        Python weekday: 0 (Mon) to 6 (Sun).
         """
         try:
             tz = ZoneInfo(user_timezone)
@@ -126,16 +118,6 @@ class TimeTableService:
         
         # Calculate days ahead
         days_ahead = (target_idx - today_idx + 7) % 7
-        
-        # If it's today, we need to check if the time has passed. 
-        # For simplicity in a timetable view, we usually just show "This Week's" occurrence.
-        # If today is Monday and the slot is Monday 8am, and it's currently Monday 9am,
-        # usually we still show today's date (as it is the current week's slot), 
-        # or we could show next week's.
-        # Let's stick to "Upcoming or Today" logic:
-        # If days_ahead is 0 (today) and end_time < now.time(), maybe move to next week?
-        # A static timetable view usually wants the *current week's* instance representation.
-        # Let's just find the date for the "current/next" day_of_week instance.
         
         target_date = now.date() + timedelta(days=days_ahead)
         
@@ -155,22 +137,40 @@ class TimeTableService:
             return days[day_of_week - 1]
         raise ValueError("day_of_week must be between 1 and 7")
 
+
     # --- Main API Method ---
 
     async def get_timetable_for_api(
-        self, 
-        current_user: db_models.Users, 
+        self,
+        current_user: db_models.Users,
         target_user_id: Optional[UUID] = None
     ) -> list[timetable_models.TimeTableSlot]:
         """
-        Fetches the latest timetable solution for the target user (or self).
-        Applies masking based on the relationship between current_user and target_user.
+        Fetches the latest timetable solution.
+        - If Parent and target_user_id is None: Fetches for ALL their students.
+        - Otherwise: Fetches for the specific target (or self).
+        Applies masking based on the relationship between current_user and solution owner.
         """
-        # 1. Determine Target and Authorize
-        actual_target_id = target_user_id if target_user_id else current_user.id
-        target_user = await self._authorize_view_access(current_user, actual_target_id)
         
-        log.info(f"User {current_user.id} fetching timetable for {target_user.id} (Role: {target_user.role})")
+        target_user_ids = []
+
+        # 1. Determine Target Users
+        if current_user.role == UserRole.PARENT.value and target_user_id is None:
+            # Case: Parent viewing "All"
+            log.info(f"Parent {current_user.id} fetching timetable for ALL students.")
+            # UserService loads 'students' for Parents eagerly.
+            students = getattr(current_user, 'students', [])
+            target_user_ids = [s.id for s in students]
+            
+            if not target_user_ids:
+                return [] # No students found
+        else:
+            # Case: Single Target (Self or Specific Other)
+            actual_target_id = target_user_id if target_user_id else current_user.id
+            # Authorize this specific relationship
+            await self._authorize_view_access(current_user, actual_target_id)
+            target_user_ids = [actual_target_id]
+            log.info(f"User {current_user.id} fetching timetable for single target {actual_target_id}")
 
         # 2. Fetch Latest Successful Run
         run_stmt = select(db_models.TimetableRuns.id).filter(
@@ -187,94 +187,101 @@ class TimeTableService:
             log.warning("No successful timetable runs found.")
             return []
 
-        # 3. Fetch User Solution & Slots
+        # 3. Fetch Solutions for ALL target IDs
         solution_stmt = select(db_models.TimetableRunUserSolutions).options(
             selectinload(db_models.TimetableRunUserSolutions.timetable_solution_slots)
         ).filter(
             db_models.TimetableRunUserSolutions.timetable_run_id == run_id,
-            db_models.TimetableRunUserSolutions.user_id == target_user.id
+            db_models.TimetableRunUserSolutions.user_id.in_(target_user_ids)
         )
         
         sol_result = await self.db.execute(solution_stmt)
-        user_solution = sol_result.scalars().first()
+        solutions = sol_result.scalars().all()
         
-        if not user_solution:
-            log.info(f"No timetable solution found for user {target_user.id} in run {run_id}.")
+        if not solutions:
+            log.info(f"No timetable solutions found for targets {target_user_ids} in run {run_id}.")
             return []
 
         # 4. Process Slots
         api_slots = []
         
-        # Determine if we are in "Parent Proxy" mode
-        # (Viewer is Parent, Target is Child -> Parent sees everything Child sees)
-        is_parent_proxy = (
-            current_user.role == UserRole.PARENT.value and 
-            target_user.role == UserRole.STUDENT.value and 
-            target_user.parent_id == current_user.id # Assuming relationship validation passed in authorize
-        )
+        # We need to know current_user's children IDs to determine "Parent Proxy" visibility
+        my_student_ids = []
+        if current_user.role == UserRole.PARENT.value:
+            my_student_ids = [s.id for s in getattr(current_user, 'students', [])]
 
-        for slot_orm in user_solution.timetable_solution_slots:
+        for user_solution in solutions:
+            # The owner of this specific schedule (e.g., one of the students)
+            solution_owner_id = user_solution.user_id
             
-            # --- VISIBILITY CHECK ---
-            is_visible = False
-            
-            # Scenario A: Viewer is a direct participant
-            if current_user.id in slot_orm.participant_ids:
-                is_visible = True
-            
-            # Scenario B: Parent Proxy (Viewer is Parent of the Student who is a participant)
-            # Since this is the *Student's* solution, the Student IS a participant in their own slots.
-            # So checking if target_user.id is in participant_ids is redundant but safe.
-            elif is_parent_proxy:
-                 is_visible = True
-            
-            # Scenario C: Self View
-            elif current_user.id == target_user.id:
-                is_visible = True
-
-            # --- MASKING LOGIC ---
-            if is_visible:
-                slot_name = slot_orm.name
-                
-                # Determine Type
-                if slot_orm.tuition_id:
-                    s_type = timetable_models.TimeTableSlotType.TUITION
-                    obj_uuid = slot_orm.tuition_id
-                elif slot_orm.availability_interval_id:
-                    s_type = timetable_models.TimeTableSlotType.AVAILABILITY
-                    obj_uuid = slot_orm.availability_interval_id
-                else:
-                    s_type = timetable_models.TimeTableSlotType.OTHER
-                    obj_uuid = None
-            else:
-                # MASKED
-                slot_name = "Others"
-                s_type = timetable_models.TimeTableSlotType.OTHER
-                obj_uuid = None
-
-            # --- DATE CALCULATION ---
-            # Use the viewer's timezone for display
-            start_dt, end_dt = self._calculate_next_occurrence(
-                day_of_week=slot_orm.day_of_week,
-                start_time=slot_orm.start_time,
-                end_time=slot_orm.end_time,
-                user_timezone=current_user.timezone
+            # Determine Proxy Access for THIS solution
+            # Parent is viewing a child's schedule -> Full Access
+            is_parent_proxy = (
+                current_user.role == UserRole.PARENT.value and
+                solution_owner_id in my_student_ids
             )
 
-            api_slots.append(timetable_models.TimeTableSlot(
-                id=slot_orm.id,
-                name=slot_name,
-                slot_type=s_type,
-                day_of_week=slot_orm.day_of_week,
-                day_name=self._get_day_name(slot_orm.day_of_week),
-                start_time=slot_orm.start_time,
-                end_time=slot_orm.end_time,
-                object_uuid=obj_uuid,
-                next_occurrence_start=start_dt,
-                next_occurrence_end=end_dt
-            ))
+            for slot_orm in user_solution.timetable_solution_slots:
+                
+                # --- VISIBILITY CHECK ---
+                is_visible = False
+                
+                # Scenario A: Viewer is a direct participant
+                if current_user.id in slot_orm.participant_ids:
+                    is_visible = True
+                
+                # Scenario B: Parent Proxy (Viewer is Parent of the Student who owns this slot)
+                elif is_parent_proxy:
+                     is_visible = True
+                
+                # Scenario C: Self View
+                elif current_user.id == solution_owner_id:
+                    is_visible = True
+
+                # --- MASKING LOGIC ---
+                if is_visible:
+                    slot_name = slot_orm.name
+                    
+                    # Determine Type
+                    if slot_orm.tuition_id:
+                        s_type = timetable_models.TimeTableSlotType.TUITION
+                        obj_uuid = slot_orm.tuition_id
+                    elif slot_orm.availability_interval_id:
+                        s_type = timetable_models.TimeTableSlotType.AVAILABILITY
+                        obj_uuid = slot_orm.availability_interval_id
+                    else:
+                        s_type = timetable_models.TimeTableSlotType.OTHER
+                        obj_uuid = None
+                else:
+                    # MASKED
+                    slot_name = "Others"
+                    s_type = timetable_models.TimeTableSlotType.OTHER
+                    obj_uuid = None
+
+                # --- DATE CALCULATION ---
+                # Use the viewer's timezone for display
+                start_dt, end_dt = self._calculate_next_occurrence(
+                    day_of_week=slot_orm.day_of_week,
+                    start_time=slot_orm.start_time,
+                    end_time=slot_orm.end_time,
+                    user_timezone=current_user.timezone
+                )
+
+                api_slots.append(timetable_models.TimeTableSlot(
+                    id=slot_orm.id,
+                    name=slot_name,
+                    slot_type=s_type,
+                    day_of_week=slot_orm.day_of_week,
+                    day_name=self._get_day_name(slot_orm.day_of_week),
+                    start_time=slot_orm.start_time,
+                    end_time=slot_orm.end_time,
+                    object_uuid=obj_uuid,
+                    next_occurrence_start=start_dt,
+                    next_occurrence_end=end_dt
+                ))
 
         # Sort by day and time for convenience
         api_slots.sort(key=lambda x: (x.day_of_week, x.start_time))
         
         return api_slots
+
