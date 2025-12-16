@@ -269,6 +269,7 @@ class TimeTableService:
 
                 api_slots.append(timetable_models.TimeTableSlot(
                     id=slot_orm.id,
+                    user_id=solution_owner_id, # Added field
                     name=slot_name,
                     slot_type=s_type,
                     day_of_week=slot_orm.day_of_week,
@@ -279,7 +280,6 @@ class TimeTableService:
                     next_occurrence_start=start_dt,
                     next_occurrence_end=end_dt
                 ))
-
         # Sort by day and time for convenience
         api_slots.sort(key=lambda x: (x.day_of_week, x.start_time))
         
