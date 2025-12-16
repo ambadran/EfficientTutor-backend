@@ -19,6 +19,7 @@ class TimeTableSlot(BaseModel):
     """
     # Absolute Data (From DB)
     id: UUID
+    user_id: UUID = Field(..., description="The ID of the user this slot belongs to (e.g. the student).")
     name: str
     slot_type: TimeTableSlotType
     day_of_week: int = Field(..., description="1=Monday, 7=Sunday")

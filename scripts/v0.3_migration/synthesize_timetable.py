@@ -347,7 +347,7 @@ async def main():
                         )
                     """), {
                         "sol_id": user_solution_map[teacher_id],
-                        "name": f"Tuition: {item['subject'].capitalize()}",
+                        "name": f"Tuition: {item['subject'].capitalize()} ({', '.join(sorted(item['names'])).title()})",
                         "dow": dow,
                         "start": start,
                         "end": end,
@@ -365,15 +365,14 @@ async def main():
                                 :sol_id, :name, :dow, :start, :end, :tid, :pids
                             )
                         """), {
-                            "sol_id": user_solution_map[sid],
-                            "name": f"Tuition: {item['subject'].capitalize()}",
-                            "dow": dow,
-                            "start": start,
-                            "end": end,
-                            "tid": tuition_id,
-                            "pids": [teacher_id] if teacher_id else [] # Store teacher ID as participant for student
-                        })
-
+                                                    "sol_id": user_solution_map[sid],
+                                                    "name": f"Tuition: {item['subject'].capitalize()} ({', '.join(sorted(item['names'])).title()})",
+                                                    "dow": dow,
+                                                    "start": start,
+                                                    "end": end,
+                                                    "tid": tuition_id,
+                                                    "pids": [teacher_id] if teacher_id else [] # Store teacher ID as participant for student
+                                                })
     logger.info("Timetable Synthesis Complete.")
     await engine.dispose()
 

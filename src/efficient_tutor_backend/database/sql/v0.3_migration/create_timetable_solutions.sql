@@ -49,3 +49,6 @@ CREATE INDEX idx_timetable_solution_slots_solution_id ON timetable_solution_slot
 -- Phase 3: Rename the old solution_data column
 ALTER TABLE timetable_runs
 RENAME COLUMN solution_data TO legacy_solution_data;
+
+-- sth I forgot to add
+UPDATE parents set currency = 'kwd'
