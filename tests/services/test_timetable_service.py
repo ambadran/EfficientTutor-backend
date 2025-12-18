@@ -111,6 +111,7 @@ class TestTimeTableService:
         assert math_slot.name == "Math Session"
         assert math_slot.slot_type == timetable_models.TimeTableSlotType.TUITION
         assert math_slot.object_uuid == TEST_TUITION_ID
+        assert math_slot.user_id == test_student_orm.id # Check user_id
 
         # Verify Physics Slot
         physics_slot = next((s for s in slots if s.id == TEST_SLOT_ID_STUDENT_PHYSICS), None)
@@ -118,6 +119,7 @@ class TestTimeTableService:
         assert physics_slot.name == "Physics Session"
         assert physics_slot.slot_type == timetable_models.TimeTableSlotType.TUITION
         assert physics_slot.object_uuid == TEST_TUITION_ID_NO_LINK
+        assert physics_slot.user_id == test_student_orm.id # Check user_id
 
     async def test_get_timetable_for_teacher_viewing_self(
         self,
@@ -144,6 +146,7 @@ class TestTimeTableService:
         assert avail_slot.name == "Work"
         assert avail_slot.slot_type == timetable_models.TimeTableSlotType.AVAILABILITY
         assert avail_slot.object_uuid == TEST_AVAILABILITY_INTERVAL_ID_TEACHER
+        assert avail_slot.user_id == test_teacher_orm.id # Check user_id
 
     async def test_get_timetable_for_teacher_viewing_student(
         self,
@@ -167,6 +170,7 @@ class TestTimeTableService:
         math_slot = next((s for s in slots if s.id == TEST_SLOT_ID_STUDENT_MATH), None)
         assert math_slot.name == "Math Session" # Unmasked
         assert math_slot.object_uuid == TEST_TUITION_ID
+        assert math_slot.user_id == test_student_orm.id # Slot belongs to the target (Student)
 
     async def test_get_timetable_masking_for_unrelated_teacher(
         self,
@@ -191,6 +195,7 @@ class TestTimeTableService:
             assert slot.name == "Others"
             assert slot.object_uuid is None
             assert slot.slot_type == timetable_models.TimeTableSlotType.OTHER
+            assert slot.user_id == test_student_orm.id # Even masked slots belong to the student
 
     async def test_get_timetable_for_parent_viewing_child(
         self,
@@ -213,6 +218,7 @@ class TestTimeTableService:
         math_slot = next((s for s in slots if s.id == TEST_SLOT_ID_STUDENT_MATH), None)
         assert math_slot.name == "Math Session" # Unmasked
         assert math_slot.object_uuid == TEST_TUITION_ID
+        assert math_slot.user_id == test_student_orm.id # Slot belongs to child
 
     async def test_date_calculation_timezone(
         self,

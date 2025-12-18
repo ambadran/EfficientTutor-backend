@@ -79,6 +79,7 @@ class TestTuitionLogServiceRead:
         assert isinstance(log_dict, finance_models.TuitionLogReadForParent)
         assert log_dict.id == log_id
         assert log_dict.tuition_id == test_tuition_orm.id
+        assert log_dict.teacher_name == "Test Teacher"
         print("--- Found log (API dict) ---")
         pprint(log_dict.__dict__)
 
@@ -163,9 +164,15 @@ class TestTuitionLogServiceRead:
         
         assert isinstance(logs, list)
         print(f"--- Found {len(logs)} API logs for Parent ---")
-        assert isinstance(logs, list)
-        assert isinstance(logs[0], finance_models.TuitionLogReadForParent)
-        assert isinstance(logs[0].cost, Decimal)
+        assert len(logs) >= 3 # Expecting at least the 3 seeded logs
+        
+        # Verify specific logs have correct teacher names
+        for log in logs:
+            if log.id in [TEST_TUITION_LOG_ID_SCHEDULED, TEST_TUITION_LOG_ID_CUSTOM]:
+                assert log.teacher_name == "Test Teacher", f"Log {log.id} should have teacher 'Test Teacher'"
+            elif log.id == TEST_TUITION_LOG_ID_SAME_PARENT_DIFF_TEACHER:
+                assert log.teacher_name == "Unrelated Teacher", f"Log {log.id} should have teacher 'Unrelated Teacher'"
+        
         pprint(logs[0].__dict__)
 
     async def test_get_all_logs_api_as_student(

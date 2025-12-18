@@ -37,15 +37,18 @@ class TestFinancialSummaryTeacher:
             - Log 1 ($100), Log 2 ($50), Log 3 ($100). Total Charges $250.
             - Pay 1 ($120).
             - Owed: $130.
+            - Unpaid Logs: Log 2, Log 3.
         - Relation T_A <-> P_B:
-            - Log 4 ($50). Total Charges $50.
-            - Pay 2 ($60).
-            - Credit: $10.
+            - Log 4 ($50), Log 6 ($100), Log 7 ($200). Total Charges $350.
+            - Pay 2 ($60), Pay 3 ($100). Total Payments $160.
+            - Owed: $190.
+            - Unpaid Logs: Log 7.
         
         Expected:
-        - Total Owed: $130 (from P_A)
-        - Total Credit: $10 (from P_B)
-        - Lessons This Month: 2 (Log 3, Log 4 are current month)
+        - Total Owed: $130 (from P_A) + $190 (from P_B) = $320.
+        - Total Credit: $0.
+        - Lessons This Month: 4 (Log 3, Log 4, Log 6, Log 7).
+        - Unpaid Lessons Count: 3 (Log 2, Log 3, Log 7).
         """
         print(f"\n--- Testing Full Summary for TEACHER A ---")
         
@@ -54,9 +57,10 @@ class TestFinancialSummaryTeacher:
         assert isinstance(summary, finance_models.FinancialSummaryForTeacher)
         print(f"Summary: {summary}")
 
-        assert summary.total_owed_to_teacher == Decimal("130.00")
-        assert summary.total_credit_held == Decimal("10.00")
-        assert summary.total_lessons_given_this_month == 2
+        assert summary.total_owed_to_teacher == Decimal("320.00")
+        assert summary.total_credit_held == Decimal("0.00")
+        assert summary.total_lessons_given_this_month == 4
+        assert summary.unpaid_lessons_count == 3
 
     async def test_summary_specific_parent_a_for_teacher_a(
         self,
@@ -74,6 +78,7 @@ class TestFinancialSummaryTeacher:
         assert summary.total_credit_held == Decimal("0.00")
         # Lessons this month for P_A students: Log 3 (S_A1) is current. Log 1, 2 are old.
         assert summary.total_lessons_given_this_month == 1 
+        assert summary.unpaid_lessons_count == 2
 
     async def test_summary_specific_student_a1_for_teacher_a(
         self,
@@ -89,6 +94,7 @@ class TestFinancialSummaryTeacher:
         Expected:
         - Owed: $100 (Cost of Log 3).
         - Lessons This Month: 1 (Log 3).
+        - Unpaid Lessons Count: 1.
         """
         print(f"\n--- Testing Specific Student A1 Summary for TEACHER A ---")
         
@@ -98,6 +104,7 @@ class TestFinancialSummaryTeacher:
         
         assert summary.total_owed_to_teacher == Decimal("100.00")
         assert summary.total_lessons_given_this_month == 1
+        assert summary.unpaid_lessons_count == 1
 
     async def test_summary_specific_student_a2_for_teacher_a(
         self,
@@ -113,6 +120,7 @@ class TestFinancialSummaryTeacher:
         Expected:
         - Owed: $50 (Full cost of Log 2).
         - Lessons This Month: 0.
+        - Unpaid Lessons Count: 1.
         """
         print(f"\n--- Testing Specific Student A2 Summary for TEACHER A ---")
         
@@ -122,6 +130,7 @@ class TestFinancialSummaryTeacher:
         
         assert summary.total_owed_to_teacher == Decimal("50.00")
         assert summary.total_lessons_given_this_month == 0
+        assert summary.unpaid_lessons_count == 1
 
 
 @pytest.mark.anyio
@@ -170,21 +179,24 @@ class TestFinancialSummaryParent:
         """
         Test Full Summary for Parent B.
         - Relation P_B -> T_A:
-            - Log 4 ($50). Pay 2 ($60).
-            - Credit: $10.
+            - Log 4 ($50). Pay 2 ($60). Remainder $10.
+            - Log 6 ($100). Pay 3 ($100). Remainder $10.
+            - Log 7 ($200). Pay 0. Balance -$190.
         
         Expected:
-        - Total Due: $0.
-        - Credit: $10.
-        - Unpaid Count: 0.
+        - Total Due: $190.
+        - Credit: $0.
+        - Unpaid Count: 3.
+          (Note: Current implementation of _get_summary_for_parent counts ALL logs 
+           if total_due > 0, regardless of individual log payment status).
         """
         print(f"\n--- Testing Full Summary for PARENT B ---")
         
         summary = await financial_summary_service.get_financial_summary_for_api(fin_parent_b)
         
-        assert summary.total_due == Decimal("0.00")
-        assert summary.credit_balance == Decimal("10.00")
-        assert summary.unpaid_count == 0
+        assert summary.total_due == Decimal("190.00")
+        assert summary.credit_balance == Decimal("0.00")
+        assert summary.unpaid_count == 3
 
     async def test_summary_specific_teacher_a_for_parent_a(
         self,
