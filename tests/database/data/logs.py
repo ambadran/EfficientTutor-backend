@@ -16,7 +16,8 @@ from tests.constants import (
     FIN_PARENT_A_ID, FIN_PARENT_B_ID,
     FIN_STUDENT_A1_ID, FIN_STUDENT_A2_ID, FIN_STUDENT_B1_ID,
     FIN_LOG_1_ID, FIN_LOG_2_ID, FIN_LOG_3_ID, FIN_LOG_4_ID, FIN_LOG_5_ID,
-    FIN_PAY_1_ID, FIN_PAY_2_ID
+    FIN_LOG_6_ID, FIN_LOG_7_ID,
+    FIN_PAY_1_ID, FIN_PAY_2_ID, FIN_PAY_3_ID
 )
 from src.efficient_tutor_backend.database.db_enums import TuitionLogCreateTypeEnum, EducationalSystemEnum
 from datetime import datetime, timezone, timedelta
@@ -124,6 +125,26 @@ TUITION_LOGS_DATA = [
         "educational_system": EducationalSystemEnum.IGCSE.value,
         "grade": 10,
     },
+    {
+        # T_A -> S_B1 ($100). Current. Paid by Pay 3.
+        "factory": "RawTuitionLogFactory",
+        "id": FIN_LOG_6_ID,
+        "teacher_id": FIN_TEACHER_A_ID,
+        "start_time": NOW,
+        "end_time": NOW + timedelta(hours=1),
+        "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
+    },
+    {
+        # T_A -> S_B1 ($200). Current. Unpaid.
+        "factory": "RawTuitionLogFactory",
+        "id": FIN_LOG_7_ID,
+        "teacher_id": FIN_TEACHER_A_ID,
+        "start_time": NOW,
+        "end_time": NOW + timedelta(hours=1),
+        "educational_system": EducationalSystemEnum.IGCSE.value,
+        "grade": 10,
+    },
 ]
 
 # --- Tuition Log Charges ---
@@ -200,6 +221,22 @@ TUITION_LOG_CHARGES_DATA = [
         "parent_id": FIN_PARENT_A_ID,
         "cost": 200.00
     },
+    {
+        # Log 6: T_A -> S_B1 ($100)
+        "factory": "RawTuitionLogChargeFactory",
+        "tuition_log_id": FIN_LOG_6_ID,
+        "student_id": FIN_STUDENT_B1_ID,
+        "parent_id": FIN_PARENT_B_ID,
+        "cost": 100.00
+    },
+    {
+        # Log 7: T_A -> S_B1 ($200)
+        "factory": "RawTuitionLogChargeFactory",
+        "tuition_log_id": FIN_LOG_7_ID,
+        "student_id": FIN_STUDENT_B1_ID,
+        "parent_id": FIN_PARENT_B_ID,
+        "cost": 200.00
+    },
 ]
 
 # --- Payment Logs ---
@@ -245,6 +282,15 @@ PAYMENT_LOGS_DATA = [
         "parent_id": FIN_PARENT_B_ID,
         "teacher_id": FIN_TEACHER_A_ID,
         "amount_paid": 60.00,
+        "payment_date": NOW
+    },
+    {
+        # Pay 3: P_B -> T_A ($100)
+        "factory": "RawPaymentLogFactory",
+        "id": FIN_PAY_3_ID,
+        "parent_id": FIN_PARENT_B_ID,
+        "teacher_id": FIN_TEACHER_A_ID,
+        "amount_paid": 100.00,
         "payment_date": NOW
     }
 ]

@@ -160,6 +160,7 @@ class TuitionLogReadForParent(BaseModel):
     # The service will provide these fields pre-calculated
     cost: Decimal
     attendee_names: list[str]
+    teacher_name: str
 
     # We need a field for the week number calculation
     earliest_log_date: datetime = Field(exclude=True)
@@ -260,6 +261,7 @@ class FinancialSummaryForTeacher(BaseModel):
     total_owed_to_teacher: Decimal
     total_credit_held: Decimal
     total_lessons_given_this_month: int
+    unpaid_lessons_count: int
 
 
 

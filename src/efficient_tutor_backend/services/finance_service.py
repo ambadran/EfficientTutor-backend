@@ -766,6 +766,7 @@ class TuitionLogService:
                 f"{c.student.first_name or ''} {c.student.last_name or ''}".strip()
                 for c in log.tuition_log_charges
             ],
+            teacher_name=f"{log.teacher.first_name or ''} {log.teacher.last_name or ''}".strip(),
             earliest_log_date=earliest_date
         )
         return api_model
@@ -1518,10 +1519,23 @@ class FinancialSummaryService:
         )
         lessons_this_month = (await self.db.execute(month_count_stmt)).scalar()
 
+        # 5. Calculate Unpaid Lessons (Total unique logs that are not fully paid)
+        ledger = await self.tuition_log_service._calculate_teacher_ledger(teacher_id)
+        
+        # We need to find logs where ANY student is UNPAID.
+        # The ledger keys are (log_id, student_id).
+        unpaid_log_ids = set()
+        for (log_id, _), status in ledger.items():
+            if status == PaidStatus.UNPAID:
+                unpaid_log_ids.add(log_id)
+        
+        unpaid_lessons_count = len(unpaid_log_ids)
+
         return finance_models.FinancialSummaryForTeacher(
             total_owed_to_teacher=total_owed_to_teacher,
             total_credit_held=total_credit_held,
-            total_lessons_given_this_month=lessons_this_month
+            total_lessons_given_this_month=lessons_this_month,
+            unpaid_lessons_count=unpaid_lessons_count
         )
 
     async def _get_summary_for_teacher_for_specific_parent(self, teacher_id: UUID, target_parent_id: UUID) -> finance_models.FinancialSummaryForTeacher:
@@ -1567,10 +1581,32 @@ class FinancialSummaryService:
         )
         lessons_this_month = (await self.db.execute(month_count_stmt)).scalar() or 0
 
+        # 4. Calculate Unpaid Lessons for this Parent
+        ledger = await self.tuition_log_service._calculate_teacher_ledger(teacher_id)
+        
+        # We need all (log_id, student_id) pairs for this parent
+        log_charges_stmt = select(
+            db_models.TuitionLogCharges.tuition_log_id,
+            db_models.TuitionLogCharges.student_id
+        ).join(db_models.TuitionLogs).filter(
+            db_models.TuitionLogs.teacher_id == teacher_id,
+            db_models.TuitionLogCharges.parent_id == target_parent_id,
+            db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
+        )
+        log_charges = (await self.db.execute(log_charges_stmt)).all()
+        
+        unpaid_log_ids = set()
+        for log_id, student_id in log_charges:
+             if ledger.get((log_id, student_id), PaidStatus.UNPAID) == PaidStatus.UNPAID:
+                 unpaid_log_ids.add(log_id)
+
+        unpaid_lessons_count = len(unpaid_log_ids)
+
         return finance_models.FinancialSummaryForTeacher(
             total_owed_to_teacher=total_owed,
             total_credit_held=total_credit,
-            total_lessons_given_this_month=lessons_this_month
+            total_lessons_given_this_month=lessons_this_month,
+            unpaid_lessons_count=unpaid_lessons_count
         )
 
     async def _get_summary_for_teacher_for_specific_student(self, teacher_id: UUID, target_student_id: UUID) -> finance_models.FinancialSummaryForTeacher:
@@ -1599,11 +1635,13 @@ class FinancialSummaryService:
         rows = logs_res.all() # [(log_id, cost, parent_id), ...]
 
         total_unpaid_cost = Decimal(0)
+        unpaid_lessons_count = 0
 
         for log_id, cost, pid in rows:
             status = ledger.get((log_id, target_student_id), PaidStatus.UNPAID)
             if status == PaidStatus.UNPAID:
                 total_unpaid_cost += cost
+                unpaid_lessons_count += 1
         
         # 2. Lessons this month for this student
         month_count_stmt = select(func.count(db_models.TuitionLogs.id)).join(
@@ -1620,7 +1658,8 @@ class FinancialSummaryService:
         return finance_models.FinancialSummaryForTeacher(
             total_owed_to_teacher=total_unpaid_cost,
             total_credit_held=Decimal(0),
-            total_lessons_given_this_month=lessons_this_month
+            total_lessons_given_this_month=lessons_this_month,
+            unpaid_lessons_count=unpaid_lessons_count
         )
 
 
