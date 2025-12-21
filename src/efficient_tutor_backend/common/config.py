@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     # Other settings
     FIRST_DAY_OF_WEEK: int = 5  # 5 is Saturday
+    BACKEND_CORS_ORIGINS: list[str] = []
 
     model_config = ConfigDict(env_file=".env")
 

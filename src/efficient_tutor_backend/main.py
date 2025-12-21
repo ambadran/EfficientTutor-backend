@@ -42,11 +42,19 @@ app = FastAPI(
 origins = [
     # URL of testing frontend
     "http://0.0.0.0:8080",
+    "http://localhost",
     "http://localhost:3000",
 
+    # URL for IOS Macbook and iPhone testing
+    "capacitor://localhost",
+
     # URL of deployed frontend 
+    "https://efficienttutor.tech",
     "efficienttutor.tech"
 ]
+
+# Extend with environment-specific origins
+origins.extend(settings.BACKEND_CORS_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,
