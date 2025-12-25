@@ -164,12 +164,7 @@ class TestFinancialSummaryParent:
 
         assert summary.total_due == Decimal("330.00")
         assert summary.credit_balance == Decimal("0.00")
-        # Unpaid Count: Log 2 (T_A), Log 3 (T_A), Log 5 (T_B). Log 1 is paid.
-        # Note: The current implementation of _get_summary_for_parent likely counts
-        # ALL active logs if total_due > 0, leading to 4.
-        # I will assert 4 to match current behavior, but this highlights a potential logic flaw
-        # in the source code (it doesn't filter 'unpaid' specifically in the count query).
-        assert summary.unpaid_count == 4 
+        assert summary.unpaid_count == 3 
 
     async def test_summary_full_for_parent_b(
         self,
@@ -196,7 +191,8 @@ class TestFinancialSummaryParent:
         
         assert summary.total_due == Decimal("190.00")
         assert summary.credit_balance == Decimal("0.00")
-        assert summary.unpaid_count == 3
+        # Correct logic: Log 4 and Log 6 are paid. Only Log 7 is unpaid.
+        assert summary.unpaid_count == 1
 
     async def test_summary_specific_teacher_a_for_parent_a(
         self,

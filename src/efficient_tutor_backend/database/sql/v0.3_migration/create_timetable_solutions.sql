@@ -51,4 +51,4 @@ ALTER TABLE timetable_runs
 RENAME COLUMN solution_data TO legacy_solution_data;
 
 -- sth I forgot to add
-UPDATE parents set currency = 'kwd'
+UPDATE parents set currency = 'kwd';
