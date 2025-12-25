@@ -15,10 +15,10 @@ class Settings(BaseSettings):
     TEST_MODE: bool = True # just to be extra safe
 
     # Database URL
-    # DATABASE_URL_PROD: str
-    DATABASE_URL_TEST: str
-    # DATABASE_URL_PROD_CLI: str
-    DATABASE_URL_TEST_CLI: str
+    DATABASE_URL_PROD: str | None = None
+    DATABASE_URL_TEST: str | None = None
+    DATABASE_URL_PROD_CLI: str | None = None
+    DATABASE_URL_TEST_CLI: str | None = None
     @property
     def database_url(self) -> str:
         """

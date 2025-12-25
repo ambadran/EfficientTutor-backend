@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import argparse
 from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy import text
@@ -36,16 +37,32 @@ def load_env():
                 if k not in os.environ: os.environ[k] = v
 
 async def check_integrity():
+    parser = argparse.ArgumentParser(description="Check database integrity.")
+    parser.add_argument("--prod", action="store_true", help="Run check against the PRODUCTION database.")
+    args = parser.parse_args()
+
     load_env()
-    db_url = os.getenv("DATABASE_URL_TEST_CLI")
+    
+    if args.prod:
+        target_env_var = "DATABASE_URL_PROD_CLI"
+        print("⚠️  WARNING: You are checking integrity on the PRODUCTION database. ⚠️")
+        # Integrity checks are read-only, so a simple y/n is sufficient, but still good practice.
+        confirmation = input("Are you sure you want to proceed? (y/n): ").strip().lower()
+        if confirmation != 'y':
+            print("Operation aborted.")
+            return
+    else:
+        target_env_var = "DATABASE_URL_TEST_CLI"
+
+    db_url = os.getenv(target_env_var)
     if not db_url:
-        print("Error: DATABASE_URL_TEST_CLI not set.")
+        print(f"Error: {target_env_var} not set.")
         return
 
     if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
         db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
     
-    print("Connecting to database...")
+    print(f"Connecting to database ({target_env_var})...")
     engine = create_async_engine(db_url)
     async_session = sessionmaker(engine, class_=AsyncSession)
 
@@ -60,7 +77,7 @@ async def check_integrity():
         """))
         count_logs = orphaned_logs.scalar()
         
-        # 2. Check Meeting Links (This is technically impossible if FK is enforced, but good to check)
+        # 2. Check Meeting Links
         orphaned_links = await session.execute(text("""
             SELECT count(*) FROM meeting_links ml
             LEFT JOIN tuitions t ON ml.tuition_id = t.id
@@ -69,7 +86,6 @@ async def check_integrity():
         count_links = orphaned_links.scalar()
 
         # 3. Check Count of Meeting Links
-        # We expect around 22 links based on previous logs
         total_links = await session.execute(text("SELECT count(*) FROM meeting_links"))
         total_count = total_links.scalar()
 
