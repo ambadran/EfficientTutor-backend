@@ -81,16 +81,27 @@ def run_migrations_sync():
     """
     parser = argparse.ArgumentParser(description="Run v0.3 database migrations.")
     parser.add_argument("--sql-only", action="store_true", help="Run only the SQL migrations, skipping Python post-processing scripts.")
+    parser.add_argument("--prod", action="store_true", help="Run migrations against the PRODUCTION database.")
     args = parser.parse_args()
 
     load_env() # Ensure env vars are loaded
     
-    db_url = os.getenv("DATABASE_URL_TEST_CLI")
+    if args.prod:
+        target_env_var = "DATABASE_URL_PROD_CLI"
+        print("⚠️  WARNING: You are about to run migrations against the PRODUCTION database. ⚠️")
+        confirmation = input("Are you sure you want to proceed? (y/n): ").strip().lower()
+        if confirmation != 'y':
+            print("Operation aborted.")
+            return
+    else:
+        target_env_var = "DATABASE_URL_TEST_CLI"
+
+    db_url = os.getenv(target_env_var)
     if not db_url:
-        print("Error: DATABASE_URL_TEST_CLI environment variable not set.")
+        print(f"Error: {target_env_var} environment variable not set.")
         return
 
-    print(f"Connecting to database...")
+    print(f"Connecting to database ({target_env_var})...")
     
     # Use sync engine for running migrations
     # If database_url is async (postgresql+asyncpg), we might need to replace it with psycopg2
