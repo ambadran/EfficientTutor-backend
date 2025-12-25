@@ -40,7 +40,8 @@ MIGRATION_FILES = [
     'grade_migration.sql',
     'generalize_availability.sql',
     'add_student_educational_system.sql',
-    'create_timetable_solutions.sql'
+    'create_timetable_solutions.sql',
+    'tuition_log_entry_fix.sql'
 ]
 
 def load_env():

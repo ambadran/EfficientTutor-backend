@@ -2,6 +2,7 @@
 
 '''
 from typing import Optional, Annotated, Any
+from collections import defaultdict
 from uuid import UUID
 from decimal import Decimal
 from datetime import datetime
@@ -1316,34 +1317,61 @@ class FinancialSummaryService:
         charges_map = {row.teacher_id: row.total_charges for row in charges_res}
         payments_map = {row.teacher_id: row.total_payments for row in payments_res}
         
+        # --- NEW STEP: Fetch Detailed Logs for Unpaid Count Calculation ---
+        # We need the chronological list of charges per teacher to run the FIFO check
+        details_stmt = select(
+            db_models.TuitionLogs.teacher_id,
+            db_models.TuitionLogCharges.cost
+        ).join(
+            db_models.TuitionLogCharges,
+            db_models.TuitionLogs.id == db_models.TuitionLogCharges.tuition_log_id
+        ).filter(
+            db_models.TuitionLogCharges.parent_id == parent_id,
+            db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
+        ).order_by(db_models.TuitionLogs.start_time.asc())
+
+        details_res = await self.db.execute(details_stmt)
+        
+        # Group charges by teacher: { teacher_id: [cost1, cost2, ...] }
+        logs_by_teacher = defaultdict(list)
+        for row in details_res:
+            logs_by_teacher[row.teacher_id].append(row.cost)
+
         # 3. Calculate Balance Per Teacher
         all_teachers = set(charges_map.keys()) | set(payments_map.keys())
         
         total_due = Decimal(0)
         credit_balance = Decimal(0)
+        unpaid_count = 0
         
-        # 4. Calculate Unpaid Count (only for teachers where balance is negative)
         for teacher_id in all_teachers:
             c = charges_map.get(teacher_id, Decimal(0))
             p = payments_map.get(teacher_id, Decimal(0))
             balance = p - c
             
             if balance < 0:
+                # Debt Exists
                 total_due += (-balance)
+                
+                # --- NEW LOGIC: Calculate Unpaid Count via FIFO ---
+                # We simulate the wallet for this teacher
+                wallet = p 
+                teacher_charges = logs_by_teacher.get(teacher_id, [])
+                
+                for charge_cost in teacher_charges:
+                    if wallet >= charge_cost:
+                        # Fully covered
+                        wallet -= charge_cost
+                    else:
+                        # Not fully covered (Partial or Zero payment)
+                        # This counts as 1 unpaid lesson
+                        unpaid_count += 1
+                        # Wallet is empty or used up
+                        wallet = max(Decimal(0), wallet - charge_cost)
+
             elif balance > 0:
                 credit_balance += balance
-        
-        unpaid_count = 0
-        if total_due > 0:
-             count_stmt = select(func.count(db_models.TuitionLogs.id.distinct())).join(
-                db_models.TuitionLogCharges, 
-                db_models.TuitionLogs.id == db_models.TuitionLogCharges.tuition_log_id
-            ).filter(
-                db_models.TuitionLogCharges.parent_id == parent_id,
-                db_models.TuitionLogs.status == LogStatusEnum.ACTIVE.value
-            )
-             unpaid_count_res = await self.db.execute(count_stmt)
-             unpaid_count = unpaid_count_res.scalar()
+                # If balance is positive, unpaid_count is 0 for this teacher.
             
         return finance_models.FinancialSummaryForParent(
             total_due=total_due,
