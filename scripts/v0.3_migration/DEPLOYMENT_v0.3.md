@@ -82,4 +82,4 @@ Do **NOT** attempt to patch the database manually. Use the automated rollback sc
 
 **Post-Rollback:**
 *   The database is now back to `v0.2`.
-*   The application code must be reverted to `v0.2` if it was deployed.
+*   **Action Required:** You MUST revert the deployed application code to the previous `v0.2` version immediately, as the `v0.3` code will fail against the rolled-back database.

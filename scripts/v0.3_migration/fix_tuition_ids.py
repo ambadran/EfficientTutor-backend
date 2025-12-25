@@ -15,6 +15,7 @@ This script:
 import asyncio
 import sys
 import os
+import argparse
 import hashlib
 from pathlib import Path
 from uuid import UUID
@@ -60,17 +61,27 @@ def generate_deterministic_id(subject: str, educational_system: str, grade: int,
     return UUID(bytes=hasher.digest()[:16])
 
 async def main():
+    parser = argparse.ArgumentParser(description="Fix Tuition IDs.")
+    parser.add_argument("--prod", action="store_true", help="Run against PRODUCTION database.")
+    args = parser.parse_args()
+
     load_env()
-    db_url = os.getenv("DATABASE_URL_TEST_CLI")
+    
+    if args.prod:
+        target_env = "DATABASE_URL_PROD_CLI"
+    else:
+        target_env = "DATABASE_URL_TEST_CLI"
+
+    db_url = os.getenv(target_env)
     if not db_url:
-        print("ERROR: DATABASE_URL_TEST_CLI not set.")
+        print(f"ERROR: {target_env} not set.")
         return
     
     # Ensure async
     if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
         db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
 
-    print("Connecting to database...")
+    print(f"Connecting to database ({target_env})...")
     engine = create_async_engine(db_url, echo=False)
     AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
