@@ -7,6 +7,7 @@ and `timetable_solution_slots` tables based on a provided schedule.
 import asyncio
 import os
 import sys
+import argparse
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
@@ -216,22 +217,33 @@ async def build_tuition_lookup(session: AsyncSession):
     return lookup
 
 async def main():
+    parser = argparse.ArgumentParser(description="Synthesize Timetable.")
+    parser.add_argument("--prod", action="store_true", help="Run against PRODUCTION database.")
+    args = parser.parse_args()
+
     load_env()
-    db_url = os.getenv("DATABASE_URL_TEST_CLI")
+    
+    if args.prod:
+        target_env = "DATABASE_URL_PROD_CLI"
+    else:
+        target_env = "DATABASE_URL_TEST_CLI"
+
+    db_url = os.getenv(target_env)
     if not db_url:
-        logger.error("DATABASE_URL_TEST_CLI not set")
+        logger.error(f"{target_env} not set")
         return
 
     # Ensure async
     if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
         db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
 
+    print(f"Connecting to database ({target_env})...")
     engine = create_async_engine(db_url, echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     logger.info("Starting Timetable Synthesis...")
 
-    async with async_session() as session:
+    async with AsyncSessionLocal() as session:
         async with session.begin(): # Transaction start
             
             # 1. Resolve Tuitions

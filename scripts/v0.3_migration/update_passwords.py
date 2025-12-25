@@ -13,6 +13,7 @@ is unique, as confirmed by the user.
 
 import sys
 import os
+import argparse
 from pathlib import Path
 
 from passlib.context import CryptContext
@@ -148,13 +149,23 @@ def run_all_updates():
     """
     Connects to the database and runs all password update functions.
     """
+    parser = argparse.ArgumentParser(description="Update Passwords.")
+    parser.add_argument("--prod", action="store_true", help="Run against PRODUCTION database.")
+    args = parser.parse_args()
+
     load_env()
-    db_url = os.getenv("DATABASE_URL_TEST_CLI")
+    
+    if args.prod:
+        target_env = "DATABASE_URL_PROD_CLI"
+    else:
+        target_env = "DATABASE_URL_TEST_CLI"
+
+    db_url = os.getenv(target_env)
     if not db_url:
-        print("Error: DATABASE_URL_TEST_CLI environment variable not set.")
+        print(f"Error: {target_env} environment variable not set.")
         return
 
-    print(f"Connecting to database...")
+    print(f"Connecting to database ({target_env})...")
     
     # Use sync engine for running migrations/updates
     if db_url.startswith("postgresql+asyncpg"):

@@ -153,7 +153,10 @@ def run_migrations_sync():
                 print("\n--- Starting Tuition ID Fix (Deterministic Regeneration) ---")
                 fix_ids_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'fix_tuition_ids.py'
                 try:
-                    subprocess.run([sys.executable, str(fix_ids_script)], check=True)
+                    cmd = [sys.executable, str(fix_ids_script)]
+                    if args.prod:
+                        cmd.append("--prod")
+                    subprocess.run(cmd, check=True)
                     print("Tuition IDs Fixed Successfully.")
                 except subprocess.CalledProcessError:
                     print("ERROR: Tuition ID Fix Failed. Aborting.")
@@ -164,7 +167,10 @@ def run_migrations_sync():
                 print("\n--- Starting Timetable Synthesis ---")
                 synthesis_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'synthesize_timetable.py'
                 try:
-                    subprocess.run([sys.executable, str(synthesis_script)], check=True)
+                    cmd = [sys.executable, str(synthesis_script)]
+                    if args.prod:
+                        cmd.append("--prod")
+                    subprocess.run(cmd, check=True)
                     print("Timetable Synthesis Completed Successfully.")
                 except subprocess.CalledProcessError:
                     print("ERROR: Timetable Synthesis Failed. Aborting.")
@@ -174,7 +180,10 @@ def run_migrations_sync():
                 print("\n--- Starting Password Updates ---")
                 pwd_script = PROJECT_ROOT / 'scripts' / 'v0.3_migration' / 'update_passwords.py'
                 try:
-                    subprocess.run([sys.executable, str(pwd_script)], check=True)
+                    cmd = [sys.executable, str(pwd_script)]
+                    if args.prod:
+                        cmd.append("--prod")
+                    subprocess.run(cmd, check=True)
                     print("Passwords Updated Successfully.")
                 except subprocess.CalledProcessError:
                     print("ERROR: Password Update Failed.")
