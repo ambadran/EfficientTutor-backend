@@ -7,7 +7,7 @@ set -e
 # Get the absolute path of the script directory
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Get the absolute path of the project root
-PROJECT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
 # --- 2. Load Environment ---
 ENV_FILE="$PROJECT_ROOT/.env"

@@ -38,6 +38,7 @@ from tests.database.data.teacher_details import TEACHER_DETAILS_DATA
 from tests.database.data.logs import TUITION_LOGS_DATA, TUITION_LOG_CHARGES_DATA, PAYMENT_LOGS_DATA
 from tests.database.data.notes import NOTES_DATA
 from tests.database.data.timetable import TIMETABLE_RUN_USER_SOLUTIONS_DATA, TIMETABLE_SOLUTION_SLOTS_DATA
+from tests.database.data.user_devices import USER_DEVICES_DATA
 
 # --- Dynamic Import for Auto-Generated Data ---
 def safe_import(module_name, var_name, default=[]):
@@ -67,6 +68,8 @@ AUTO_TUITION_LOG_CHARGES_DATA = safe_import("auto_logs", "AUTO_TUITION_LOG_CHARG
 AUTO_PAYMENT_LOGS_DATA = safe_import("auto_logs", "AUTO_PAYMENT_LOGS_DATA")
 
 AUTO_NOTES_DATA = safe_import("auto_notes", "AUTO_NOTES_DATA")
+
+AUTO_USER_DEVICES_DATA = safe_import("auto_user_devices", "AUTO_USER_DEVICES_DATA")
 
 # New: Auto-generated Timetable Solutions
 AUTO_TIMETABLE_RUN_USER_SOLUTIONS_DATA = safe_import("auto_timetable", "AUTO_TIMETABLE_RUN_USER_SOLUTIONS_DATA")
@@ -102,6 +105,7 @@ SEEDING_ORDER = [
     ("TuitionLogCharges", TUITION_LOG_CHARGES_DATA + AUTO_TUITION_LOG_CHARGES_DATA),
     ("PaymentLogs", PAYMENT_LOGS_DATA + AUTO_PAYMENT_LOGS_DATA),
     ("Notes", NOTES_DATA + AUTO_NOTES_DATA),
+    ("UserDevices", USER_DEVICES_DATA + AUTO_USER_DEVICES_DATA),
     
     # --- New Timetable Topology ---
     # 1. Create the Master Run
@@ -121,6 +125,7 @@ async def clear_database(session: AsyncSession):
         await session.execute(text('TRUNCATE TABLE "timetable_run_user_solutions" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "timetable_runs" RESTART IDENTITY CASCADE'))
         
+        await session.execute(text('TRUNCATE TABLE "user_devices" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "tuition_log_charges" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "tuition_logs" RESTART IDENTITY CASCADE'))
         await session.execute(text('TRUNCATE TABLE "payment_logs" RESTART IDENTITY CASCADE'))

@@ -23,7 +23,7 @@ from faker import Faker
 
 # App imports
 # (Adjust path if necessary depending on where you run this script from)
-sys.path.append(str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.efficient_tutor_backend.database.db_enums import (
     UserRole, AdminPrivilegeType, SubjectEnum, EducationalSystemEnum,
     MeetingLinkTypeEnum, NoteTypeEnum, LogStatusEnum, TuitionLogCreateTypeEnum,
@@ -258,6 +258,17 @@ TABLE_CONFIG = [
              "name": lambda x: x if not ANONYMIZE_PII else "Anonymized Slot"
         }
     },
+
+    # --- Notifications ---
+    {
+        "table": "user_devices",
+        "filename": "auto_user_devices.py",
+        "var_name": "AUTO_USER_DEVICES_DATA",
+        "factory": "UserDeviceFactory",
+        "anonymize": {
+            "token": lambda x: x if not ANONYMIZE_PII else faker.sha256()
+        }
+    },
 ]
 
 def repr_val(val: Any) -> str:
@@ -389,7 +400,7 @@ async def main():
 
     # Write files
     # Resolve path relative to project root (which is parent of scripts/ dir)
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).parent.parent.parent
     base_path = project_root / "tests/database/data"
     base_path.mkdir(parents=True, exist_ok=True)
 

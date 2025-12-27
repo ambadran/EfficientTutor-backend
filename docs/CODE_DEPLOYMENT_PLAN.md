@@ -7,15 +7,15 @@ Merge the completed `v0.3` feature branch into `main` using a fast-forward appro
 
 ```bash
 # 1. Switch to the feature branch and ensure it's up to date with main
-git checkout v0.3
-git pull origin v0.3
+git checkout vx.x
+git pull origin vx.x
 git fetch origin main
 git rebase main
 
 # 2. Switch to main and fast-forward merge
 git checkout main
 git pull origin main
-git merge --ff-only v0.3
+git merge --ff-only vx.3
 
 # 3. Push to production
 git push origin main

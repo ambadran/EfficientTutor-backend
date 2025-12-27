@@ -66,7 +66,7 @@ class ParentFactory(BaseFactory):
     last_name = Faker("last_name")
     role = UserRole.PARENT.value
     timezone = "UTC"
-    currency = "USD"
+    currency = "KWD"
     password = HashedPassword.get_hash(TEST_PASSWORD_PARENT)
 
     class Meta:
@@ -329,3 +329,16 @@ class RawTimetableSolutionSlotFactory(TimetableSolutionSlotFactory):
     Alias for consistency.
     """
     pass
+
+class UserDeviceFactory(BaseFactory):
+    """
+    Factory for UserDevices table.
+    """
+    id = factory.LazyFunction(uuid.uuid4)
+    user_id = None # Provided by seeder
+    token = Faker("sha256")
+    platform = 'IOS' # Default
+    last_updated = factory.LazyFunction(datetime.datetime.now)
+
+    class Meta:
+        model = db_models.UserDevices

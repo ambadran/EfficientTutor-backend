@@ -202,6 +202,7 @@ class Users(Base):
     last_name: Mapped[Optional[str]] = mapped_column(Text)
 
     timetable_run_user_solutions: Mapped[list['TimetableRunUserSolutions']] = relationship('TimetableRunUserSolutions', back_populates='user', cascade='all, delete-orphan')
+    user_devices: Mapped[list['UserDevices']] = relationship('UserDevices', back_populates='user', cascade='all, delete-orphan')
 
 
 class CalendarEvents(Base):
@@ -657,4 +658,19 @@ class TeacherSpecialties(Base):
         overlaps="teacher,tuitions"
     )
 
+class UserDevices(Base):
+    __tablename__ = 'user_devices'
+    __table_args__ = (
+        ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE', name='user_devices_user_id_fkey'),
+        PrimaryKeyConstraint('id', name='user_devices_pkey'),
+        UniqueConstraint('token', name='user_devices_token_key'),
+        Index('idx_user_devices_user_id', 'user_id')
+    )
 
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    token: Mapped[str] = mapped_column(Text)
+    platform: Mapped[str] = mapped_column(Enum('IOS', 'ANDROID', 'WEB', name='platform_type_enum'))
+    last_updated: Mapped[datetime.datetime] = mapped_column(DateTime(True), server_default=text('now()'))
+
+    user: Mapped['Users'] = relationship('Users', back_populates='user_devices')
